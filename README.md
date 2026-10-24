@@ -1,15 +1,19 @@
-# Neurotech Hackathon context
+# Neurotech Hackathon
 
-Working context for the Neurotechnology at Berkeley Hackathon, October 24 to 25, 2026, sponsored by Openwater. Judging is Sunday, October 25, 3:00 to 5:00 pm. The team is building on **Open-Motion** and has the station for the weekend.
+Team repo for the Neurotechnology at Berkeley Hackathon, October 24 to 25, 2026, sponsored by Openwater. Judging is Sunday, October 25, 3:00 to 5:00 pm. The team is building on **Open-Motion** and has the station for the weekend.
 
 Prompt: **How can neurotechnology expand human cognitive potential?**
 
-This repo is a local fork of the event planning material shared with Jahlon on October 24, plus a map from each challenge track to the Openwater repositories it touches. It holds context only. Project code goes in its own repo or in forks of the Openwater repos.
+The repo holds two things:
+
+- **`stress-alert/`**: the app. It measures breath-hold stress with Open-Motion (forehead blood flow, optical heart rate) and a Mentalab ECG (ground-truth heart rate), and shows it on a live dashboard. See `stress-alert/README.md`.
+- **`docs/` and `sources/`**: event context, including rules, tracks, Openwater platform notes, and snapshots of the planning documents.
 
 ## Layout
 
 | Path | Contents |
 | :- | :- |
+| `stress-alert/` | The app: dashboard, session/phase logger, ingest, features, sync |
 | `docs/EVENT.md` | Prompt, scope rules, shared device inventory, links |
 | `docs/OPEN-MOTION.md` | The team's platform: physics, hardware, data path, SDK, data formats, Mac test results, track fit, judging |
 | `docs/FLOW-STATE.md` | Flow-state idea: what the device can do, literature, datasets, a rule-compliant design |
