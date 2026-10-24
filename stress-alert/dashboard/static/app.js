@@ -29,12 +29,20 @@ async function syncClock() {
   clockOffset = t + (performance.now() - sent) / 2000 - performance.now() / 1000;
 }
 
-// Blood flow buffers: per side, the camera mean and the spread of the middle
-// 50% of cameras (25th to 75th percentile). Min/max is dominated by one outlier
-// camera in real data, so the interquartile band is the honest spread.
+// Hemodynamic buffers, one per metric (BFI, BVI): per side, the camera mean and
+// the spread of the middle 50% of cameras (25th to 75th percentile). Min/max is
+// dominated by one outlier camera in real data, so the interquartile band is the
+// honest spread.
 
 const SIDES = ["left", "right"];
-const buf = { t: [], left: { mean: [], lo: [], hi: [] }, right: { mean: [], lo: [], hi: [] } };
+const METRICS = ["bfi", "bvi"];
+const makeBuffer = () => ({
+  t: [],
+  left: { mean: [], lo: [], hi: [] },
+  right: { mean: [], lo: [], hi: [] },
+  yRange: { lo: null, hi: null, shrinkSince: null },
+});
+const bufs = { bfi: makeBuffer(), bvi: makeBuffer() };
 let paused = false;
 let dirty = false;
 let framesThisSecond = 0;
@@ -53,7 +61,7 @@ function summarize(values) {
   return [mean, quantile(v, 0.25), quantile(v, 0.75)];
 }
 
-function pushBfi(frame) {
+function pushHemo(buf, frame) {
   buf.t.push(frame.t);
   for (const side of SIDES) {
     const [mean, lo, hi] = summarize(frame[side]);
@@ -71,8 +79,8 @@ function pushBfi(frame) {
 
 // Y range that grows at once but only shrinks after it has been too wide for a while,
 // so the traces do not jump on every frame.
-const yRange = { lo: null, hi: null, shrinkSince: null };
-function updateYRange() {
+function updateYRange(buf) {
+  const yRange = buf.yRange;
   let lo = Infinity;
   let hi = -Infinity;
   const [loKey, hiKey] = showSpread ? ["lo", "hi"] : ["mean", "mean"];
@@ -102,7 +110,7 @@ function updateYRange() {
 let session = { active: false, phase: null };
 let phases = [];
 
-function phaseBands(u) {
+function phaseBands(u, buf) {
   if (!phases.length || !buf.t.length) return;
   const last = buf.t[buf.t.length - 1];
   const { ctx } = u;
@@ -175,16 +183,17 @@ function directLabels(u) {
 
 // Chart --------------------------------------------------------------------
 
-let chart = null;
+const charts = {};
 let hoverIdx = null;
 // The camera spread is mostly the cameras' different analog gains, so it is an
 // operator view, off by default.
 let showSpread = false;
 
-const chartHeight = () => (document.body.dataset.view === "present" ? 440 : 300);
+const chartHeight = () => (document.body.dataset.view === "present" ? 300 : 240);
 
-function makeChart() {
-  const el = $("chart");
+function makeChart(metric) {
+  const buf = bufs[metric];
+  const el = $(`chart-${metric}`);
   el.replaceChildren();
   const axis = {
     stroke: css("--ink-muted"),
@@ -193,16 +202,21 @@ function makeChart() {
     font: `12px ${css("--font-mono")}`,
   };
   const envelope = { stroke: "transparent", width: 0, points: { show: false } };
-  chart = new uPlot(
+  charts[metric] = new uPlot(
     {
       width: el.clientWidth,
       height: chartHeight(),
       padding: [8, 60, 0, 0],
       legend: { show: false },
-      cursor: { y: false, points: { size: 7, width: 2 }, drag: { x: false, y: false } },
+      cursor: {
+        y: false,
+        points: { size: 7, width: 2 },
+        drag: { x: false, y: false },
+        sync: { key: "hemo" },
+      },
       scales: {
         x: { time: false, range: [-WINDOW_S, 0] },
-        y: { range: () => (yRange.lo === null ? [0, 1] : [yRange.lo, yRange.hi]) },
+        y: { range: () => (buf.yRange.lo === null ? [0, 1] : [buf.yRange.lo, buf.yRange.hi]) },
       },
       axes: [
         { ...axis, values: (u, ticks) => ticks.map((v) => (v === 0 ? "now" : `${v}s`)) },
@@ -224,17 +238,17 @@ function makeChart() {
           ]
         : [],
       hooks: {
-        drawClear: [phaseBands],
+        drawClear: [(u) => phaseBands(u, buf)],
         draw: [directLabels],
-        setCursor: [(u) => { hoverIdx = u.cursor.idx ?? null; renderLegend(); }],
+        setCursor: [(u) => { hoverIdx = u.cursor.idx ?? null; renderLegends(); }],
       },
     },
-    chartData(),
+    chartData(buf),
     el,
   );
 }
 
-function chartData() {
+function chartData(buf) {
   const last = buf.t.length ? buf.t[buf.t.length - 1] : 0;
   return [
     buf.t.map((t) => t - last),
@@ -243,19 +257,31 @@ function chartData() {
   ];
 }
 
-function renderLegend() {
-  const n = buf.t.length;
-  const i = hoverIdx ?? n - 1;
-  $("val-left").textContent = n ? fmt(buf.left.mean[i]) : "--";
-  $("val-right").textContent = n ? fmt(buf.right.mean[i]) : "--";
+// Legend readouts follow the synced crosshair, or show the latest sample.
+function renderLegends() {
+  for (const metric of METRICS) {
+    const buf = bufs[metric];
+    const n = buf.t.length;
+    const i = hoverIdx ?? n - 1;
+    $(`val-left-${metric}`).textContent = n ? fmt(buf.left.mean[i]) : "--";
+    $(`val-right-${metric}`).textContent = n ? fmt(buf.right.mean[i]) : "--";
+  }
+}
+
+function resizeCharts() {
+  for (const metric of METRICS) {
+    charts[metric].setSize({ width: $(`chart-${metric}`).clientWidth, height: chartHeight() });
+  }
 }
 
 function draw() {
   animateBreath();
   if (dirty && !paused) {
-    updateYRange();
-    chart.setData(chartData());
-    if (hoverIdx === null) renderLegend();
+    for (const metric of METRICS) {
+      updateYRange(bufs[metric]);
+      charts[metric].setData(chartData(bufs[metric]));
+    }
+    if (hoverIdx === null) renderLegends();
     dirty = false;
   }
   requestAnimationFrame(draw);
@@ -443,7 +469,7 @@ function setView(view) {
     b.setAttribute("aria-pressed", String(b.dataset.view === view));
   });
   try { localStorage.setItem("stress-alert:view", view); } catch { /* storage unavailable */ }
-  if (chart) chart.setSize({ width: $("chart").clientWidth, height: chartHeight() });
+  if (charts.bfi) resizeCharts();
 }
 document.querySelectorAll(".segmented button").forEach((b) => {
   b.addEventListener("click", () => setView(b.dataset.view));
@@ -467,9 +493,10 @@ function setChip(id, label, on, detail) {
 function handle(frame) {
   switch (frame.type) {
     case "bfi":
-      pushBfi(frame);
-      framesThisSecond += 1;
-      $("chart-card").dataset.live = "true";
+    case "bvi":
+      pushHemo(bufs[frame.type], frame);
+      if (frame.type === "bfi") framesThisSecond += 1;
+      $(`card-${frame.type}`).dataset.live = "true";
       dirty = true;
       break;
     case "hr":
@@ -529,7 +556,7 @@ if (!initialView) {
   try { initialView = localStorage.getItem("stress-alert:view"); } catch { initialView = null; }
 }
 setView(initialView === "present" ? "present" : "operator");
-makeChart();
+METRICS.forEach(makeChart);
 renderControls();
 renderPhaseTile();
 connect();
@@ -537,9 +564,11 @@ requestAnimationFrame(draw);
 
 $("spread").addEventListener("change", (event) => {
   showSpread = event.currentTarget.checked;
-  Object.assign(yRange, { lo: null, hi: null, shrinkSince: null });
-  updateYRange();
-  makeChart();
+  for (const metric of METRICS) {
+    Object.assign(bufs[metric].yRange, { lo: null, hi: null, shrinkSince: null });
+    updateYRange(bufs[metric]);
+    makeChart(metric);
+  }
 });
 
 $("pause").addEventListener("click", (event) => {
@@ -547,5 +576,8 @@ $("pause").addEventListener("click", (event) => {
   event.currentTarget.setAttribute("aria-pressed", String(paused));
   event.currentTarget.textContent = paused ? "Resume" : "Pause";
 });
-window.addEventListener("resize", () => chart.setSize({ width: $("chart").clientWidth, height: chartHeight() }));
-matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () => { makeChart(); dirty = true; });
+window.addEventListener("resize", resizeCharts);
+matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () => {
+  METRICS.forEach(makeChart);
+  dirty = true;
+});

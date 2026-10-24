@@ -110,18 +110,30 @@
       </div>
     </section>
 
-    <section class="card chart-card" id="chart-card" aria-labelledby="chart-title">
+    <section class="card chart-card" id="card-bfi" aria-labelledby="title-bfi">
       <div class="chart-head">
-        <h2 class="card-title" id="chart-title">Blood flow index</h2>
+        <h2 class="card-title" id="title-bfi">Blood flow index</h2>
         <div class="legend" aria-live="off">
-          <span class="key"><span class="swatch swatch-left"></span>Left <output id="val-left">--</output></span>
-          <span class="key"><span class="swatch swatch-right"></span>Right <output id="val-right">--</output></span>
+          <span class="key"><span class="swatch swatch-left"></span>Left <output id="val-left-bfi">--</output></span>
+          <span class="key"><span class="swatch swatch-right"></span>Right <output id="val-right-bfi">--</output></span>
         </div>
         <label class="toggle operator-only"><input type="checkbox" id="spread"> Camera spread (middle 50%)</label>
         <span class="meta" id="rate"></span>
       </div>
-      <div class="chart" id="chart"></div>
+      <div class="chart" id="chart-bfi"></div>
       <p class="chart-empty">Waiting for bfi frames</p>
+    </section>
+
+    <section class="card chart-card" id="card-bvi" aria-labelledby="title-bvi">
+      <div class="chart-head">
+        <h2 class="card-title" id="title-bvi">Blood volume index</h2>
+        <div class="legend" aria-live="off">
+          <span class="key"><span class="swatch swatch-left"></span>Left <output id="val-left-bvi">--</output></span>
+          <span class="key"><span class="swatch swatch-right"></span>Right <output id="val-right-bvi">--</output></span>
+        </div>
+      </div>
+      <div class="chart" id="chart-bvi"></div>
+      <p class="chart-empty">Waiting for bvi frames</p>
     </section>
   </main>
 

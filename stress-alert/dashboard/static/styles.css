@@ -386,7 +386,7 @@ main {
 .toggle input { accent-color: var(--ink); width: 14px; height: 14px; margin: 0; }
 body[data-view="present"] .chart-head .meta { margin-left: auto; }
 .chart-head .meta { font-size: var(--text-xs); color: var(--ink-muted); font-family: var(--font-mono); }
-.chart { width: 100%; min-height: 300px; }
+.chart { width: 100%; min-height: 240px; }
 .chart-empty { color: var(--ink-muted); font-size: var(--text-sm); margin: var(--space-2) 0 0; }
 .chart-card[data-live="true"] .chart-empty { display: none; }
 
