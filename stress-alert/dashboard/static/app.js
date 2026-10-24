@@ -421,8 +421,8 @@ function renderEvents() {
   );
 }
 
-async function post(url, body) {
-  $("session-error").textContent = "";
+async function post(url, body, errorId = "session-error") {
+  $(errorId).textContent = "";
   const res = await fetch(url, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -431,7 +431,7 @@ async function post(url, body) {
   if (!res.ok) {
     const data = await res.json().catch(() => ({}));
     const detail = Array.isArray(data.detail) ? data.detail[0].msg : data.detail;
-    $("session-error").textContent = detail || `Request failed (${res.status})`;
+    $(errorId).textContent = detail || `Request failed (${res.status})`;
   }
 }
 
@@ -453,6 +453,53 @@ $("protocol-form").addEventListener("submit", (e) => {
   });
 });
 $("protocol-stop").addEventListener("click", () => post("/api/protocol/stop"));
+
+// Open-Motion device -------------------------------------------------------
+
+let device = { connected: false, console: false, left: false, right: false, scanning: false };
+
+function setPart(id, label, known, ok) {
+  const el = $(id);
+  if (!known) {
+    delete el.dataset.status;
+    el.textContent = label;
+    return;
+  }
+  setState(el, ok ? "good" : "critical", `${label} ${ok ? "connected" : "not found"}`);
+}
+
+function renderDevice() {
+  const d = device;
+  setPart("dev-console", "Console", d.connected, d.console);
+  setPart("dev-left", "Left sensor", d.connected && d.console, d.left);
+  setPart("dev-right", "Right sensor", d.connected && d.console, d.right);
+  $("device-sdk").textContent = d.sdk_version ? `SDK ${d.sdk_version}` : "";
+  $("device-error").textContent = d.error || "";
+  $("device-connect").textContent = d.connected ? "Search again" : "Connect device";
+  $("device-disconnect").disabled = !d.connected;
+  $("scan-start").disabled = !d.connected || !d.console || !(d.left || d.right) || d.scanning;
+  $("scan-stop").disabled = !d.scanning;
+  const ready = d.connected && d.console && (d.left || d.right);
+  setChip("chip-device", d.scanning ? "open-motion scanning" : "open-motion", ready, d.error);
+}
+
+async function deviceAction(path, button) {
+  button.disabled = true;
+  const label = button.textContent;
+  if (path === "connect") button.textContent = "Searching…";
+  try {
+    await post(`/api/device/${path}`, {}, "device-error");
+  } finally {
+    button.textContent = label;
+    button.disabled = false;
+    renderDevice();
+  }
+}
+
+$("device-connect").addEventListener("click", (e) => deviceAction("connect", e.currentTarget));
+$("device-disconnect").addEventListener("click", (e) => deviceAction("disconnect", e.currentTarget));
+$("scan-start").addEventListener("click", (e) => deviceAction("scan/start", e.currentTarget));
+$("scan-stop").addEventListener("click", (e) => deviceAction("scan/stop", e.currentTarget));
 
 // View: operator or present ----------------------------------------------
 
@@ -520,6 +567,10 @@ function handle(frame) {
       renderEvents();
       dirty = true;
       break;
+    case "device":
+      device = frame;
+      renderDevice();
+      break;
     case "status":
       setChip(`chip-src-${frame.source.replace(/\W+/g, "-")}`, frame.source, frame.connected, frame.detail);
       break;
@@ -551,6 +602,7 @@ if (!initialView) {
 setView(initialView === "present" ? "present" : "operator");
 METRICS.forEach(makeChart);
 renderControls();
+renderDevice();
 renderPhaseTile();
 connect();
 requestAnimationFrame(draw);

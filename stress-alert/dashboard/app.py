@@ -2,7 +2,8 @@
 
 Producers push frames to ``/ws/ingest``; browsers receive them on ``/ws``. Frames are
 validated against ``dashboard.schema`` before they are rebroadcast. The session and
-phase logger is driven through ``/api/session``, ``/api/phase`` and ``/api/protocol``.
+phase logger is driven through ``/api/session``, ``/api/phase`` and ``/api/protocol``;
+the Open-Motion device through ``/api/device``.
 """
 
 import asyncio
@@ -18,6 +19,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field, ValidationError
 
 from dashboard import clock, dev_feed
+from dashboard.device import DeviceError, DeviceManager
 from dashboard.hub import Hub, drain
 from dashboard.schema import PhaseName, frame_adapter
 from session.phase_logger import MarkerOutlet, PhaseError, PhaseLogger
@@ -47,11 +49,17 @@ def create_app(
     dev_feed_url: str | None = None,
     sessions_dir: Path = SESSIONS,
     lsl_markers: bool = True,
+    device_factory: Any = None,
 ) -> FastAPI:
-    """Build the app. With ``dev_feed_url`` set, replay sample data into it on startup."""
+    """Build the app. With ``dev_feed_url`` set, replay sample data into it on startup.
+
+    ``device_factory`` replaces the openmotion-sdk constructor (tests use a fake).
+    """
     hub = Hub()
     markers = MarkerOutlet() if lsl_markers else None
     logger = PhaseLogger(sessions_dir, emit=hub.publish, markers=markers)
+    device_kwargs = {"factory": device_factory} if device_factory else {}
+    device = DeviceManager(hub.publish, sessions_dir / "device-scans", **device_kwargs)
 
     @contextlib.asynccontextmanager
     async def lifespan(_: FastAPI) -> AsyncIterator[None]:
@@ -66,10 +74,12 @@ def create_app(
                     }
                 ]
             )
-        hub.publish([logger.state()])
+        hub.publish([logger.state(), device.state()])
+        device.start_polling(asyncio.get_running_loop())
         task = asyncio.create_task(dev_feed.run_forever(dev_feed_url)) if dev_feed_url else None
         yield
         logger.stop_session()
+        await asyncio.to_thread(device.shutdown)
         if task:
             task.cancel()
             with contextlib.suppress(asyncio.CancelledError):
@@ -78,6 +88,7 @@ def create_app(
     app = FastAPI(title="stress-alert dashboard", lifespan=lifespan)
     app.state.hub = hub
     app.state.logger = logger
+    app.state.device = device
     app.mount("/static", StaticFiles(directory=STATIC), name="static")
 
     def guarded(action: Any) -> dict[str, Any]:
@@ -86,6 +97,34 @@ def create_app(
         except PhaseError as exc:
             raise HTTPException(status_code=409, detail=str(exc)) from exc
         return logger.state()
+
+    async def device_call(action: Any, *args: Any) -> dict[str, Any]:
+        """Run a blocking SDK call off the event loop; device errors become 409s."""
+        try:
+            return await asyncio.to_thread(action, *args)
+        except DeviceError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+    @app.get("/api/device")
+    async def device_state() -> dict[str, Any]:
+        return device.state()
+
+    @app.post("/api/device/connect")
+    async def device_connect() -> dict[str, Any]:
+        return await device_call(device.connect)
+
+    @app.post("/api/device/disconnect")
+    async def device_disconnect() -> dict[str, Any]:
+        return await device_call(device.disconnect)
+
+    @app.post("/api/device/scan/start")
+    async def device_scan_start() -> dict[str, Any]:
+        subject = logger.session.subject_id if logger.session else ""
+        return await device_call(device.start_scan, subject)
+
+    @app.post("/api/device/scan/stop")
+    async def device_scan_stop() -> dict[str, Any]:
+        return await device_call(device.stop_scan)
 
     @app.get("/")
     async def index() -> FileResponse:

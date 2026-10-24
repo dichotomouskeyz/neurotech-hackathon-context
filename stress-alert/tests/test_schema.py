@@ -13,6 +13,15 @@ VALID = [
     {"type": "stress", "t": 1.0, "index": 0.4},
     {"type": "phase", "t": 1.0, "session_id": "s1", "phase": "hold", "source": "manual"},
     {"type": "status", "source": "omotion", "connected": True},
+    {
+        "type": "device",
+        "t": 1.0,
+        "connected": True,
+        "console": True,
+        "left": True,
+        "right": False,
+        "scanning": False,
+    },
 ]
 
 

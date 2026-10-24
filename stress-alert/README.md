@@ -2,7 +2,7 @@
 
 Breath-hold stress dashboard for research use. Open-Motion on the forehead gives blood flow, blood volume, and optical heart rate. The Mentalab ECG was dropped on 2026-10-24 because it did not work; its code is in git history. Protocol: 60 s baseline, then a 20 to 40 s breath hold, then 90 s recovery.
 
-For research. These numbers are not a diagnosis, a screening result, or a treatment signal. Organizers told the team that human recordings are allowed. Do not change safety-critical optical output, and do not enable the laser from this package.
+For research. These numbers are not a diagnosis, a screening result, or a treatment signal. Organizers told the team that human recordings are allowed. Do not change safety-critical optical output or laser parameters. The only path in this package that turns the laser on is the dashboard's **Start scan (laser on)** button, which runs the SDK's standard scan.
 
 ## Run the dashboard
 
@@ -27,6 +27,17 @@ Two views, switched in the top bar or with `?view=present`:
 The look is a light, clinical base: flat surfaces, hairline borders, mono numerals. Dark tokens remain in `styles.css` but are off (`data-theme="light"` on `<html>`).
 
 From any working directory: `.venv/bin/python serve.py --dev-feed`.
+
+## Connect the Open-Motion device
+
+The demo runs on a MacBook with the Open-Motion console plugged in over USB.
+
+1. One-time setup on that Mac: `brew install libusb`, then `uv sync --locked` (installs `openmotion-sdk==1.12.0`, the version Openwater's bloodflow app uses). Use Openwater's USB cable only (part 100-00049).
+2. Power the console, connect both sensor modules, and start the dashboard.
+3. In Operator view, press **Connect device**. The SDK searches USB and serial. The panel shows console, left sensor, and right sensor, each connected or not found. Hotplug works while connected, and **Search again** re-reads the state.
+4. **Start scan (laser on)** starts the SDK scan with every camera on each connected side. Live BFI and BVI stream into the charts. **Stop scan** ends it. Scan CSVs go to `sessions/device-scans/`, which is gitignored.
+
+Errors name the fix: SDK not installed, libusb missing, no console found, or which sensor is missing. Code: `dashboard/device.py` (`DeviceManager`, plus `LiveSink` on the SDK's `live` channel). API: `GET /api/device`, `POST /api/device/connect`, `/disconnect`, `/scan/start`, `/scan/stop`.
 
 ## Lanes
 

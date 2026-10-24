@@ -31,6 +31,7 @@ ws://<dashboard-host>:8765/ws/ingest?source=<your-name>
 | `stress` | `t`, `index`, `recovery_score` (optional), `alert` (bool), `reason` | the dashboard only shows an alert when contact quality passes its threshold |
 | `phase` | `t`, `session_id`, `phase` (`baseline`, `hold`, `recovery`, `end`), `source` (`manual` or `timer`) | sent by the session/phase logger |
 | `session` | `t`, `active`, `session_id`, `subject_id`, `phase`, `phase_t`, `timer_next`, `timer_ends_t` | sent by the dashboard itself whenever the session changes |
+| `device` | `t`, `connected`, `console`, `left`, `right`, `scanning`, `sdk_version`, `error` | sent by the dashboard itself for the Open-Motion device. While a scan runs, the dashboard also produces the `bfi` and `bvi` frames from the device |
 | `status` | `source`, `connected`, `detail` | the dashboard sends these itself on connect and disconnect. Producers may add detail, e.g. `"right sensor not connected"` |
 
 Unknown types and unknown fields are rejected. To change the contract, edit `dashboard/schema.py` and this file together, with Jahlon (dashboard lane owner).

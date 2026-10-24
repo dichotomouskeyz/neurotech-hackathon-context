@@ -27,8 +27,8 @@ class Hub:
             kind = frame.get("type")
             if kind == "status":
                 self._latest[f"status:{frame['source']}"] = frame
-            elif kind == "session":
-                self._latest["session"] = frame
+            elif kind in ("session", "device"):
+                self._latest[kind] = frame
             elif kind == "phase":
                 self._phases.append(frame)
             else:

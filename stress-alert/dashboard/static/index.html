@@ -79,6 +79,22 @@
     </section>
 
     <section class="card controls operator-only" aria-label="Session controls">
+      <div class="control-group device-group">
+        <h2 class="card-title">Open-Motion device <span class="meta" id="device-sdk"></span></h2>
+        <div class="row">
+          <button type="button" class="primary" id="device-connect">Connect device</button>
+          <button type="button" id="device-disconnect">Disconnect</button>
+          <ul class="device-parts" aria-label="Device parts">
+            <li><span class="state" id="dev-console">Console</span></li>
+            <li><span class="state" id="dev-left">Left sensor</span></li>
+            <li><span class="state" id="dev-right">Right sensor</span></li>
+          </ul>
+          <button type="button" id="scan-start">Start scan (laser on)</button>
+          <button type="button" id="scan-stop">Stop scan</button>
+        </div>
+        <p class="error" id="device-error" role="alert"></p>
+      </div>
+
       <div class="control-group">
         <h2 class="card-title">Session</h2>
         <form class="row" id="session-form" autocomplete="off">

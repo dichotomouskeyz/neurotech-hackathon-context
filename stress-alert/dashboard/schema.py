@@ -74,6 +74,20 @@ class Session(_Frame):
     timer_ends_t: float | None = None
 
 
+class Device(_Frame):
+    """Open-Motion connection and scan state, sent by the dashboard itself."""
+
+    type: Literal["device"]
+    t: float
+    connected: bool
+    console: bool
+    left: bool
+    right: bool
+    scanning: bool
+    sdk_version: str = ""
+    error: str = ""
+
+
 class Status(_Frame):
     type: Literal["status"]
     source: str
@@ -82,7 +96,7 @@ class Status(_Frame):
 
 
 Frame = Annotated[
-    Hemo | HeartRate | ContactQuality | Stress | Phase | Session | Status,
+    Hemo | HeartRate | ContactQuality | Stress | Phase | Session | Device | Status,
     Field(discriminator="type"),
 ]
 
