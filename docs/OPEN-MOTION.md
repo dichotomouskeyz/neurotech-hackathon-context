@@ -4,13 +4,16 @@ Working reference for the team's platform choice. Sources: Openwater docs (`open
 
 ## Access at this event
 
-The team has the Open-Motion station for the whole weekend (per Jahlon, 2026-10-24). This differs from the SOW, which plans 20 to 30 minute sign-up slots. Rules that still apply (SOW §6):
+The team has the Open-Motion station for the whole weekend (per Jahlon, 2026-10-24). This differs from the SOW, which plans 20 to 30 minute sign-up slots.
 
-- Development only: provided and synthetic data, optical phantoms, benchtop fixtures.
-- Not applied to any person, including self-testing by team members or mentors. No human data collection.
+Self-testing: per Jahlon (2026-10-24), Openwater approved team members wearing Open-Motion for self-tests. That overrides the SOW §6 line "not applied to any person, including self-testing by team members or mentors" for this team. The `stress-alert` breath-hold protocol depends on it. Recordings stay out of git.
+
+Rules that still apply:
+
 - Do not open the console. It contains a Class 3 laser source and high voltage. No changes to safety-critical optical output.
+- No diagnostic, screening, or clinical claims.
 
-So live data at the station comes from phantoms and fixtures. Physiological signals (pulse, respiration, cognitive load) come from the provided datasets only.
+The app lives in `stress-alert/`.
 
 ## What it measures
 

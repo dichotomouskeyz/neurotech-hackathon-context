@@ -2,11 +2,8 @@
 
 import math
 import unittest
+
 from features.stress_index import (
-    DEFAULT_ALERT_THRESHOLD,
-    DEFAULT_CQ_THRESHOLD,
-    RecoveryResult,
-    StressResult,
     StressTracker,
     compute_baseline,
     compute_recovery_tau,
@@ -167,7 +164,7 @@ class TestStressIndex(unittest.TestCase):
             t = 90.0 + float(i)
             # Decaying back toward 2.0
             val = 2.0 + 0.6 * math.exp(-float(i) / 15.0)
-            res_rec = tracker.on_sample(t=t, value=val, cq=0.95)
+            tracker.on_sample(t=t, value=val, cq=0.95)
 
         self.assertIsNotNone(tracker.last_recovery_result)
         self.assertTrue(tracker.last_recovery_result.ok)

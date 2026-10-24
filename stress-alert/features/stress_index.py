@@ -19,9 +19,10 @@ Physics and physiology background:
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 import math
-from typing import Any, Mapping, Sequence
+from collections.abc import Sequence
+from dataclasses import dataclass
+from typing import Any
 
 DEFAULT_CQ_THRESHOLD = 0.50
 DEFAULT_ALERT_THRESHOLD = 0.20  # 20% elevation over baseline
@@ -237,7 +238,7 @@ def compute_recovery_tau(
     # Filter finite pairs
     pairs = [
         (float(t), float(v))
-        for t, v in zip(timestamps_s, values)
+        for t, v in zip(timestamps_s, values, strict=False)
         if math.isfinite(t) and math.isfinite(v)
     ]
     if len(pairs) < min_samples:
@@ -308,7 +309,7 @@ def compute_recovery_tau(
     decay_ts: list[float] = []
     log_residuals: list[float] = []
 
-    for t, v in zip(ts[max_idx:], vs[max_idx:]):
+    for t, v in zip(ts[max_idx:], vs[max_idx:], strict=False):
         excess = v - baseline_value
         if excess > 0.0:
             dt = t - t_peak
@@ -332,7 +333,7 @@ def compute_recovery_tau(
     sum_x = sum(decay_ts)
     sum_y = sum(log_residuals)
     sum_xx = sum(x * x for x in decay_ts)
-    sum_xy = sum(x * y for x, y in zip(decay_ts, log_residuals))
+    sum_xy = sum(x * y for x, y in zip(decay_ts, log_residuals, strict=False))
     denom = n * sum_xx - sum_x * sum_x
 
     if abs(denom) < 1e-12:
@@ -353,7 +354,9 @@ def compute_recovery_tau(
     # Compute R-squared
     mean_y = sum_y / n
     ss_tot = sum((y - mean_y) ** 2 for y in log_residuals)
-    ss_res = sum((y - (slope * x + intercept)) ** 2 for x, y in zip(decay_ts, log_residuals))
+    ss_res = sum(
+        (y - (slope * x + intercept)) ** 2 for x, y in zip(decay_ts, log_residuals, strict=False)
+    )
     r_squared = 1.0 - (ss_res / ss_tot) if ss_tot > 1e-12 else 0.0
 
     # Fraction recovered at end of window

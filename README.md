@@ -1,150 +1,38 @@
-# Neurotech Hackathon: Stress-Alert (Lane 4)
+# Neurotech Hackathon
 
-Team project for the UC Berkeley Neurotechnology Hackathon (October 24 to 25, 2026, sponsored by Openwater).
+Team repo for the Neurotechnology at Berkeley Hackathon, October 24 to 25, 2026, sponsored by Openwater. Judging is Sunday, October 25, 3:00 to 5:00 pm. The team is building on **Open-Motion** and has the station for the weekend.
 
 Prompt: **How can neurotechnology expand human cognitive potential?**
 
-The team is building **`stress-alert`**, a real-time optical stress and recovery monitoring platform on Open-Motion (forehead blood flow index at 40 Hz) and Mentalab Explore ECG (chest electrical cardiac ground truth), presented on a live dashboard.
+The repo holds two things:
 
-For research use only. This is a research engineering demonstration. These metrics and alerts do not provide a diagnosis, clinical screening, treatment signal, or therapy. Say "for research."
+- **`stress-alert/`**: the app. Open-Motion (forehead blood flow, optical heart rate) and a Mentalab ECG (heart rate and HRV) feed a live dashboard. Lane 1 and Lane 2 replay recorded CSVs offline. Lane 4 adds the breath-hold protocol and a contact-quality-gated stress index. See `stress-alert/README.md`.
+- **`docs/` and `sources/`**: event context, including rules, tracks, Openwater platform notes, and snapshots of the planning documents.
 
----
+## Layout
 
-## Lane 4 Deliverables (Protocol, Alert Math, Packaging)
+| Path | Contents |
+| :- | :- |
+| `stress-alert/` | The app: live dashboard, session/phase logger, Lane 1 Open-Motion replay, Lane 2 Mentalab ECG replay, Lane 4 stress index |
+| `docs/DEMO_SCRIPT_60S.md` | 60-second demo script for the dry run and judging |
+| `docs/DEVPOST_DRAFT.md` | Devpost draft. For research. |
+| `docs/EVENT.md` | Prompt, scope rules, shared device inventory, links |
+| `docs/OPEN-MOTION.md` | The team's platform: physics, hardware, data path, SDK, data formats, Mac test results, track fit, judging |
+| `docs/FLOW-STATE.md` | Flow-state idea: what the device can do, literature, datasets, a rule-compliant design |
+| `docs/TRACKS.md` | The eight challenge tracks, condensed, with what counts as a strong entry |
+| `docs/REPOS.md` | Openwater GitHub repos mapped to tracks |
+| `docs/OPENWATER.md` | What Openwater builds and how they frame it, from the opening pitch |
+| `docs/OPEN-QUESTIONS.md` | Decisions not yet made |
+| `sources/` | Snapshots of the source documents with provenance |
 
-This branch (`lane-4`) implements Lane 4:
+## Sources
 
-| Deliverable | Path | Description |
+| Source | Owner | State captured |
 | :- | :- | :- |
-| **Protocol** | [`protocol/breathhold.md`](file:///Users/liamlenh/Downloads/neurotech%20hackathon/lane-4/protocol/breathhold.md) | Standardized 3-phase breath-hold protocol (60s baseline, 20 to 40s hold, 90s recovery). |
-| **Alert Math & CQ Gate** | [`features/stress_index.py`](file:///Users/liamlenh/Downloads/neurotech%20hackathon/lane-4/features/stress_index.py) | Pure-Python CQ-gated stress index, baseline calibration, and exponential recovery time-constant ($\tau$). |
-| **Demo Script (60s)** | [`docs/DEMO_SCRIPT_60S.md`](file:///Users/liamlenh/Downloads/neurotech%20hackathon/lane-4/docs/DEMO_SCRIPT_60S.md) | Cue-by-cue 60-second walkthrough for Sunday 2:30 dry run and judging. |
-| **Devpost Draft** | [`docs/DEVPOST_DRAFT.md`](file:///Users/liamlenh/Downloads/neurotech%20hackathon/lane-4/docs/DEVPOST_DRAFT.md) | Complete submission draft with problem statement, math formulation, honest null analysis, and research scope. |
-| **Optional Track 3** | [`features/track3_classifier.py`](file:///Users/liamlenh/Downloads/neurotech%20hackathon/lane-4/features/track3_classifier.py) | Gated feature extraction and baseline brain-state classifier (evaluated only if ingest is green Sunday noon). |
-| **Unit Tests** | [`tests/test_stress_index.py`](file:///Users/liamlenh/Downloads/neurotech%20hackathon/lane-4/tests/test_stress_index.py) | 11 automated unit tests verifying CQ gating, baseline estimation, recovery fits, and schema compliance. |
+| [Neurotech Hackathon](https://docs.google.com/document/d/1cJZHhlRC_0MSVPyy0UUCK1wsy3OVbCZ8YyEajoXiuQI/edit) (Google Doc) | raymond.ym.mak@gmail.com | Modified 2026-10-24 10:20 PT |
+| [Openwater Tracks](https://docs.google.com/document/d/1EZLYCaoG85xlRGpJDvhnk7DNJXzRvOD0-C6tjOzwKH4/edit) (Google Doc) | Openwater | Read 2026-10-24 |
+| [Openwater Opening Pitch](https://docs.google.com/presentation/d/11Ts-xtMeraUTatn430w1W6sz4zQGGy8b/edit) (slides) | Openwater | Read 2026-10-24 |
+| [github.com/OpenwaterHealth](https://github.com/OpenwaterHealth) | Openwater | Repo list read 2026-10-24 |
+| [Event SOW](https://github.com/OpenwaterHealth/openwater-docs/blob/ebb3db0/docs/Student%20Hackathon-%20Open-Motion%20%26%20Open-LIFU%20Development%20Platforms.md) in openwater-docs | Openwater | Draft v0.1, October 20; read at ebb3db0 |
 
-*(All deliverables are mirrored in `stress-alert/` for direct compatibility with dashboard and ingest imports).*
-
----
-
-## Integration Guide: How Other Lanes Call Lane 4
-
-Lane 4 is completely decoupled from hardware and the web interface. Other lanes import and call the following interfaces:
-
-### 1. Single Frame Calculation (Dashboard / Stream Ingest)
-
-Use `compute_stress_frame` to evaluate incoming samples. The output conforms directly to the dashboard frame contract (`dashboard/schema.py:Stress`):
-
-```python
-from features.stress_index import compute_stress_frame
-
-# Example: Ingest receives a sample during the hold phase
-result = compute_stress_frame(
-    t=1089839.91,             # Seconds on pylsl.local_clock()
-    current_value=2.70,        # Current BFI or optical HR
-    baseline_value=2.00,       # Calibrated resting baseline
-    cq=0.88,                   # Contact quality (0.0 to 1.0) from cq_score.py
-    cq_threshold=0.50,         # Minimum acceptable CQ (default 0.50)
-    alert_threshold=0.20,      # Relative elevation for alert (default 20%)
-)
-
-# Broadcast frame over WebSocket to dashboard
-frame = result.to_frame()
-# Output:
-# {
-#   "type": "stress",
-#   "t": 1089839.91,
-#   "index": 0.35,
-#   "recovery_score": None,
-#   "alert": True,
-#   "reason": "elevated_stress: index 0.35 >= 0.20"
-# }
-```
-
-### 2. Contact Quality (CQ) Gating in Action
-
-If contact quality drops below threshold (e.g. participant frowns or moves sensor), `alert` is strictly forced `False`:
-
-```python
-slipped = compute_stress_frame(
-    t=1089842.10,
-    current_value=3.10,        # Massive optical surge
-    baseline_value=2.00,
-    cq=0.38,                   # Poor coupling (< 0.50)
-)
-print(slipped.alert)           # False
-print(slipped.reason)          # "poor_coupling: CQ 0.38 < 0.50"
-```
-
-### 3. Stateful Stream Processing (`StressTracker`)
-
-Use `StressTracker` to manage phase transitions automatically:
-
-```python
-from features.stress_index import StressTracker
-
-tracker = StressTracker(cq_threshold=0.50, alert_threshold=0.20)
-
-# Phase 1: Baseline (0 to 60s)
-tracker.on_phase("baseline", t=0.0)
-for sample in baseline_stream:
-    tracker.on_sample(t=sample.t, value=sample.bfi, cq=sample.cq)
-
-# Baseline is automatically calibrated as the median of clean frames
-print(tracker.calibrated_baseline)
-
-# Phase 2: Hold (60 to 90s)
-tracker.on_phase("hold", t=60.0)
-for sample in hold_stream:
-    res = tracker.on_sample(t=sample.t, value=sample.bfi, cq=sample.cq)
-    if res.alert:
-        send_to_dashboard(res.to_frame())
-
-# Phase 3: Recovery (90 to 180s)
-tracker.on_phase("recovery", t=90.0)
-for sample in recovery_stream:
-    res = tracker.on_sample(t=sample.t, value=sample.bfi, cq=sample.cq)
-
-# Inspect fitted recovery time-constant
-recovery = tracker.last_recovery_result
-if recovery and recovery.ok:
-    print(f"Recovery Tau: {recovery.tau_s}s, R^2: {recovery.r_squared}")
-else:
-    print(f"Honest null recovery: {recovery.note}")
-```
-
-### 4. Recovery Time-Constant ($\tau$) Estimation
-
-```python
-from features.stress_index import compute_recovery_tau
-
-res = compute_recovery_tau(
-    timestamps_s=timestamps,   # List of timestamps during recovery
-    values=bfi_values,         # List of BFI values
-    baseline_value=2.0,        # Calibrated baseline
-    min_samples=10,
-    min_duration_s=10.0,
-)
-if res.ok:
-    print(f"Tau: {res.tau_s}s, Fraction recovered: {res.fraction_recovered}")
-```
-
----
-
-## Testing and Verification
-
-Run the test suite:
-
-```bash
-python3 -m unittest tests/test_stress_index.py
-```
-
-All 11 tests pass with zero external dependencies (pure standard library).
-
----
-
-## Sunday Milestone Targets
-
-- **Sunday 12:00 pm (Noon)**: Alert math wired into dashboard server (supports live stream and offline CSV replay). Track 3 classifier evaluated if ingest is green.
-- **Sunday 2:30 pm**: One complete dry run of [`docs/DEMO_SCRIPT_60S.md`](file:///Users/liamlenh/Downloads/neurotech%20hackathon/lane-4/docs/DEMO_SCRIPT_60S.md).
-- **Sunday 3:00 to 5:00 pm**: Hackathon judging presentation.
+The Google Docs are live and may change during the event. Re-read them before relying on device lists or track details.

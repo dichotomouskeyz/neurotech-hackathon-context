@@ -14,9 +14,9 @@ evaluated deliverable.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 import math
-from typing import Any, Mapping, Sequence
+from collections.abc import Sequence
+from dataclasses import dataclass
 
 
 @dataclass(frozen=True)
@@ -69,7 +69,7 @@ def extract_window_features(
 
     pairs = [
         (t, b, c)
-        for t, b, c in zip(timestamps_s, bfi_values, cq_values)
+        for t, b, c in zip(timestamps_s, bfi_values, cq_values, strict=False)
         if math.isfinite(t) and math.isfinite(b)
     ]
     if not pairs:
