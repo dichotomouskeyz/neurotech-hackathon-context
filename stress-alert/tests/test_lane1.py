@@ -19,7 +19,8 @@ from ingest.omotion_source import (
 )
 
 ROOT = Path(__file__).resolve().parents[1]
-FIXTURE = ROOT / "data" / "synthetic_scan.csv"
+# Openwater's real 30 s corrected scan (openmotion-bloodflow-app resources/sample_scan.csv).
+FIXTURE = ROOT / "data" / "sample_scan.csv"
 
 
 class CqScoreTests(unittest.TestCase):
@@ -88,16 +89,16 @@ class PulseHrTests(unittest.TestCase):
 
 
 class ReplayTests(unittest.TestCase):
-    def test_synthetic_fixture_reports_pulse_and_cq(self):
+    def test_sample_scan_reports_pulse_and_cq(self):
         rows = replay_scan(FIXTURE)
-        self.assertGreaterEqual(len(rows), 600)
-        self.assertEqual(rows[0].frame_id, 0)
+        self.assertEqual(len(rows), 1201)
+        self.assertEqual(rows[0].frame_id, 10)
         self.assertIsNotNone(rows[0].bfi_l)
         self.assertIsNotNone(rows[0].bfi_r)
-        self.assertAlmostEqual(rows[0].cq, 15 / 16)
-        self.assertFalse(rows[0].bad_coupling)
-        # r8 is the dropout, so the right side uses 7 cameras, not 8.
         self.assertIsNotNone(rows[0].bvi_r)
+        # Every camera is labelled "ok" in the Openwater sample.
+        self.assertAlmostEqual(rows[0].cq, 1.0)
+        self.assertFalse(rows[0].bad_coupling)
 
         estimate = estimate_optical_hr(
             [row.timestamp_s for row in rows],
@@ -105,7 +106,7 @@ class ReplayTests(unittest.TestCase):
             bfi_right=[row.bfi_r for row in rows],
         )
         self.assertIsNotNone(estimate.bpm)
-        self.assertAlmostEqual(estimate.bpm, 72.0, delta=3.0)
+        self.assertAlmostEqual(estimate.bpm, 77.0, delta=3.0)
 
     def test_blank_camera_is_skipped_in_the_side_mean(self):
         with tempfile.TemporaryDirectory() as tmp:

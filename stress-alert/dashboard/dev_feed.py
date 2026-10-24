@@ -1,7 +1,9 @@
-"""Development-only producer: replays an Open-Motion corrected CSV into /ws/ingest.
+"""Replay producer: streams a recorded Open-Motion corrected scan CSV into /ws/ingest.
 
-Stands in for the ingest lane until real producers connect. Loops the file forever
-and stamps frames with the shared clock (``dashboard.clock``). Run standalone with
+Used for rehearsal and analysis without the device: Openwater's sample scan by
+default, or any team recording. No synthetic data ships with the app. Loops the file
+forever, stamps frames with the shared clock (``dashboard.clock``), and connects as
+source ``replay`` so the dashboard labels it. Run standalone with
 ``uv run python -m dashboard.dev_feed``.
 """
 
@@ -49,7 +51,7 @@ def frames_for(row: dict[str, str], t: float) -> list[dict]:
 async def run(url: str, path: Path = DEFAULT_CSV) -> None:
     rows = load_rows(path)
     period = 1.0 / RATE_HZ
-    async with connect(f"{url}?source=dev_feed") as ws:
+    async with connect(f"{url}?source=replay") as ws:
         index = 0
         next_send = time.monotonic()
         while True:
@@ -69,7 +71,7 @@ async def run_forever(url: str, path: Path = DEFAULT_CSV, retry_s: float = 1.0) 
         try:
             await run(url, path)
         except (OSError, WebSocketException) as exc:
-            print(f"dev_feed: {exc}; retrying in {retry_s}s")
+            print(f"replay: {exc}; retrying in {retry_s}s")
         await asyncio.sleep(retry_s)
 
 

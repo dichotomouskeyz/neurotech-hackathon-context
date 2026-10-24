@@ -46,14 +46,16 @@ class ProtocolStart(BaseModel):
 
 def create_app(
     *,
-    dev_feed_url: str | None = None,
+    replay_url: str | None = None,
+    replay_csv: Path | None = None,
     sessions_dir: Path = SESSIONS,
     lsl_markers: bool = True,
     device_factory: Any = None,
 ) -> FastAPI:
-    """Build the app. With ``dev_feed_url`` set, replay sample data into it on startup.
+    """Build the app. With ``replay_url`` set, replay a recorded scan CSV into it on startup.
 
-    ``device_factory`` replaces the openmotion-sdk constructor (tests use a fake).
+    ``replay_csv`` defaults to Openwater's sample scan. ``device_factory`` replaces the
+    openmotion-sdk constructor (tests use a fake).
     """
     hub = Hub()
     markers = MarkerOutlet() if lsl_markers else None
@@ -76,7 +78,10 @@ def create_app(
             )
         hub.publish([logger.state(), device.state()])
         device.start_polling(asyncio.get_running_loop())
-        task = asyncio.create_task(dev_feed.run_forever(dev_feed_url)) if dev_feed_url else None
+        task = None
+        if replay_url:
+            path = replay_csv or dev_feed.DEFAULT_CSV
+            task = asyncio.create_task(dev_feed.run_forever(replay_url, path))
         yield
         logger.stop_session()
         await asyncio.to_thread(device.shutdown)

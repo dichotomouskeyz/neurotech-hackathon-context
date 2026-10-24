@@ -13,7 +13,7 @@ No diagnostic, screening, clinical, treatment, or therapeutic claims.
 - **Hardware on screen**:
   - Open-Motion optical headband on forehead (40 Hz BFI/BVI).
   - Live stress-alert dashboard (status strip, phase bands, live BFI and BVI charts, CQ gauges, alert banner).
-- **Backup**: If live station optical stream is not connected, replay `stress-alert/data/sample_scan.csv` through `replay_csv.py` with identical screen results.
+- **Backup**: If the live stream is not connected, start the dashboard with `--replay` to stream a recorded scan (Openwater's `sample_scan.csv`, or a team recording of a breath hold). The `replay` chip makes clear it isn't live.
 
 ---
 
@@ -34,8 +34,9 @@ No diagnostic, screening, clinical, treatment, or therapeutic claims.
 1. **Hardware Ingest Green**:
    - Open-Motion live station scanning.
 2. **Hardware Ingest Blocked or Station In Use**:
-   - Switch dashboard to CSV replay mode:
+   - Restart the dashboard in replay mode with a recorded scan:
      ```bash
-     python stress-alert/replay_csv.py --csv stress-alert/data/synthetic_scan.csv --dashboard ws://localhost:8765/ws/ingest?source=omotion
+     uv run python -m dashboard --replay                                # Openwater sample_scan.csv
+     uv run python -m dashboard --replay sessions/device-scans/<scan>.csv  # a team breath-hold recording
      ```
-   - Replay executes the exact same 3-phase sequence with synthetic breath-hold dynamics and identical dashboard visualization.
+   - Openwater's sample is 30 s of resting data with no breath hold, so record a team breath-hold run during the dry run if the replay needs to show the hold.

@@ -8,10 +8,11 @@ For research. These numbers are not a diagnosis, a screening result, or a treatm
 
 ```bash
 uv sync --locked
-uv run python -m dashboard --dev-feed
+uv run python -m dashboard            # live device and producers only
+uv run python -m dashboard --replay   # also replay data/sample_scan.csv
 ```
 
-Open http://127.0.0.1:8765. `--dev-feed` replays `data/sample_scan.csv` so the charts move without hardware. Without it, the dashboard waits for producers on `/ws/ingest`.
+Open http://127.0.0.1:8765. `--replay [CSV]` replays a recorded corrected scan so the charts move without hardware: Openwater's `data/sample_scan.csv` by default, or a team recording passed as `CSV`. The source chip reads `replay`, and `--dev-feed` is an alias. Without either flag, the dashboard shows only the connected device and producers on `/ws/ingest`. No synthetic data ships with the app.
 
 ```
 ws://<dashboard-host>:8765/ws/ingest?source=<your-name>
@@ -26,7 +27,7 @@ Two views, switched in the top bar or with `?view=present`:
 
 The look is a light, clinical base: flat surfaces, hairline borders, mono numerals. Dark tokens remain in `styles.css` but are off (`data-theme="light"` on `<html>`).
 
-From any working directory: `.venv/bin/python serve.py --dev-feed`.
+From any working directory: `.venv/bin/python serve.py [--replay [CSV]]`.
 
 ## Connect the Open-Motion device
 
@@ -67,11 +68,11 @@ From the repo root, with this directory on `PYTHONPATH` (the replay scripts inse
 
 ```bash
 python stress-alert/replay_csv.py \
-  --csv stress-alert/data/synthetic_scan.csv \
+  --csv stress-alert/data/sample_scan.csv \
   --out stress-alert/data/side_averages.csv
 ```
 
-`synthetic_scan.csv` is 640 frames at 40 Hz with a 72 bpm pulse on BFI. Camera r8 is marked `nan_filled`. The command prints side-average BFI/BVI, mean CQ, bad-coupling frames, and `optical_hr_bpm` near 72. `data/sample_scan.csv` is the 30 s Openwater example the dashboard dev feed uses. Pass that path the same way.
+`sample_scan.csv` is Openwater's real 30 s recording (1201 frames at 40 Hz, every camera "ok"). The command prints side-average BFI/BVI, mean CQ, bad-coupling frames, and `optical_hr_bpm` near 77. Pass a team recording's corrected CSV the same way. No synthetic fixture ships with the app.
 
 `--window-s 1` writes a 1 second trailing mean of the side averages. Heart rate still uses the per-frame trace. The default window is 0: one output row per input frame.
 
@@ -176,4 +177,4 @@ uv run ruff check . && uv run ruff format --check .
 
 ## Data
 
-`data/sample_scan.csv` is copied from Openwater's [openmotion-bloodflow-app](https://github.com/OpenwaterHealth/openmotion-bloodflow-app) (`resources/sample_scan.csv` at 0be3e90, Apache-2.0): 30 s, 16 cameras, 40 Hz, corrected BFI/BVI. `synthetic_scan.csv` is the 72 bpm offline fixture. Recordings of team members go in `sessions/`, which is gitignored. See `data/README.md`.
+`data/sample_scan.csv` is copied from Openwater's [openmotion-bloodflow-app](https://github.com/OpenwaterHealth/openmotion-bloodflow-app) (`resources/sample_scan.csv` at 0be3e90, Apache-2.0): 30 s, 16 cameras, 40 Hz, corrected BFI/BVI. It is the only data file that ships; no synthetic data does. Recordings of team members go in `sessions/`, which is gitignored. See `data/README.md`.
