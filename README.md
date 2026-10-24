@@ -12,6 +12,7 @@ This repo is a local fork of the event planning material shared with Jahlon on O
 | :- | :- |
 | `docs/EVENT.md` | Prompt, scope rules, shared device inventory, links |
 | `docs/OPEN-MOTION.md` | The team's platform: physics, hardware, data path, SDK, data formats, Mac test results, track fit, judging |
+| `docs/FLOW-STATE.md` | Flow-state idea: what the device can do, literature, datasets, a rule-compliant design |
 | `docs/TRACKS.md` | The eight challenge tracks, condensed, with what counts as a strong entry |
 | `docs/REPOS.md` | Openwater GitHub repos mapped to tracks |
 | `docs/OPENWATER.md` | What Openwater builds and how they frame it, from the opening pitch |
