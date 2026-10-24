@@ -1,0 +1,1 @@
+Sync notes. Live frame time `t` is `pylsl.local_clock()` on the dashboard machine. See `dashboard/SCHEMA.md`. The phase logger publishes the LSL stream `stress-alert-phases`. This directory does not yet align an Open-Motion `timestamp_s` with an Explore `TimeStamp`.
