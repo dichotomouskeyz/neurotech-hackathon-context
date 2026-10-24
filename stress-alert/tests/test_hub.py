@@ -24,7 +24,7 @@ async def test_late_joiner_gets_history_and_latest_status_first():
 
 async def test_latest_readouts_survive_signal_history():
     hub = Hub(history=2)
-    hr = {"type": "hr", "t": 1, "source": "ecg", "bpm": 70}
+    hr = {"type": "hr", "t": 1, "source": "optical", "bpm": 70}
     cq = {"type": "cq", "t": 1, "left": 0.9, "right": 0.8}
     hub.publish([hr, cq])
     hub.publish([bfi(2), bfi(3), bfi(4)])

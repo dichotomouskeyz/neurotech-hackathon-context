@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="description" content="Breath-hold stress dashboard: Open-Motion blood flow and ECG heart rate, for research use.">
+  <meta name="description" content="Breath-hold stress dashboard: Open-Motion blood flow and optical heart rate, for research use.">
   <title>stress-alert</title>
   <link rel="preload" href="/static/vendor/geist-latin-wght-normal.woff2" as="font" type="font/woff2" crossorigin>
   <link rel="stylesheet" href="/static/vendor/uPlot.min.css">
@@ -56,8 +56,8 @@
       <article class="card tile" id="tile-hr">
         <h2 class="card-title">Heart rate</h2>
         <div class="value live-only"><span class="num" id="hr-optical">--</span><span class="unit">bpm optical</span></div>
-        <div class="sub live-only" id="hr-ecg"></div>
-        <p class="waiting">Waiting for optical and ECG heart rate</p>
+        <div class="sub live-only" id="hr-note"></div>
+        <p class="waiting">Waiting for optical heart rate</p>
       </article>
 
       <article class="card tile" id="tile-cq">

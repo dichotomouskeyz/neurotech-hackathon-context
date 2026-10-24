@@ -1,6 +1,6 @@
 # stress-alert
 
-Breath-hold stress dashboard for research use. Open-Motion on the forehead gives blood flow and optical heart rate. A Mentalab ECG on the chest gives an ECG heart rate and a short HRV set (RMSSD, SDNN) for the research cross-check. Protocol: 60 s baseline, then a 20 to 40 s breath hold, then 90 s recovery.
+Breath-hold stress dashboard for research use. Open-Motion on the forehead gives blood flow, blood volume, and optical heart rate. The Mentalab ECG was dropped on 2026-10-24 because it did not work; its code is in git history. Protocol: 60 s baseline, then a 20 to 40 s breath hold, then 90 s recovery.
 
 For research. These numbers are not a diagnosis, a screening result, or a treatment signal. Organizers told the team that human recordings are allowed. Do not change safety-critical optical output, and do not enable the laser from this package.
 
@@ -34,7 +34,6 @@ From any working directory: `.venv/bin/python serve.py --dev-feed`.
 | :- | :- | :- |
 | Dashboard, session/phase logger | `dashboard/`, `session/` | Live UI, hub, phase timer, LSL phase markers |
 | Lane 1 Open-Motion | `ingest/omotion_source.py`, `features/cq_score.py`, `features/pulse_hr.py`, `replay_csv.py` | CSV replay, side averages, contact quality, optical heart rate |
-| Lane 2 Mentalab ECG | `ingest/mentalab_source.py`, `features/ecg_hrv.py`, `features/hr_compare.py`, `replay_mentalab.py` | CSV replay, ECG heart rate, RMSSD, SDNN, optical cross-check |
 | Lane 4 protocol and alert math | `features/stress_index.py`, `features/track3_classifier.py`, `protocol/breathhold.md` | CQ-gated stress index, recovery time constant, breath-hold protocol |
 
 Producers talk to the dashboard only through [dashboard/SCHEMA.md](dashboard/SCHEMA.md). Offline replay CSVs are a separate contract, below. They are not the WebSocket frames.
@@ -45,13 +44,11 @@ Producers talk to the dashboard only through [dashboard/SCHEMA.md](dashboard/SCH
 | :- | :- |
 | 1. Server, hub, ingest and browser sockets, live BFI charts from replay | Done |
 | 2. Session/phase logger: session bar, phase buttons and timer, `events.csv`, chart shading, LSL markers | Done |
-| 3. Contact quality, dual heart rate, stress and alert panels | CQ, dual heart rate, and the CQ-gated stress index exist as features. Dashboard panels for them are still planned |
+| 3. Contact quality, optical heart rate, stress and alert panels | Panels done. CQ, optical heart rate, and the CQ-gated stress index exist as features; live producers that send them to the dashboard are still to do |
 
 ## Versions
 
-Python 3.12, pins in `pyproject.toml`, locked in `uv.lock`. Dashboard: fastapi 0.143.0, uvicorn 0.54.0, websockets 17.2, pylsl 1.18.5 (bundles liblsl 1.18). Replay: numpy, pandas, scipy, neurokit2. Dev: pytest 9.1.1, pytest-asyncio 1.4.0, httpx 0.28.1, ruff 0.17.0. Vendored in `dashboard/static/vendor/`: uPlot 1.6.32 (MIT), Geist and Geist Mono variable fonts 5.3.0 from Fontsource (OFL-1.1). Chart and status colors come from the dataviz reference palette. The left/right pair passes its palette validator in light and dark.
-
-The Mentalab device path runs in its own environment (`explorepy==4.5.1`, `explorepy push2lsl`) because explorepy hard-pins old numpy, scipy, and pylsl. CSV replay does not import explorepy.
+Python 3.12, pins in `pyproject.toml`, locked in `uv.lock`. Dashboard: fastapi 0.143.0, uvicorn 0.54.0, websockets 17.2, pylsl 1.18.5 (bundles liblsl 1.18). Replay: numpy, pandas, scipy. Dev: pytest 9.1.1, pytest-asyncio 1.4.0, httpx 0.28.1, ruff 0.17.0. Vendored in `dashboard/static/vendor/`: uPlot 1.6.32 (MIT), Geist and Geist Mono variable fonts 5.3.0 from Fontsource (OFL-1.1). Chart and status colors come from the dataviz reference palette. The left/right pair passes its palette validator in light and dark.
 
 ## Lane 1 CSV replay
 
@@ -80,8 +77,8 @@ python stress-alert/replay_csv.py \
 
 `features/pulse_hr.py` detrends BFI and reports the strongest frequency between 0.7 and 3.0 Hz (42 to 180 bpm).
 
-- One rate for the whole clip. Beat-to-beat intervals and HRV are Lane 2.
-- Lane 2 can compare this number with the ECG rate. That comparison is a research cross-check.
+- One rate for the whole clip. No beat-to-beat intervals or HRV.
+- Not checked against a reference heart rate. Report it as an optical estimate.
 - Clips shorter than about 8 seconds return no rate.
 - Motion and bad coupling can move the peak. Gate on CQ first.
 - Respiration sits near 0.2 Hz and falls outside the search band.
@@ -109,55 +106,6 @@ python scripts/sdk_examples.py scan
 ```
 
 Those examples talk to the console and can turn the laser on. Run them from an `openmotion-sdk` checkout on the Windows host, not from this CLI.
-
-## Lane 2 Mentalab ECG
-
-Primary input is an explorepy ExG export, `{name}_ExG.csv`. `record_data(..., file_type="csv")` writes a header row `TimeStamp,ch1,ch2,...` and no units row. `TimeStamp` is seconds. Channel values are microvolts. The sampling rate is not in the file (Explore devices are 250, 500, or 1000 Hz); replay takes the median step from `TimeStamp`. A renamed file with `timestamp_s` and `ecg_uv` is accepted too. Pass `--channel ch2` to pick a lead other than the lowest `chN`. Orientation files (`*_ORN.csv`) are a different export and are rejected.
-
-```bash
-python stress-alert/replay_mentalab.py \
-  --csv stress-alert/data/synthetic_ecg.csv \
-  --out stress-alert/data/ecg_trace.csv \
-  --optical-hr 72
-```
-
-`synthetic_ecg.csv` is 5000 samples at 250 Hz with a 72 bpm ECG. The command prints duration, sample rate, mean heart rate near 72, mean NN, SDNN, and RMSSD. `--optical-hr` is the Lane 1 `optical_hr_bpm` figure. The CLI prints the absolute difference and that difference as a percent of the ECG rate.
-
-`ecg_trace.csv` (one row per sample):
-
-| Column | Meaning |
-| :- | :- |
-| `timestamp_s` | `TimeStamp` from the Explore file, in seconds. The synthetic file starts at 0. A device file keeps the device clock |
-| `ecg_uv` | The chosen lead, microvolts |
-| `hr_bpm` | NeuroKit2 `ECG_Rate`, interpolated between R peaks. Blank where the rate is missing |
-
-`ecg_trace_metrics.csv` (one row for the clip; written next to `--out` unless `--metrics` is set):
-
-| Column | Meaning |
-| :- | :- |
-| `duration_s`, `sample_rate_hz`, `channel` | Clip length, median rate, lead name |
-| `hr_bpm_mean` | 60000 / mean RR (`HRV_MeanNN`) |
-| `hrv_mean_nn_ms`, `hrv_sdnn_ms`, `hrv_rmssd_ms` | Mean RR, SDNN, and RMSSD in milliseconds |
-| `n_peaks` | R peaks NeuroKit2 kept |
-
-On the live socket, send `{"type": "hr", "t": <pylsl.local_clock()>, "source": "ecg", "bpm": <hr_bpm_mean>}` as specified in SCHEMA.md. Do not send the Explore `TimeStamp` as `t` until it has been mapped onto `pylsl.local_clock()`. `features/hr_compare.py` compares per-sample rates on shared windows only when both traces already share a clock.
-
-Clips shorter than 8 seconds are rejected. SDANN and the frequency-domain HRV set are left out: they need minutes of data.
-
-Live Explore recording, only with a paired device, and in the explorepy environment rather than this one:
-
-```python
-from ingest.mentalab_source import start_live_ecg
-
-explore = start_live_ecg(
-    device_name="Explore_XXXX",
-    file_name="breathhold",
-    duration_sec=60,
-    allow_live=True,
-)
-```
-
-`allow_live=False` raises. Without `explorepy` installed, the live call raises `ImportError` and says CSV replay does not need it. `record_data` writes `breathhold_ExG.csv`. Replay that file with the CLI above. Upstream connect and record examples: https://github.com/Mentalab-hub/explorepy/blob/master/docs/usage.rst
 
 ## Lane 4 protocol and stress index
 
@@ -202,7 +150,7 @@ Lane 4, from the repo root (standard library only):
 python3 -m unittest tests/test_stress_index.py
 ```
 
-Lane 1, Lane 2, Lane 4, and the dashboard tests, from the repo root, using the project environment (`uv sync` installs pytest, which the dashboard tests import):
+Lane 1, Lane 4, and the dashboard tests, from the repo root, using the project environment (`uv sync` installs pytest, which the dashboard tests import):
 
 ```bash
 stress-alert/.venv/bin/python -m unittest discover -s stress-alert/tests -t stress-alert
@@ -217,4 +165,4 @@ uv run ruff check . && uv run ruff format --check .
 
 ## Data
 
-`data/sample_scan.csv` is copied from Openwater's [openmotion-bloodflow-app](https://github.com/OpenwaterHealth/openmotion-bloodflow-app) (`resources/sample_scan.csv` at 0be3e90, Apache-2.0): 30 s, 16 cameras, 40 Hz, corrected BFI/BVI. `synthetic_scan.csv` and `synthetic_ecg.csv` are the 72 bpm offline fixtures. Recordings of team members go in `sessions/`, which is gitignored. See `data/README.md`.
+`data/sample_scan.csv` is copied from Openwater's [openmotion-bloodflow-app](https://github.com/OpenwaterHealth/openmotion-bloodflow-app) (`resources/sample_scan.csv` at 0be3e90, Apache-2.0): 30 s, 16 cameras, 40 Hz, corrected BFI/BVI. `synthetic_scan.csv` is the 72 bpm offline fixture. Recordings of team members go in `sessions/`, which is gitignored. See `data/README.md`.

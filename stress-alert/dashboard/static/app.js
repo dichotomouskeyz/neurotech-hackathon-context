@@ -343,20 +343,13 @@ function animateBreath() {
 }
 
 function renderHrTile() {
-  const { optical, ecg } = latest.hr;
+  const { optical } = latest.hr;
   const now = sharedNow();
-  const fresh = (f) => f && (now === null || now - f.t < STALE_S);
-  $("tile-hr").dataset.live = String(Boolean(optical || ecg));
-  const main = optical || ecg;
-  if (!main) return;
-  $("hr-optical").textContent = Math.round(main.bpm);
-  $("tile-hr").querySelector(".unit").textContent = optical ? "bpm optical" : "bpm ECG";
-  const parts = [];
-  if (optical && ecg) {
-    parts.push(`ECG ${Math.round(ecg.bpm)} bpm`, `difference ${fmt(Math.abs(optical.bpm - ecg.bpm), 1)}`);
-  }
-  if (!fresh(main)) parts.push(`last value ${Math.round(now - main.t)} s ago`);
-  $("hr-ecg").textContent = parts.join(" · ");
+  $("tile-hr").dataset.live = String(Boolean(optical));
+  if (!optical) return;
+  $("hr-optical").textContent = Math.round(optical.bpm);
+  const stale = now !== null && now - optical.t >= STALE_S;
+  $("hr-note").textContent = stale ? `last value ${Math.round(now - optical.t)} s ago` : "";
 }
 
 function cqStatus() {

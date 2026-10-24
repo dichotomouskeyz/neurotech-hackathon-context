@@ -4,7 +4,7 @@ Team repo for the UC Berkeley Neurotech Hackathon (October 24 to 25, 2026, Openw
 
 ## The app
 
-`stress-alert/` measures breath-hold stress (baseline, hold, recovery) with Open-Motion on the forehead and a Mentalab ECG on the chest, shown on one live dashboard. The build plan lives in the team's Google Doc "Neurotech Hackathon", tab "Pitch / Summary".
+`stress-alert/` measures breath-hold stress (baseline, hold, recovery) with Open-Motion on the forehead, shown on one live dashboard. The Mentalab ECG was dropped on 2026-10-24; do not reintroduce it without the team. The build plan lives in the team's Google Doc "Neurotech Hackathon", tab "Pitch / Summary".
 
 Lanes. Stay in your lane and code against the message contract in `stress-alert/dashboard/SCHEMA.md`:
 
@@ -16,7 +16,6 @@ Lanes. Stay in your lane and code against the message contract in `stress-alert/
 Environments:
 
 - The app uses Python 3.12 with uv. Dependencies are pinned exactly in `stress-alert/pyproject.toml` and locked in `uv.lock`. Add a dependency with `uv add <pkg>==<version>`, preferring releases at least two weeks old, and commit the lockfile.
-- The Mentalab ECG runs in a separate environment (`explorepy==4.5.1`, run as `explorepy push2lsl`), because explorepy hard-pins old numpy, scipy, and pylsl. It reaches the app over LSL only.
 - `openmotion-sdk` is pinned to 1.12.0, matching Openwater's bloodflow app. `demo_mode` produced no BFI/BVI in our test, so off-station work replays CSVs.
 
 ## Scope rules

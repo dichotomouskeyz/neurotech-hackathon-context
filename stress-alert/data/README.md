@@ -4,6 +4,4 @@
 
 `side_averages.csv` is Lane 1 replay output. Do not commit it.
 
-Lane 2 reads an explorepy `*_ExG.csv` (`TimeStamp`, `ch1`... in microvolts). `synthetic_ecg.csv` is a committed stand-in: 5000 samples at 250 Hz, a 72 bpm ECG on `ch1`. Regenerate it with `python stress-alert/data/make_synthetic_ecg.py` (needs neurokit2). `ecg_trace.csv` and `ecg_trace_metrics.csv` are replay output. Do not commit them.
-
 Recordings of team members go in `sessions/`, which is gitignored.

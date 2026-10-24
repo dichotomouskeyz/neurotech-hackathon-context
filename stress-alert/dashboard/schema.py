@@ -29,7 +29,7 @@ class Hemo(_Frame):
 class HeartRate(_Frame):
     type: Literal["hr"]
     t: float
-    source: Literal["optical", "ecg"]
+    source: Literal["optical"]
     bpm: Annotated[float, Field(gt=0, lt=300)]
 
 

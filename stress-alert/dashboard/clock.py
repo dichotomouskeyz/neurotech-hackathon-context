@@ -1,7 +1,7 @@
 """The one shared clock for every ``t`` in the message contract.
 
-LSL's ``local_clock()`` is used because ECG and Open-Motion samples arrive through LSL
-with timestamps on that clock. On macOS it is offset from ``time.monotonic()`` by
+LSL's ``local_clock()`` is used so Open-Motion samples and the phase markers share
+one clock with any other LSL recording. On macOS it is offset from ``time.monotonic()`` by
 millions of seconds, so the two must never be mixed.
 """
 

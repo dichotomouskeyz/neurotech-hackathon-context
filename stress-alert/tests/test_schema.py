@@ -9,11 +9,10 @@ VALID = [
     {"type": "bfi", "t": 1.0, "left": CAMS, "right": CAMS},
     {"type": "bvi", "t": 1.0, "left": CAMS, "right": CAMS},
     {"type": "hr", "t": 1.0, "source": "optical", "bpm": 72},
-    {"type": "hr", "t": 1.0, "source": "ecg", "bpm": 71.5},
     {"type": "cq", "t": 1.0, "left": 0.9, "right": 0.2},
     {"type": "stress", "t": 1.0, "index": 0.4},
     {"type": "phase", "t": 1.0, "session_id": "s1", "phase": "hold", "source": "manual"},
-    {"type": "status", "source": "mentalab", "connected": True},
+    {"type": "status", "source": "omotion", "connected": True},
 ]
 
 
@@ -28,7 +27,8 @@ def test_valid_frames_round_trip(frame):
     [
         {"type": "bfi", "t": 1.0, "left": CAMS[:7], "right": CAMS},  # 7 cameras
         {"type": "hr", "t": 1.0, "source": "ppg", "bpm": 72},  # unknown source
-        {"type": "hr", "t": 1.0, "source": "ecg", "bpm": 0},  # impossible rate
+        {"type": "hr", "t": 1.0, "source": "ecg", "bpm": 71},  # ECG dropped 2026-10-24
+        {"type": "hr", "t": 1.0, "source": "optical", "bpm": 0},  # impossible rate
         {"type": "cq", "t": 1.0, "left": 1.5, "right": 0.5},  # out of 0..1
         {"type": "phase", "t": 1.0, "session_id": "s1", "phase": "nap", "source": "manual"},
         {"type": "status", "source": "x", "connected": True, "extra": 1},  # unknown field
