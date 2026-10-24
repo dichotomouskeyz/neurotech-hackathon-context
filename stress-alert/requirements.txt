@@ -1,10 +1,14 @@
-# Lane 1 CSV replay.
+# Offline replay. Lane 1 uses numpy, pandas, and scipy.
+# Lane 2 also uses neurokit2. Lane 1 does not import it.
 numpy>=1.26
 pandas>=2.2
 scipy>=1.11
+neurokit2>=0.2.7
 
 # Optional. Not installed by a plain `pip install -r requirements.txt`.
-# openmotion-sdk: live station path only (Windows host). CSV replay does not import it.
-# pylsl: later sync lane. Lane 1 does not import it.
+# openmotion-sdk: live Open-Motion station path only (Windows host).
+# explorepy: live Mentalab Explore path only. CSV replay does not import it.
+# pylsl: later sync lane.
 #   pip install openmotion-sdk
+#   pip install explorepy
 #   pip install pylsl

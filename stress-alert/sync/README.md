@@ -1,1 +1,1 @@
-Sync lane. LSL and external triggers are not implemented here. Consume the side-average CSV from Lane 1 (`timestamp_s`, `bfi_l`, `bfi_r`, `bvi_l`, `bvi_r`, `cq`).
+Sync lane placeholder. LSL and external triggers are not implemented here. Lane 1 and Lane 2 each write their own `timestamp_s`. Aligning the Open-Motion clock with the Explore `TimeStamp` is this lane's job.

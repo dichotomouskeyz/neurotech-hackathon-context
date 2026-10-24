@@ -10,7 +10,7 @@ This repo is a local fork of the event planning material shared with Jahlon on O
 
 | Path | Contents |
 | :- | :- |
-| `stress-alert/` | Lane 1 Open-Motion code: CSV replay, contact quality, optical pulse. Other lanes are placeholders. |
+| `stress-alert/` | Team project code. Lane 1 Open-Motion CSV replay. Lane 2 Mentalab ECG replay. Other lanes are placeholders. |
 | `docs/EVENT.md` | Prompt, scope rules, shared device inventory, links |
 | `docs/OPEN-MOTION.md` | The team's platform: physics, hardware, data path, SDK, data formats, Mac test results, track fit, judging |
 | `docs/FLOW-STATE.md` | Flow-state idea: what the device can do, literature, datasets, a rule-compliant design |
