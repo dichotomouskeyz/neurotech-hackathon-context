@@ -18,7 +18,7 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field, ValidationError
 
-from dashboard import clock
+from dashboard import clock, dev_feed
 from dashboard.device import DeviceError, DeviceManager
 from dashboard.hub import Hub, drain
 from dashboard.schema import PhaseName, frame_adapter
@@ -46,11 +46,12 @@ class ProtocolStart(BaseModel):
 
 def create_app(
     *,
+    dev_feed_url: str | None = None,
     sessions_dir: Path = SESSIONS,
     lsl_markers: bool = True,
     device_factory: Any = None,
 ) -> FastAPI:
-    """Build the app. Data comes only from the connected device and live producers.
+    """Build the app. With ``dev_feed_url`` set, replay sample data into it on startup.
 
     ``device_factory`` replaces the openmotion-sdk constructor (tests use a fake).
     """
@@ -75,9 +76,14 @@ def create_app(
             )
         hub.publish([logger.state(), device.state()])
         device.start_polling(asyncio.get_running_loop())
+        task = asyncio.create_task(dev_feed.run_forever(dev_feed_url)) if dev_feed_url else None
         yield
         logger.stop_session()
         await asyncio.to_thread(device.shutdown)
+        if task:
+            task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await task
 
     app = FastAPI(title="stress-alert dashboard", lifespan=lifespan)
     app.state.hub = hub

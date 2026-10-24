@@ -1,5 +1,23 @@
-"""Open-Motion ingest: a gated live station scan. The dashboard streams live data itself."""
+"""Open-Motion ingest: CSV replay now, live station scan behind a flag."""
 
-from .omotion_source import start_live_scan
+from .omotion_source import (
+    SIDE_CSV_COLUMNS,
+    ScanCsvError,
+    SideAverage,
+    iter_side_averages,
+    read_side_frames,
+    replay_scan,
+    start_live_scan,
+    write_side_csv,
+)
 
-__all__ = ["start_live_scan"]
+__all__ = [
+    "SIDE_CSV_COLUMNS",
+    "ScanCsvError",
+    "SideAverage",
+    "iter_side_averages",
+    "read_side_frames",
+    "replay_scan",
+    "start_live_scan",
+    "write_side_csv",
+]

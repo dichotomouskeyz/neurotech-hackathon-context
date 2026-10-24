@@ -3,6 +3,7 @@ import json
 import pytest
 from fastapi.testclient import TestClient
 
+from dashboard import dev_feed
 from dashboard.app import create_app
 
 CAMS = [1.0] * 8
@@ -41,6 +42,15 @@ def test_malformed_json_is_reported(app):
     with client.websocket_connect("/ws/ingest") as producer:
         producer.send_text("{not json")
         assert producer.receive_json()["errors"][0].startswith("invalid JSON")
+
+
+def test_dev_feed_frames_match_the_contract():
+    from dashboard.schema import frame_adapter
+
+    rows = dev_feed.load_rows()
+    assert len(rows) == 1201
+    for frame in dev_feed.frames_for(rows[0], t=0.0):
+        frame_adapter.validate_python(frame)
 
 
 def test_session_api_drives_logger_and_reaches_browser(app):

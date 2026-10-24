@@ -11,7 +11,7 @@ ws://<dashboard-host>:8765/ws/ingest?source=<your-name>
 - `source` names your producer (for example `omotion`, `features`). The dashboard shows a status chip for it, green while connected.
 - Send one frame or a list of frames per message. At 40 Hz, batch about 4 frames per message.
 - Invalid frames are dropped. The dashboard replies on the same socket with `{"type": "error", "errors": ["frame 1: hr.bpm: ..."]}`. Valid frames in the same message still go through.
-- Python client: `websockets.asyncio.client.connect`, sending `json.dumps([...frames])`. The Open-Motion device itself needs no producer: the dashboard streams its `bfi` and `bvi` frames directly (see `dashboard/device.py`).
+- Python client: `websockets.asyncio.client.connect`. See `dashboard/dev_feed.py` for a working producer.
 
 ## Time
 

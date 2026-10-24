@@ -13,7 +13,7 @@ No diagnostic, screening, clinical, treatment, or therapeutic claims.
 - **Hardware on screen**:
   - Open-Motion optical headband on forehead (40 Hz BFI/BVI).
   - Live stress-alert dashboard (status strip, phase bands, live BFI and BVI charts, CQ gauges, alert banner).
-- **Live only**: The dashboard runs on live device data only. There is no replay backup, so get the device connected before the dry run.
+- **Backup**: If live station optical stream is not connected, replay `stress-alert/data/sample_scan.csv` through `replay_csv.py` with identical screen results.
 
 ---
 
@@ -31,12 +31,11 @@ No diagnostic, screening, clinical, treatment, or therapeutic claims.
 
 ## Contingency Checklist (For Sunday 2:30 Dry Run)
 
-1. **Device green**:
-   - In Operator view, press **Connect device**. Console, left sensor and right sensor all show connected, and the `open-motion` chip is green.
-   - **Start scan (laser on)**. BFI and BVI charts move at about 40 Hz.
-2. **Device not connecting**:
-   - The Operator panel names the fix:
-     - `libusb was not found`: run `brew install libusb` on the demo Mac.
-     - `No Open-Motion console found`: check console power and the Openwater USB cable.
-     - `... sensor not connected`: reseat that sensor module.
-   - After fixing, press **Search again**. There is no replay fallback.
+1. **Hardware Ingest Green**:
+   - Open-Motion live station scanning.
+2. **Hardware Ingest Blocked or Station In Use**:
+   - Switch dashboard to CSV replay mode:
+     ```bash
+     python stress-alert/replay_csv.py --csv stress-alert/data/synthetic_scan.csv --dashboard ws://localhost:8765/ws/ingest?source=omotion
+     ```
+   - Replay executes the exact same 3-phase sequence with synthetic breath-hold dynamics and identical dashboard visualization.

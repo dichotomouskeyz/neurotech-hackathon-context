@@ -1,4 +1,4 @@
-"""Entry point that works from any working directory: ``.venv/bin/python serve.py``.
+"""Entry point that works from any working directory: ``.venv/bin/python serve.py [--dev-feed]``.
 
 Same as ``uv run python -m dashboard``; used by launchers that cannot set a cwd.
 """

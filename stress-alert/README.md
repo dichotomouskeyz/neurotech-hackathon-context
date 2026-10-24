@@ -8,10 +8,10 @@ For research. These numbers are not a diagnosis, a screening result, or a treatm
 
 ```bash
 uv sync --locked
-uv run python -m dashboard
+uv run python -m dashboard --dev-feed
 ```
 
-Open http://127.0.0.1:8765. The dashboard shows live data only: from the Open-Motion device (Connect device, below) and from producers on `/ws/ingest`. Replay and synthetic data were removed on 2026-10-24. With no device connected, every panel shows its waiting state.
+Open http://127.0.0.1:8765. `--dev-feed` replays `data/sample_scan.csv` so the charts move without hardware. Without it, the dashboard waits for producers on `/ws/ingest`.
 
 ```
 ws://<dashboard-host>:8765/ws/ingest?source=<your-name>
@@ -26,7 +26,7 @@ Two views, switched in the top bar or with `?view=present`:
 
 The look is a light, clinical base: flat surfaces, hairline borders, mono numerals. Dark tokens remain in `styles.css` but are off (`data-theme="light"` on `<html>`).
 
-From any working directory: `.venv/bin/python serve.py`.
+From any working directory: `.venv/bin/python serve.py --dev-feed`.
 
 ## Connect the Open-Motion device
 
@@ -44,47 +44,79 @@ Errors name the fix: SDK not installed, libusb missing, no console found, or whi
 | Lane | Paths | Role |
 | :- | :- | :- |
 | Dashboard, session/phase logger | `dashboard/`, `session/` | Live UI, hub, phase timer, LSL phase markers |
-| Lane 1 Open-Motion | `ingest/omotion_source.py`, `features/cq_score.py`, `features/pulse_hr.py` | Gated scripted live scan, contact quality, optical heart rate |
+| Lane 1 Open-Motion | `ingest/omotion_source.py`, `features/cq_score.py`, `features/pulse_hr.py`, `replay_csv.py` | CSV replay, side averages, contact quality, optical heart rate |
 | Lane 4 protocol and alert math | `features/stress_index.py`, `features/track3_classifier.py`, `protocol/breathhold.md` | CQ-gated stress index, recovery time constant, breath-hold protocol |
 
-Producers talk to the dashboard only through [dashboard/SCHEMA.md](dashboard/SCHEMA.md).
+Producers talk to the dashboard only through [dashboard/SCHEMA.md](dashboard/SCHEMA.md). Offline replay CSVs are a separate contract, below. They are not the WebSocket frames.
 
 ## Status
 
 | Milestone | State |
 | :- | :- |
-| 1. Server, hub, ingest and browser sockets, live BFI and BVI charts | Done |
+| 1. Server, hub, ingest and browser sockets, live BFI charts from replay | Done |
 | 2. Session/phase logger: session bar, phase buttons and timer, `events.csv`, chart shading, LSL markers | Done |
 | 3. Contact quality, optical heart rate, stress and alert panels | Panels done. CQ, optical heart rate, and the CQ-gated stress index exist as features; live producers that send them to the dashboard are still to do |
 
 ## Versions
 
-Python 3.12, pins in `pyproject.toml`, locked in `uv.lock`. Dashboard: fastapi 0.143.0, uvicorn 0.54.0, websockets 17.2, pylsl 1.18.5 (bundles liblsl 1.18). Device: openmotion-sdk 1.12.0. Optical heart rate: numpy, scipy. Dev: pytest 9.1.1, pytest-asyncio 1.4.0, httpx 0.28.1, ruff 0.17.0. Vendored in `dashboard/static/vendor/`: uPlot 1.6.32 (MIT), Geist and Geist Mono variable fonts 5.3.0 from Fontsource (OFL-1.1). Chart and status colors come from the dataviz reference palette. The left/right pair passes its palette validator in light and dark.
+Python 3.12, pins in `pyproject.toml`, locked in `uv.lock`. Dashboard: fastapi 0.143.0, uvicorn 0.54.0, websockets 17.2, pylsl 1.18.5 (bundles liblsl 1.18). Replay: numpy, pandas, scipy. Dev: pytest 9.1.1, pytest-asyncio 1.4.0, httpx 0.28.1, ruff 0.17.0. Vendored in `dashboard/static/vendor/`: uPlot 1.6.32 (MIT), Geist and Geist Mono variable fonts 5.3.0 from Fontsource (OFL-1.1). Chart and status colors come from the dataviz reference palette. The left/right pair passes its palette validator in light and dark.
 
-## Lane 1 features
+## Lane 1 CSV replay
 
-`features/cq_score.py` scores contact quality from per-camera labels or DN readings, 0 to 1. `bad_coupling` is true when the score is strictly below 0.5. The live `cq` frame in SCHEMA.md is per side (`left`, `right`), each 0 to 1.
+From the repo root, with this directory on `PYTHONPATH` (the replay scripts insert it themselves):
+
+```bash
+python stress-alert/replay_csv.py \
+  --csv stress-alert/data/synthetic_scan.csv \
+  --out stress-alert/data/side_averages.csv
+```
+
+`synthetic_scan.csv` is 640 frames at 40 Hz with a 72 bpm pulse on BFI. Camera r8 is marked `nan_filled`. The command prints side-average BFI/BVI, mean CQ, bad-coupling frames, and `optical_hr_bpm` near 72. `data/sample_scan.csv` is the 30 s Openwater example the dashboard dev feed uses. Pass that path the same way.
+
+`--window-s 1` writes a 1 second trailing mean of the side averages. Heart rate still uses the per-frame trace. The default window is 0: one output row per input frame.
+
+`side_averages.csv`:
+
+| Column | Meaning |
+| :- | :- |
+| `timestamp_s` | Frame time from the scan CSV, seconds |
+| `bfi_l`, `bfi_r` | Mean of finite cameras on that side. Blank cells are omitted from the mean |
+| `bvi_l`, `bvi_r` | Same for blood volume index |
+| `cq` | Mean per-camera quality, 0 to 1. Blank when the scan has no `quality_*` columns |
+
+`bad_coupling` is true when `cq` is strictly below 0.5. The CLI counts those frames. Gate pulse features on that flag. The live `cq` frame in SCHEMA.md is per side (`left`, `right`), each 0 to 1. The live `bfi` and `bvi` frames are 8 cameras per side, not these side means.
 
 `features/pulse_hr.py` detrends BFI and reports the strongest frequency between 0.7 and 3.0 Hz (42 to 180 bpm).
 
-- One rate for the whole window. No beat-to-beat intervals or HRV.
+- One rate for the whole clip. No beat-to-beat intervals or HRV.
 - Not checked against a reference heart rate. Report it as an optical estimate.
-- Windows shorter than about 8 seconds return no rate.
+- Clips shorter than about 8 seconds return no rate.
 - Motion and bad coupling can move the peak. Gate on CQ first.
 - Respiration sits near 0.2 Hz and falls outside the search band.
-- `hr_confidence` near 1 is a sharp peak. Near 0.5 the band is flat and no rate is reported.
+- `hr_confidence` near 1 is a sharp peak. Near 0.5 the band is flat and no rate is printed.
 
-Scripted live scan (the dashboard's Connect device button is the usual path):
+Live scan, only on the station host:
 
 ```python
 from ingest.omotion_source import start_live_scan
 
-iface = start_live_scan(data_dir="sessions/device-scans", subject_id="phantom-01", allow_live=True)
+iface = start_live_scan(data_dir="C:/scans", subject_id="phantom-01", allow_live=True)
 iface.scan_workflow.await_complete()
 iface.stop()
 ```
 
-`allow_live=False` raises. `demo_mode=True` raises: `MotionInterface(demo_mode=True)` connected nothing and wrote no BFI/BVI frames in the 2026-10-24 Mac check (`docs/OPEN-MOTION.md`).
+`allow_live=False` raises. `demo_mode=True` raises. `MotionInterface(demo_mode=True)` connected nothing and wrote no BFI/BVI frames in the 2026-10-24 Mac check (`docs/OPEN-MOTION.md`). Use a corrected CSV offline.
+
+Contact quality and a hardware scan are demonstrated upstream:
+
+https://github.com/OpenwaterHealth/openmotion-sdk/blob/main/scripts/sdk_examples.py
+
+```bash
+python scripts/sdk_examples.py contact-quality
+python scripts/sdk_examples.py scan
+```
+
+Those examples talk to the console and can turn the laser on. Run them from an `openmotion-sdk` checkout on the Windows host, not from this CLI.
 
 ## Lane 4 protocol and stress index
 
@@ -144,4 +176,4 @@ uv run ruff check . && uv run ruff format --check .
 
 ## Data
 
-No sample, replay, or synthetic data ships with the app. Live recordings go in `sessions/` (phase events) and `sessions/device-scans/` (SDK scan CSVs), which are gitignored and stay on the machine.
+`data/sample_scan.csv` is copied from Openwater's [openmotion-bloodflow-app](https://github.com/OpenwaterHealth/openmotion-bloodflow-app) (`resources/sample_scan.csv` at 0be3e90, Apache-2.0): 30 s, 16 cameras, 40 Hz, corrected BFI/BVI. `synthetic_scan.csv` is the 72 bpm offline fixture. Recordings of team members go in `sessions/`, which is gitignored. See `data/README.md`.
