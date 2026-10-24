@@ -6,6 +6,7 @@ requires-python = ">=3.12,<3.13"
 # Exact pins, each release at least two weeks old when chosen. Add with `uv add <pkg>==<version>`.
 dependencies = [
     "fastapi==0.143.0",
+    "pylsl==1.18.5",
     "uvicorn[standard]==0.54.0",
     "websockets==17.2",
 ]

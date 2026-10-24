@@ -1,8 +1,8 @@
 """Development-only producer: replays an Open-Motion corrected CSV into /ws/ingest.
 
 Stands in for the ingest lane until real producers connect. Loops the file forever
-and stamps frames with the host's monotonic clock so they share the dashboard's
-time base. Run standalone with ``uv run python -m dashboard.dev_feed``.
+and stamps frames with the shared clock (``dashboard.clock``). Run standalone with
+``uv run python -m dashboard.dev_feed``.
 """
 
 import asyncio
@@ -13,6 +13,8 @@ from pathlib import Path
 
 from websockets.asyncio.client import connect
 from websockets.exceptions import WebSocketException
+
+from dashboard import clock
 
 DEFAULT_CSV = Path(__file__).resolve().parent.parent / "data" / "sample_scan.csv"
 RATE_HZ = 40.0
@@ -53,7 +55,7 @@ async def run(url: str, path: Path = DEFAULT_CSV) -> None:
         while True:
             batch = []
             for _ in range(BATCH):
-                t = time.monotonic()
+                t = clock.now()
                 batch.extend(frames_for(rows[index % len(rows)], t))
                 index += 1
             await ws.send(json.dumps(batch))

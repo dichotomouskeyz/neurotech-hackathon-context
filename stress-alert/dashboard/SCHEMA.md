@@ -15,7 +15,11 @@ ws://<dashboard-host>:8765/ws/ingest?source=<your-name>
 
 ## Time
 
-`t` is seconds on one shared clock. Use LSL `pylsl.local_clock()` if your data comes through LSL, otherwise `time.monotonic()` on the same machine as the dashboard. Do not send wall-clock time.
+`t` is seconds on **LSL `pylsl.local_clock()`** of the machine running the dashboard. `GET /api/clock` returns the current value.
+
+- A producer on the same machine calls `pylsl.local_clock()`.
+- A producer reading from an LSL inlet uses the sample timestamp plus `inlet.time_correction()`.
+- Do not send `time.monotonic()` or wall-clock time. On macOS, `local_clock()` and `time.monotonic()` differ by millions of seconds, and frames on the wrong clock land off the chart.
 
 ## Frames
 
@@ -26,9 +30,14 @@ ws://<dashboard-host>:8765/ws/ingest?source=<your-name>
 | `cq` | `t`, `left`, `right` | contact quality, 0 to 1 |
 | `stress` | `t`, `index`, `recovery_score` (optional), `alert` (bool), `reason` | the dashboard only shows an alert when contact quality passes its threshold |
 | `phase` | `t`, `session_id`, `phase` (`baseline`, `hold`, `recovery`, `end`), `source` (`manual` or `timer`) | sent by the session/phase logger |
+| `session` | `t`, `active`, `session_id`, `subject_id`, `phase`, `phase_t`, `timer_next`, `timer_ends_t` | sent by the dashboard itself whenever the session changes |
 | `status` | `source`, `connected`, `detail` | the dashboard sends these itself on connect and disconnect. Producers may add detail, e.g. `"no ECG signal"` |
 
 Unknown types and unknown fields are rejected. To change the contract, edit `dashboard/schema.py` and this file together, with Jahlon (dashboard lane owner).
+
+## Phase markers for other recordings
+
+The phase logger also publishes an LSL stream named **`stress-alert-phases`** (type `Markers`, string samples `<phase>|<session_id>|<source>`, timestamped on the shared clock). Record it next to the ECG and Open-Motion streams, for example in LabRecorder, to align any recording to baseline, hold and recovery. Each session also writes `sessions/<session_id>/events.csv` and `meta.json`.
 
 ## Example
 

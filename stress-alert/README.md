@@ -27,12 +27,12 @@ Producers talk to the dashboard only through the message contract in [dashboard/
 | Milestone | State |
 | :- | :- |
 | 1. Server, hub, ingest and browser sockets, live BFI charts from replay | Done |
-| 2. Session/phase logger: session bar, phase buttons and timer, `events.csv`, chart shading, LSL markers | Next |
+| 2. Session/phase logger: session bar, phase buttons and timer, `events.csv`, chart shading, LSL markers | Done |
 | 3. Contact quality, dual heart rate, stress and alert panels | Planned |
 
 ## Versions
 
-Python 3.12, exact pins in `pyproject.toml`, locked in `uv.lock`: fastapi 0.143.0, uvicorn 0.54.0, websockets 17.2. Dev: pytest 9.1.1, pytest-asyncio 1.4.0, httpx 0.28.1, ruff 0.17.0. Vendored: uPlot 1.6.32 (MIT, `dashboard/static/vendor/`).
+Python 3.12, exact pins in `pyproject.toml`, locked in `uv.lock`: fastapi 0.143.0, uvicorn 0.54.0, websockets 17.2, pylsl 1.18.5 (bundles liblsl 1.18). Dev: pytest 9.1.1, pytest-asyncio 1.4.0, httpx 0.28.1, ruff 0.17.0. Vendored: uPlot 1.6.32 (MIT, `dashboard/static/vendor/`).
 
 The Mentalab ECG runs in its own environment (`explorepy==4.5.1`, `explorepy push2lsl`) because explorepy hard-pins old numpy, scipy, and pylsl.
 

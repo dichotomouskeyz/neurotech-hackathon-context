@@ -1,8 +1,8 @@
 """Message contract between producers (ingest, features, logger) and the dashboard.
 
 Every frame is a JSON object with a ``type`` field. ``t`` is seconds on the shared
-clock (LSL ``local_clock()`` when available, otherwise ``time.monotonic()`` on the
-host running the dashboard). See SCHEMA.md for the human-readable version.
+clock, LSL ``local_clock()`` (see ``dashboard.clock``). See SCHEMA.md for the
+human-readable version.
 """
 
 from typing import Annotated, Literal
@@ -49,12 +49,29 @@ class Stress(_Frame):
     reason: str = ""
 
 
+PhaseName = Literal["baseline", "hold", "recovery", "end"]
+
+
 class Phase(_Frame):
     type: Literal["phase"]
     t: float
     session_id: str
-    phase: Literal["baseline", "hold", "recovery", "end"]
+    phase: PhaseName
     source: Literal["manual", "timer"]
+
+
+class Session(_Frame):
+    """Current session state, sent by the dashboard itself whenever it changes."""
+
+    type: Literal["session"]
+    t: float
+    active: bool
+    session_id: str | None = None
+    subject_id: str = ""
+    phase: PhaseName | None = None
+    phase_t: float | None = None
+    timer_next: PhaseName | None = None
+    timer_ends_t: float | None = None
 
 
 class Status(_Frame):
@@ -65,7 +82,7 @@ class Status(_Frame):
 
 
 Frame = Annotated[
-    Hemo | HeartRate | ContactQuality | Stress | Phase | Status,
+    Hemo | HeartRate | ContactQuality | Stress | Phase | Session | Status,
     Field(discriminator="type"),
 ]
 

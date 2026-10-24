@@ -95,6 +95,75 @@ button[aria-pressed="true"] { border-color: var(--accent); color: var(--accent);
 
 .uplot, .u-legend { color: var(--ink); }
 
+/* Phase colors, shared by the session panel and chart bands */
+:root {
+  --phase-baseline: 37, 99, 235;
+  --phase-hold: 217, 119, 6;
+  --phase-recovery: 22, 163, 74;
+}
+
+.row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  margin: 0 0 10px;
+}
+.row label { display: flex; align-items: center; gap: 6px; color: var(--muted); }
+.row .grow { flex: 1; min-width: 160px; }
+.row .grow input { flex: 1; }
+.label { color: var(--muted); font-weight: 600; }
+
+input {
+  font: inherit;
+  padding: 5px 8px;
+  border-radius: 6px;
+  border: 1px solid var(--line);
+  background: var(--bg);
+  color: var(--ink);
+  min-width: 0;
+}
+input[type="number"] { width: 64px; }
+button:disabled { opacity: 0.4; cursor: not-allowed; }
+
+.phase-row { gap: 12px 20px; }
+.phase-now {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  padding: 6px 12px;
+  border-radius: 8px;
+  border: 1px solid var(--line);
+  min-width: 190px;
+}
+.phase-name { font-size: 20px; font-weight: 700; text-transform: capitalize; }
+.phase-clock { font-variant-numeric: tabular-nums; color: var(--muted); font-size: 16px; }
+.phase-next { color: var(--muted); font-variant-numeric: tabular-nums; min-width: 150px; }
+.phase-buttons { display: flex; gap: 6px; flex-wrap: wrap; }
+
+.phase-now[data-phase="baseline"] { border-color: rgb(var(--phase-baseline)); background: rgba(var(--phase-baseline), 0.1); }
+.phase-now[data-phase="hold"] { border-color: rgb(var(--phase-hold)); background: rgba(var(--phase-hold), 0.12); }
+.phase-now[data-phase="recovery"] { border-color: rgb(var(--phase-recovery)); background: rgba(var(--phase-recovery), 0.1); }
+
+.error { color: var(--bad); margin: 0 0 6px; min-height: 1.2em; }
+
+.events {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  font-size: 12px;
+}
+.events li {
+  padding: 2px 8px;
+  border-radius: 6px;
+  border: 1px solid var(--line);
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
 @media (max-width: 760px) {
   .grid { grid-template-columns: 1fr; padding: 12px; }
   .span-2 { grid-column: span 1; }

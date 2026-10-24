@@ -17,9 +17,42 @@
   </header>
 
   <main class="grid">
-    <section class="panel span-2" id="panel-session" data-waiting="phase">
-      <h2>Session</h2>
-      <p class="waiting">Session controls and baseline, hold, recovery markers arrive in the next step.</p>
+    <section class="panel span-2" id="panel-session">
+      <h2>Session <span class="meta" id="session-id">no session</span></h2>
+
+      <form class="row" id="session-form" autocomplete="off">
+        <label>Subject <input id="subject" maxlength="64" placeholder="e.g. jb"></label>
+        <label class="grow">Notes <input id="notes" maxlength="2000" placeholder="optional"></label>
+        <button type="submit" id="session-start">Start session</button>
+        <button type="button" id="session-stop">Stop session</button>
+      </form>
+
+      <div class="row phase-row">
+        <div class="phase-now" id="phase-now" data-phase="">
+          <span class="phase-name" id="phase-name">idle</span>
+          <span class="phase-clock" id="phase-elapsed"></span>
+        </div>
+        <div class="phase-next" id="phase-next"></div>
+        <div class="phase-buttons" role="group" aria-label="Mark phase">
+          <button type="button" data-phase="baseline">Baseline</button>
+          <button type="button" data-phase="hold">Hold</button>
+          <button type="button" data-phase="recovery">Recovery</button>
+          <button type="button" data-phase="end">End</button>
+        </div>
+      </div>
+
+      <form class="row" id="protocol-form">
+        <span class="label">Timed protocol</span>
+        <label>Baseline <input type="number" id="dur-baseline" value="60" min="1" max="600"> s</label>
+        <label>Hold <input type="number" id="dur-hold" value="30" min="1" max="120"> s</label>
+        <label>Recovery <input type="number" id="dur-recovery" value="90" min="1" max="600"> s</label>
+        <label>Cycles <input type="number" id="cycles" value="1" min="1" max="10"></label>
+        <button type="submit" id="protocol-start">Run timed protocol</button>
+        <button type="button" id="protocol-stop">Stop timer</button>
+      </form>
+
+      <p class="error" id="session-error" role="alert"></p>
+      <ol class="events" id="events" aria-label="Phase events"></ol>
     </section>
 
     <section class="panel" id="panel-bfi-left">
