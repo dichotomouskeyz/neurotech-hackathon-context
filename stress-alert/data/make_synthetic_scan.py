@@ -13,10 +13,10 @@ Run from anywhere:
 
 from __future__ import annotations
 
-from pathlib import Path
 import csv
 import math
 import random
+from pathlib import Path
 
 SAMPLE_RATE_HZ = 40.0
 DURATION_S = 16.0

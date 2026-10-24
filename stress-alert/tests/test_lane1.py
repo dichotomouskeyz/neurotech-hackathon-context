@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
-from pathlib import Path
 import csv
 import tempfile
 import unittest
+from pathlib import Path
 
 from features.cq_score import cq_score
 from features.pulse_hr import estimate_optical_hr

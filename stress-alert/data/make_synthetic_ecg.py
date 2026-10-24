@@ -12,8 +12,8 @@ Requires neurokit2:
 
 from __future__ import annotations
 
-from pathlib import Path
 import csv
+from pathlib import Path
 
 SAMPLE_RATE_HZ = 250
 DURATION_S = 20

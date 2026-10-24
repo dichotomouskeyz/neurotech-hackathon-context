@@ -2,11 +2,11 @@
 
 from __future__ import annotations
 
-from pathlib import Path
 import csv
 import sys
 import tempfile
 import unittest
+from pathlib import Path
 
 from features.ecg_hrv import EcgFeatureError, analyze_ecg
 from features.hr_compare import compare_hr, compare_hr_windows

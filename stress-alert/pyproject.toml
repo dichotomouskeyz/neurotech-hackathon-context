@@ -1,25 +1,40 @@
 [project]
 name = "stress-alert"
 version = "0.1.0"
-description = "Open-Motion and Mentalab ECG ingest for the stress-alert demo. For research."
-readme = "README.md"
-requires-python = ">=3.12"
+description = "Breath-hold stress dashboard: Open-Motion blood flow plus ECG, for research only"
+requires-python = ">=3.12,<3.13"
+# Dashboard pins are exact. Replay deps are the Lane 1 and Lane 2 minimums.
+# Add a new pin with `uv add`.
 dependencies = [
+    "fastapi==0.143.0",
+    "pylsl==1.18.5",
+    "uvicorn[standard]==0.54.0",
+    "websockets==17.2",
     "numpy>=1.26",
     "pandas>=2.2",
     "scipy>=1.11",
     "neurokit2>=0.2.7",
 ]
 
-[project.optional-dependencies]
-live = ["openmotion-sdk"]
-mentalab = ["explorepy"]
-lsl = ["pylsl"]
+[dependency-groups]
+dev = [
+    "httpx==0.28.1",
+    "pytest==9.1.1",
+    "pytest-asyncio==1.4.0",
+    "ruff==0.17.0",
+]
 
-[build-system]
-requires = ["setuptools>=68"]
-build-backend = "setuptools.build_meta"
+[tool.uv]
+package = false
 
-[tool.setuptools.packages.find]
-include = ["ingest*", "features*"]
-exclude = ["tests*"]
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+asyncio_mode = "auto"
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP"]

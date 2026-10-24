@@ -29,11 +29,11 @@ For research.
 
 from __future__ import annotations
 
+import csv
 from collections import deque
 from collections.abc import Iterator, Sequence
 from dataclasses import dataclass
 from pathlib import Path
-import csv
 
 import numpy as np
 import pandas as pd
@@ -97,9 +97,7 @@ def read_side_frames(path: str | Path) -> list[SideAverage]:
     bfi_l = _metric_columns(frame.columns, "bfi", "l")
     bfi_r = _metric_columns(frame.columns, "bfi", "r")
     if not bfi_l and not bfi_r:
-        raise ScanCsvError(
-            "no BFI columns found; expected bfi_l1..bfi_l8 and bfi_r1..bfi_r8"
-        )
+        raise ScanCsvError("no BFI columns found; expected bfi_l1..bfi_l8 and bfi_r1..bfi_r8")
     bvi_l = _metric_columns(frame.columns, "bvi", "l")
     bvi_r = _metric_columns(frame.columns, "bvi", "r")
     quality_columns = [

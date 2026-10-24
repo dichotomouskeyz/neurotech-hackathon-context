@@ -1,1 +1,1 @@
-Sync lane placeholder. LSL and external triggers are not implemented here. Lane 1 and Lane 2 each write their own `timestamp_s`. Aligning the Open-Motion clock with the Explore `TimeStamp` is this lane's job.
+Sync notes. Live frame time `t` is `pylsl.local_clock()` on the dashboard machine. See `dashboard/SCHEMA.md`. The phase logger publishes the LSL stream `stress-alert-phases`. This directory does not yet align an Open-Motion `timestamp_s` with an Explore `TimeStamp`.

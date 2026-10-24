@@ -17,11 +17,11 @@ For research. This module does not interpret the trace as a diagnosis.
 
 from __future__ import annotations
 
+import csv
+import re
 from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
-import csv
-import re
 
 import numpy as np
 import pandas as pd
@@ -121,7 +121,7 @@ def write_ecg_trace(
     with out_path.open("w", newline="", encoding="utf-8") as handle:
         writer = csv.DictWriter(handle, fieldnames=ECG_TRACE_COLUMNS)
         writer.writeheader()
-        for timestamp, sample, rate in zip(timestamps, values, rates):
+        for timestamp, sample, rate in zip(timestamps, values, rates, strict=True):
             writer.writerow(
                 {
                     "timestamp_s": _format_float(timestamp),
@@ -219,8 +219,7 @@ def _pick_timestamp(columns) -> str:
     found = _match_name(columns, _TIMESTAMP_NAMES)
     if found is None:
         raise MentalabCsvError(
-            "ECG CSV needs a TimeStamp or timestamp_s column "
-            "(explorepy *_ExG.csv uses TimeStamp)"
+            "ECG CSV needs a TimeStamp or timestamp_s column (explorepy *_ExG.csv uses TimeStamp)"
         )
     return found
 

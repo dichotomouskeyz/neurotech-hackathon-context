@@ -20,9 +20,9 @@ For research.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 import math
-from typing import Mapping, Sequence
+from collections.abc import Mapping, Sequence
+from dataclasses import dataclass
 
 # Usable sample = 1. A filled-in or biased sample scores lower. A dropout
 # scores 0. wide_interval still emits numbers, but those numbers sit on a
@@ -72,8 +72,7 @@ def cq_score(
     if not 0.0 <= bad_below <= 1.0:
         raise ValueError("bad_below must be between 0 and 1")
     scores = [
-        _camera_score(value, dark_max_dn=dark_max_dn, light_min_dn=light_min_dn)
-        for value in values
+        _camera_score(value, dark_max_dn=dark_max_dn, light_min_dn=light_min_dn) for value in values
     ]
     usable = [score for score in scores if score is not None]
     if not usable:
@@ -121,16 +120,10 @@ def _mapping_score(
     if "passed" in record:
         return 1.0 if bool(record["passed"]) else 0.0
     if "quality" in record:
-        return _camera_score(
-            record["quality"], dark_max_dn=dark_max_dn, light_min_dn=light_min_dn
-        )
+        return _camera_score(record["quality"], dark_max_dn=dark_max_dn, light_min_dn=light_min_dn)
     if "score" in record:
-        return _camera_score(
-            record["score"], dark_max_dn=dark_max_dn, light_min_dn=light_min_dn
-        )
-    raise ValueError(
-        "contact record needs passed, quality, score, or light_avg_dn and dark_max_dn"
-    )
+        return _camera_score(record["score"], dark_max_dn=dark_max_dn, light_min_dn=light_min_dn)
+    raise ValueError("contact record needs passed, quality, score, or light_avg_dn and dark_max_dn")
 
 
 def _graded_contact(

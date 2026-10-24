@@ -16,16 +16,26 @@ _ROOT = Path(__file__).resolve().parent
 if str(_ROOT) not in sys.path:
     sys.path.insert(0, str(_ROOT))
 
-from features.ecg_hrv import EcgFeatureError, analyze_ecg
-from features.hr_compare import compare_hr
-from ingest.mentalab_source import MentalabCsvError, read_ecg_csv, write_ecg_metrics, write_ecg_trace
+from features.ecg_hrv import EcgFeatureError, analyze_ecg  # noqa: E402
+from features.hr_compare import compare_hr  # noqa: E402
+from ingest.mentalab_source import (  # noqa: E402
+    MentalabCsvError,
+    read_ecg_csv,
+    write_ecg_metrics,
+    write_ecg_trace,
+)
 
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         description="Replay a Mentalab Explore ExG CSV (Lane 2). For research."
     )
-    parser.add_argument("--csv", type=Path, required=True, help="Explore *_ExG.csv or timestamp_s,ecg_uv")
+    parser.add_argument(
+        "--csv",
+        type=Path,
+        required=True,
+        help="Explore *_ExG.csv or timestamp_s,ecg_uv",
+    )
     parser.add_argument(
         "--out",
         type=Path,

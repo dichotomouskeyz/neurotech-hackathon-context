@@ -5,3 +5,6 @@ venv/
 stress-alert/data/side_averages.csv
 stress-alert/data/ecg_trace.csv
 stress-alert/data/ecg_trace_metrics.csv
+
+# Claude Code worktrees
+.claude/worktrees/

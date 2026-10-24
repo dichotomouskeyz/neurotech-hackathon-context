@@ -1,0 +1,119 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Breath-hold stress dashboard: Open-Motion blood flow and ECG heart rate, for research use.">
+  <title>stress-alert</title>
+  <link rel="preload" href="/static/vendor/geist-latin-wght-normal.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="stylesheet" href="/static/vendor/uPlot.min.css">
+  <link rel="stylesheet" href="/static/styles.css">
+</head>
+<body data-view="operator">
+  <a class="skip-link" href="#main">Skip to dashboard</a>
+
+  <header class="topbar">
+    <div class="topbar-inner">
+      <div class="brand">
+        <h1>stress-alert</h1>
+        <span class="session-id" id="session-id">no session</span>
+      </div>
+      <div class="sources" id="sources" aria-live="polite">
+        <span class="chip" data-state="off" id="chip-socket">dashboard</span>
+      </div>
+      <div class="segmented" role="group" aria-label="View">
+        <button type="button" data-view="operator" aria-pressed="true">Operator</button>
+        <button type="button" data-view="present" aria-pressed="false">Present</button>
+      </div>
+      <button type="button" class="quiet" id="pause" aria-pressed="false">Pause</button>
+    </div>
+  </header>
+
+  <main id="main">
+    <section class="strip" aria-label="Live status">
+      <article class="card tile tile-phase" id="tile-phase" data-phase="" data-live="true">
+        <h2 class="card-title">Phase</h2>
+        <div class="value" id="phase-name">Idle</div>
+        <div class="phase-meta sub">
+          <span class="phase-elapsed" id="phase-elapsed"></span>
+          <span id="phase-next"></span>
+        </div>
+        <div class="progress" aria-hidden="true"><span id="phase-progress"></span></div>
+      </article>
+
+      <article class="card tile" id="tile-hr">
+        <h2 class="card-title">Heart rate</h2>
+        <div class="value live-only"><span id="hr-optical">--</span><span class="unit">bpm optical</span></div>
+        <div class="sub live-only" id="hr-ecg"></div>
+        <p class="waiting">Waiting for optical and ECG heart rate</p>
+      </article>
+
+      <article class="card tile" id="tile-cq">
+        <h2 class="card-title">Contact quality</h2>
+        <div class="meters live-only">
+          <div class="meter"><span>Left</span><div class="track"><div class="fill" id="cq-left-fill"></div></div><output id="cq-left">--</output></div>
+          <div class="meter"><span>Right</span><div class="track"><div class="fill" id="cq-right-fill"></div></div><output id="cq-right">--</output></div>
+        </div>
+        <span class="state live-only" id="cq-state"></span>
+        <p class="waiting">Waiting for contact quality</p>
+      </article>
+
+      <article class="card tile" id="tile-stress">
+        <h2 class="card-title">Stress</h2>
+        <div class="value live-only" id="stress-index">--</div>
+        <span class="state live-only" id="stress-state"></span>
+        <p class="waiting">Waiting for stress index</p>
+      </article>
+    </section>
+
+    <section class="card controls operator-only" aria-label="Session controls">
+      <div class="control-group">
+        <h2 class="card-title">Session</h2>
+        <form class="row" id="session-form" autocomplete="off">
+          <label class="field">Subject <input id="subject" maxlength="64" placeholder="jb"></label>
+          <label class="field grow">Notes <input id="notes" maxlength="2000"></label>
+          <button type="submit" class="primary" id="session-start">Start session</button>
+          <button type="button" id="session-stop">Stop</button>
+        </form>
+        <div class="phase-buttons" role="group" aria-label="Mark phase">
+          <button type="button" data-phase="baseline">Baseline</button>
+          <button type="button" data-phase="hold">Hold</button>
+          <button type="button" data-phase="recovery">Recovery</button>
+          <button type="button" data-phase="end">End</button>
+        </div>
+        <p class="error" id="session-error" role="alert"></p>
+      </div>
+
+      <div class="control-group">
+        <h2 class="card-title">Timed protocol</h2>
+        <form class="row" id="protocol-form">
+          <label class="field">Baseline (s) <input type="number" id="dur-baseline" value="60" min="1" max="600"></label>
+          <label class="field">Hold (s) <input type="number" id="dur-hold" value="30" min="1" max="120"></label>
+          <label class="field">Recovery (s) <input type="number" id="dur-recovery" value="90" min="1" max="600"></label>
+          <label class="field">Cycles <input type="number" id="cycles" value="1" min="1" max="10"></label>
+          <button type="submit" class="primary" id="protocol-start">Run</button>
+          <button type="button" id="protocol-stop">Stop timer</button>
+        </form>
+        <ol class="events" id="events" aria-label="Phase events"></ol>
+      </div>
+    </section>
+
+    <section class="card chart-card" id="chart-card" aria-labelledby="chart-title">
+      <div class="chart-head">
+        <h2 class="card-title" id="chart-title">Blood flow index</h2>
+        <div class="legend" aria-live="off">
+          <span class="key"><span class="swatch swatch-left"></span>Left <output id="val-left">--</output></span>
+          <span class="key"><span class="swatch swatch-right"></span>Right <output id="val-right">--</output></span>
+        </div>
+        <label class="toggle operator-only"><input type="checkbox" id="spread"> Camera spread (middle 50%)</label>
+        <span class="meta" id="rate"></span>
+      </div>
+      <div class="chart" id="chart"></div>
+      <p class="chart-empty">Waiting for bfi frames</p>
+    </section>
+  </main>
+
+  <script src="/static/vendor/uPlot.iife.min.js"></script>
+  <script src="/static/app.js"></script>
+</body>
+</html>

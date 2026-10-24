@@ -26,8 +26,8 @@ Limitations, for research:
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 import math
+from dataclasses import dataclass
 
 import neurokit2 as nk
 import numpy as np
@@ -80,9 +80,7 @@ def analyze_ecg(
     if sampling_rate_hz is None:
         sampling_rate_hz = float(1.0 / np.median(steps[steps > 0]))
     if not 50.0 <= float(sampling_rate_hz) <= 2000.0:
-        raise EcgFeatureError(
-            f"sample rate {float(sampling_rate_hz):.2f} Hz is outside 50 to 2000"
-        )
+        raise EcgFeatureError(f"sample rate {float(sampling_rate_hz):.2f} Hz is outside 50 to 2000")
     rate_hz = int(round(float(sampling_rate_hz)))
     try:
         signals, info = nk.ecg_process(values, sampling_rate=rate_hz)

@@ -16,8 +16,13 @@ _ROOT = Path(__file__).resolve().parent
 if str(_ROOT) not in sys.path:
     sys.path.insert(0, str(_ROOT))
 
-from features.pulse_hr import estimate_optical_hr
-from ingest.omotion_source import ScanCsvError, apply_window, read_side_frames, write_side_csv
+from features.pulse_hr import estimate_optical_hr  # noqa: E402
+from ingest.omotion_source import (  # noqa: E402
+    ScanCsvError,
+    apply_window,
+    read_side_frames,
+    write_side_csv,
+)
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -104,7 +109,7 @@ def _sample_rate_hz(rows) -> float | None:
         return None
     steps = [
         right.timestamp_s - left.timestamp_s
-        for left, right in zip(rows, rows[1:])
+        for left, right in zip(rows, rows[1:], strict=False)
         if right.timestamp_s > left.timestamp_s
     ]
     if not steps:
