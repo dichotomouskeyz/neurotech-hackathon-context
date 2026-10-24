@@ -33,6 +33,7 @@ From any working directory: `.venv/bin/python serve.py --dev-feed`.
 | Dashboard, session/phase logger | `dashboard/`, `session/` | Live UI, hub, phase timer, LSL phase markers |
 | Lane 1 Open-Motion | `ingest/omotion_source.py`, `features/cq_score.py`, `features/pulse_hr.py`, `replay_csv.py` | CSV replay, side averages, contact quality, optical heart rate |
 | Lane 2 Mentalab ECG | `ingest/mentalab_source.py`, `features/ecg_hrv.py`, `features/hr_compare.py`, `replay_mentalab.py` | CSV replay, ECG heart rate, RMSSD, SDNN, optical cross-check |
+| Lane 4 protocol and alert math | `features/stress_index.py`, `features/track3_classifier.py`, `protocol/breathhold.md` | CQ-gated stress index, recovery time constant, breath-hold protocol |
 
 Producers talk to the dashboard only through [dashboard/SCHEMA.md](dashboard/SCHEMA.md). Offline replay CSVs are a separate contract, below. They are not the WebSocket frames.
 
@@ -42,7 +43,7 @@ Producers talk to the dashboard only through [dashboard/SCHEMA.md](dashboard/SCH
 | :- | :- |
 | 1. Server, hub, ingest and browser sockets, live BFI charts from replay | Done |
 | 2. Session/phase logger: session bar, phase buttons and timer, `events.csv`, chart shading, LSL markers | Done |
-| 3. Contact quality, dual heart rate, stress and alert panels | CQ and dual heart rate exist as offline features. Dashboard panels for them are still planned |
+| 3. Contact quality, dual heart rate, stress and alert panels | CQ, dual heart rate, and the CQ-gated stress index exist as features. Dashboard panels for them are still planned |
 
 ## Versions
 
@@ -156,9 +157,50 @@ explore = start_live_ecg(
 
 `allow_live=False` raises. Without `explorepy` installed, the live call raises `ImportError` and says CSV replay does not need it. `record_data` writes `breathhold_ExG.csv`. Replay that file with the CLI above. Upstream connect and record examples: https://github.com/Mentalab-hub/explorepy/blob/master/docs/usage.rst
 
+## Lane 4 protocol and stress index
+
+For research. The stress index is not a diagnosis, a screening result, or a treatment signal.
+
+| Piece | Path |
+| :- | :- |
+| Protocol | [protocol/breathhold.md](protocol/breathhold.md) |
+| CQ-gated stress index and recovery tau | [features/stress_index.py](features/stress_index.py) |
+| Optional Track 3 classifier | [features/track3_classifier.py](features/track3_classifier.py) |
+| 60-second demo script | [../docs/DEMO_SCRIPT_60S.md](../docs/DEMO_SCRIPT_60S.md) |
+| Devpost draft | [../docs/DEVPOST_DRAFT.md](../docs/DEVPOST_DRAFT.md) |
+| Unit tests | [tests/test_stress_index.py](tests/test_stress_index.py) |
+
+The same Lane 4 files are mirrored at the repo root (`features/`, `protocol/`, `tests/test_stress_index.py`, `docs/`) so `python3 -m unittest tests/test_stress_index.py` works from the repository root. Imports inside `stress-alert/` use this directory's `features` package.
+
+`compute_stress_frame` returns a `stress` frame for [dashboard/SCHEMA.md](dashboard/SCHEMA.md). `t` is `pylsl.local_clock()` on the dashboard machine. `alert` is forced false when contact quality is missing or below 0.50.
+
+```python
+from features.stress_index import StressTracker, compute_stress_frame
+
+result = compute_stress_frame(
+    t=1089839.91,
+    current_value=2.70,
+    baseline_value=2.00,
+    cq=0.88,
+)
+frame = result.to_frame()
+
+tracker = StressTracker()
+tracker.on_phase("baseline", t=0.0)
+tracker.on_sample(t=1.0, value=2.0, cq=0.9)
+```
+
+`StressTracker` takes the median of clean baseline samples, then scores hold and recovery against that baseline. `compute_recovery_tau` fits an exponential time constant on the recovery window. A short or flat window returns an honest null (`ok` false) instead of a tau. `features/track3_classifier.py` is optional and stays unused unless ingest is verified.
+
 ## Checks
 
-From the repo root, using the project environment (`uv sync` installs pytest, which the dashboard tests import):
+Lane 4, from the repo root (standard library only):
+
+```bash
+python3 -m unittest tests/test_stress_index.py
+```
+
+Lane 1, Lane 2, Lane 4, and the dashboard tests, from the repo root, using the project environment (`uv sync` installs pytest, which the dashboard tests import):
 
 ```bash
 stress-alert/.venv/bin/python -m unittest discover -s stress-alert/tests -t stress-alert
