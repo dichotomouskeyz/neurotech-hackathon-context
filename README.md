@@ -6,14 +6,16 @@ Prompt: **How can neurotechnology expand human cognitive potential?**
 
 The repo holds two things:
 
-- **`stress-alert/`**: the app. It measures breath-hold stress with Open-Motion (forehead blood flow, optical heart rate) and a Mentalab ECG (ground-truth heart rate), and shows it on a live dashboard. See `stress-alert/README.md`.
+- **`stress-alert/`**: the app. Open-Motion (forehead blood flow, optical heart rate) and a Mentalab ECG (heart rate and HRV) feed a live dashboard. Lane 1 and Lane 2 replay recorded CSVs offline. Lane 4 adds the breath-hold protocol and a contact-quality-gated stress index. See `stress-alert/README.md`.
 - **`docs/` and `sources/`**: event context, including rules, tracks, Openwater platform notes, and snapshots of the planning documents.
 
 ## Layout
 
 | Path | Contents |
 | :- | :- |
-| `stress-alert/` | The app: dashboard, session/phase logger, ingest, features, sync |
+| `stress-alert/` | The app: live dashboard, session/phase logger, Lane 1 Open-Motion replay, Lane 2 Mentalab ECG replay, Lane 4 stress index |
+| `docs/DEMO_SCRIPT_60S.md` | 60-second demo script for the dry run and judging |
+| `docs/DEVPOST_DRAFT.md` | Devpost draft. For research. |
 | `docs/EVENT.md` | Prompt, scope rules, shared device inventory, links |
 | `docs/OPEN-MOTION.md` | The team's platform: physics, hardware, data path, SDK, data formats, Mac test results, track fit, judging |
 | `docs/FLOW-STATE.md` | Flow-state idea: what the device can do, literature, datasets, a rule-compliant design |
