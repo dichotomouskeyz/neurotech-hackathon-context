@@ -1,0 +1,6 @@
+.venv/
+__pycache__/
+.pytest_cache/
+.ruff_cache/
+# Recordings of team members. Never commit.
+sessions/

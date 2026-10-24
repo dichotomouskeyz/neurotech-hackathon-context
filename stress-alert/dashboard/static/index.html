@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>stress-alert</title>
+  <link rel="stylesheet" href="/static/vendor/uPlot.min.css">
+  <link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+  <header class="topbar">
+    <h1>stress-alert</h1>
+    <div class="sources" id="sources" aria-live="polite">
+      <span class="chip" data-state="off" id="chip-socket">dashboard socket</span>
+    </div>
+    <button id="pause" type="button" aria-pressed="false">Pause view</button>
+  </header>
+
+  <main class="grid">
+    <section class="panel span-2" id="panel-session" data-waiting="phase">
+      <h2>Session</h2>
+      <p class="waiting">Session controls and baseline, hold, recovery markers arrive in the next step.</p>
+    </section>
+
+    <section class="panel" id="panel-bfi-left">
+      <h2>Blood flow, left <span class="meta" id="rate-left"></span></h2>
+      <div class="chart" id="chart-left"></div>
+      <p class="waiting">Waiting for bfi frames</p>
+    </section>
+
+    <section class="panel" id="panel-bfi-right">
+      <h2>Blood flow, right <span class="meta" id="rate-right"></span></h2>
+      <div class="chart" id="chart-right"></div>
+      <p class="waiting">Waiting for bfi frames</p>
+    </section>
+
+    <section class="panel" id="panel-cq" data-waiting="cq">
+      <h2>Contact quality</h2>
+      <p class="waiting">Waiting for cq frames</p>
+    </section>
+
+    <section class="panel" id="panel-hr" data-waiting="hr">
+      <h2>Heart rate, optical vs ECG</h2>
+      <p class="waiting">Waiting for hr frames</p>
+    </section>
+
+    <section class="panel span-2" id="panel-stress" data-waiting="stress">
+      <h2>Stress and recovery</h2>
+      <p class="waiting">Waiting for stress frames</p>
+    </section>
+  </main>
+
+  <script src="/static/vendor/uPlot.iife.min.js"></script>
+  <script src="/static/app.js"></script>
+</body>
+</html>
