@@ -251,6 +251,7 @@ function renderLegend() {
 }
 
 function draw() {
+  animateBreath();
   if (dirty && !paused) {
     updateYRange();
     chart.setData(chartData());
@@ -288,6 +289,31 @@ function renderPhaseTile() {
     ? Math.min(1, (now - session.phase_t) / (session.timer_ends_t - session.phase_t))
     : 0;
   $("phase-progress").style.width = `${(progress * 100).toFixed(1)}%`;
+  $("breath-phase").textContent = $("phase-name").textContent;
+  $("breath-clock").textContent = $("phase-elapsed").textContent;
+  $("breath-next").textContent = $("phase-next").textContent;
+  $("breath-progress").style.strokeDasharray = `${(progress * 100).toFixed(1)} 100`;
+  $("breath-progress").style.opacity = progress > 0 ? "1" : "0";
+}
+
+// Breathing circle: a slow ambient rise and fall at baseline, held full during the
+// breath hold, quicker during recovery. Static when the viewer asks for reduced motion.
+const reduceMotion = matchMedia("(prefers-reduced-motion: reduce)");
+let breathScale = 0.72;
+function breathTarget(seconds) {
+  const phase = session.active ? session.phase : null;
+  const wave = (period, amp) =>
+    reduceMotion.matches ? 0 : amp * Math.sin((2 * Math.PI * seconds) / period);
+  if (phase === "baseline") return 0.84 + wave(5, 0.05);
+  if (phase === "hold") return 1;
+  if (phase === "recovery") return 0.88 + wave(3.5, 0.07);
+  return 0.72;
+}
+function animateBreath() {
+  if (document.body.dataset.view !== "present") return;
+  const target = breathTarget(performance.now() / 1000);
+  breathScale += (target - breathScale) * (reduceMotion.matches ? 1 : 0.06);
+  $("breath-core").style.transform = `scale(${breathScale.toFixed(4)})`;
 }
 
 function renderHrTile() {

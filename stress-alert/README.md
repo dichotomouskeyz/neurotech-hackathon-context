@@ -14,7 +14,9 @@ Open http://127.0.0.1:8765. `--dev-feed` replays `data/sample_scan.csv` so the c
 Two views, switched in the top bar or with `?view=present`:
 
 - **Operator**: status strip, session and timed-protocol controls, and the blood flow chart, with an optional camera-spread band (middle 50% of cameras).
-- **Present**: for the demo screen. Controls are hidden, and the status strip and chart are larger.
+- **Present**: for the demo screen. Controls are hidden. The phase becomes a breathing circle that rises and falls gently at baseline, holds full during the breath hold, and moves faster during recovery, ringed by the timed-phase countdown. Heart rate, contact quality and stress sit beside it.
+
+The look is a light, clinical base: flat surfaces, hairline borders, mono numerals. Dark tokens remain in `styles.css` but are off (`data-theme="light"` on `<html>`).
 
 From any working directory: `.venv/bin/python serve.py --dev-feed`.
 

@@ -10,8 +10,9 @@ class Hub:
 
     Each subscriber gets its own bounded queue. A slow browser loses its oldest
     frames instead of stalling producers or other browsers. State that must not age
-    out with the signal history is kept separately: the latest ``status`` per source,
-    the latest ``session``, and recent ``phase`` markers.
+    out with the 40 Hz signal history is kept separately: the latest ``status`` per
+    source, the latest ``session``, the latest ``hr`` per source, ``cq`` and ``stress``,
+    and recent ``phase`` markers.
     """
 
     def __init__(self, history: int = 2400, queue_size: int = 4800, phases: int = 64) -> None:
@@ -31,6 +32,10 @@ class Hub:
             elif kind == "phase":
                 self._phases.append(frame)
             else:
+                if kind == "hr":
+                    self._latest[f"hr:{frame['source']}"] = frame
+                elif kind in ("cq", "stress"):
+                    self._latest[kind] = frame
                 self._history.append(frame)
         for queue in self._subscribers:
             for frame in frames:
