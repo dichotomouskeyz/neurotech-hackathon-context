@@ -29,12 +29,20 @@ async function syncClock() {
   clockOffset = t + (performance.now() - sent) / 2000 - performance.now() / 1000;
 }
 
-// Blood flow buffers: per side, the camera mean and the spread of the middle
-// 50% of cameras (25th to 75th percentile). Min/max is dominated by one outlier
-// camera in real data, so the interquartile band is the honest spread.
+// Hemodynamic buffers, one per metric (BFI, BVI): per side, the camera mean and
+// the spread of the middle 50% of cameras (25th to 75th percentile). Min/max is
+// dominated by one outlier camera in real data, so the interquartile band is the
+// honest spread.
 
 const SIDES = ["left", "right"];
-const buf = { t: [], left: { mean: [], lo: [], hi: [] }, right: { mean: [], lo: [], hi: [] } };
+const METRICS = ["bfi", "bvi"];
+const makeBuffer = () => ({
+  t: [],
+  left: { mean: [], lo: [], hi: [] },
+  right: { mean: [], lo: [], hi: [] },
+  yRange: { lo: null, hi: null, shrinkSince: null },
+});
+const bufs = { bfi: makeBuffer(), bvi: makeBuffer() };
 let paused = false;
 let dirty = false;
 let framesThisSecond = 0;
@@ -53,7 +61,7 @@ function summarize(values) {
   return [mean, quantile(v, 0.25), quantile(v, 0.75)];
 }
 
-function pushBfi(frame) {
+function pushHemo(buf, frame) {
   buf.t.push(frame.t);
   for (const side of SIDES) {
     const [mean, lo, hi] = summarize(frame[side]);
@@ -71,8 +79,8 @@ function pushBfi(frame) {
 
 // Y range that grows at once but only shrinks after it has been too wide for a while,
 // so the traces do not jump on every frame.
-const yRange = { lo: null, hi: null, shrinkSince: null };
-function updateYRange() {
+function updateYRange(buf) {
+  const yRange = buf.yRange;
   let lo = Infinity;
   let hi = -Infinity;
   const [loKey, hiKey] = showSpread ? ["lo", "hi"] : ["mean", "mean"];
@@ -102,7 +110,7 @@ function updateYRange() {
 let session = { active: false, phase: null };
 let phases = [];
 
-function phaseBands(u) {
+function phaseBands(u, buf) {
   if (!phases.length || !buf.t.length) return;
   const last = buf.t[buf.t.length - 1];
   const { ctx } = u;
@@ -175,16 +183,17 @@ function directLabels(u) {
 
 // Chart --------------------------------------------------------------------
 
-let chart = null;
+const charts = {};
 let hoverIdx = null;
 // The camera spread is mostly the cameras' different analog gains, so it is an
 // operator view, off by default.
 let showSpread = false;
 
-const chartHeight = () => (document.body.dataset.view === "present" ? 440 : 300);
+const chartHeight = () => (document.body.dataset.view === "present" ? 300 : 240);
 
-function makeChart() {
-  const el = $("chart");
+function makeChart(metric) {
+  const buf = bufs[metric];
+  const el = $(`chart-${metric}`);
   el.replaceChildren();
   const axis = {
     stroke: css("--ink-muted"),
@@ -193,16 +202,21 @@ function makeChart() {
     font: `12px ${css("--font-mono")}`,
   };
   const envelope = { stroke: "transparent", width: 0, points: { show: false } };
-  chart = new uPlot(
+  charts[metric] = new uPlot(
     {
       width: el.clientWidth,
       height: chartHeight(),
       padding: [8, 60, 0, 0],
       legend: { show: false },
-      cursor: { y: false, points: { size: 7, width: 2 }, drag: { x: false, y: false } },
+      cursor: {
+        y: false,
+        points: { size: 7, width: 2 },
+        drag: { x: false, y: false },
+        sync: { key: "hemo" },
+      },
       scales: {
         x: { time: false, range: [-WINDOW_S, 0] },
-        y: { range: () => (yRange.lo === null ? [0, 1] : [yRange.lo, yRange.hi]) },
+        y: { range: () => (buf.yRange.lo === null ? [0, 1] : [buf.yRange.lo, buf.yRange.hi]) },
       },
       axes: [
         { ...axis, values: (u, ticks) => ticks.map((v) => (v === 0 ? "now" : `${v}s`)) },
@@ -224,17 +238,17 @@ function makeChart() {
           ]
         : [],
       hooks: {
-        drawClear: [phaseBands],
+        drawClear: [(u) => phaseBands(u, buf)],
         draw: [directLabels],
-        setCursor: [(u) => { hoverIdx = u.cursor.idx ?? null; renderLegend(); }],
+        setCursor: [(u) => { hoverIdx = u.cursor.idx ?? null; renderLegends(); }],
       },
     },
-    chartData(),
+    chartData(buf),
     el,
   );
 }
 
-function chartData() {
+function chartData(buf) {
   const last = buf.t.length ? buf.t[buf.t.length - 1] : 0;
   return [
     buf.t.map((t) => t - last),
@@ -243,18 +257,31 @@ function chartData() {
   ];
 }
 
-function renderLegend() {
-  const n = buf.t.length;
-  const i = hoverIdx ?? n - 1;
-  $("val-left").textContent = n ? fmt(buf.left.mean[i]) : "--";
-  $("val-right").textContent = n ? fmt(buf.right.mean[i]) : "--";
+// Legend readouts follow the synced crosshair, or show the latest sample.
+function renderLegends() {
+  for (const metric of METRICS) {
+    const buf = bufs[metric];
+    const n = buf.t.length;
+    const i = hoverIdx ?? n - 1;
+    $(`val-left-${metric}`).textContent = n ? fmt(buf.left.mean[i]) : "--";
+    $(`val-right-${metric}`).textContent = n ? fmt(buf.right.mean[i]) : "--";
+  }
+}
+
+function resizeCharts() {
+  for (const metric of METRICS) {
+    charts[metric].setSize({ width: $(`chart-${metric}`).clientWidth, height: chartHeight() });
+  }
 }
 
 function draw() {
+  animateBreath();
   if (dirty && !paused) {
-    updateYRange();
-    chart.setData(chartData());
-    if (hoverIdx === null) renderLegend();
+    for (const metric of METRICS) {
+      updateYRange(bufs[metric]);
+      charts[metric].setData(chartData(bufs[metric]));
+    }
+    if (hoverIdx === null) renderLegends();
     dirty = false;
   }
   requestAnimationFrame(draw);
@@ -288,23 +315,41 @@ function renderPhaseTile() {
     ? Math.min(1, (now - session.phase_t) / (session.timer_ends_t - session.phase_t))
     : 0;
   $("phase-progress").style.width = `${(progress * 100).toFixed(1)}%`;
+  $("breath-phase").textContent = $("phase-name").textContent;
+  $("breath-clock").textContent = $("phase-elapsed").textContent;
+  $("breath-next").textContent = $("phase-next").textContent;
+  $("breath-progress").style.strokeDasharray = `${(progress * 100).toFixed(1)} 100`;
+  $("breath-progress").style.opacity = progress > 0 ? "1" : "0";
+}
+
+// Breathing circle: a slow ambient rise and fall at baseline, held full during the
+// breath hold, quicker during recovery. Static when the viewer asks for reduced motion.
+const reduceMotion = matchMedia("(prefers-reduced-motion: reduce)");
+let breathScale = 0.72;
+function breathTarget(seconds) {
+  const phase = session.active ? session.phase : null;
+  const wave = (period, amp) =>
+    reduceMotion.matches ? 0 : amp * Math.sin((2 * Math.PI * seconds) / period);
+  if (phase === "baseline") return 0.84 + wave(5, 0.05);
+  if (phase === "hold") return 1;
+  if (phase === "recovery") return 0.88 + wave(3.5, 0.07);
+  return 0.72;
+}
+function animateBreath() {
+  if (document.body.dataset.view !== "present") return;
+  const target = breathTarget(performance.now() / 1000);
+  breathScale += (target - breathScale) * (reduceMotion.matches ? 1 : 0.06);
+  $("breath-core").style.transform = `scale(${breathScale.toFixed(4)})`;
 }
 
 function renderHrTile() {
-  const { optical, ecg } = latest.hr;
+  const { optical } = latest.hr;
   const now = sharedNow();
-  const fresh = (f) => f && (now === null || now - f.t < STALE_S);
-  $("tile-hr").dataset.live = String(Boolean(optical || ecg));
-  const main = optical || ecg;
-  if (!main) return;
-  $("hr-optical").textContent = Math.round(main.bpm);
-  $("tile-hr").querySelector(".unit").textContent = optical ? "bpm optical" : "bpm ECG";
-  const parts = [];
-  if (optical && ecg) {
-    parts.push(`ECG ${Math.round(ecg.bpm)} bpm`, `difference ${fmt(Math.abs(optical.bpm - ecg.bpm), 1)}`);
-  }
-  if (!fresh(main)) parts.push(`last value ${Math.round(now - main.t)} s ago`);
-  $("hr-ecg").textContent = parts.join(" · ");
+  $("tile-hr").dataset.live = String(Boolean(optical));
+  if (!optical) return;
+  $("hr-optical").textContent = Math.round(optical.bpm);
+  const stale = now !== null && now - optical.t >= STALE_S;
+  $("hr-note").textContent = stale ? `last value ${Math.round(now - optical.t)} s ago` : "";
 }
 
 function cqStatus() {
@@ -376,8 +421,8 @@ function renderEvents() {
   );
 }
 
-async function post(url, body) {
-  $("session-error").textContent = "";
+async function post(url, body, errorId = "session-error") {
+  $(errorId).textContent = "";
   const res = await fetch(url, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -386,7 +431,7 @@ async function post(url, body) {
   if (!res.ok) {
     const data = await res.json().catch(() => ({}));
     const detail = Array.isArray(data.detail) ? data.detail[0].msg : data.detail;
-    $("session-error").textContent = detail || `Request failed (${res.status})`;
+    $(errorId).textContent = detail || `Request failed (${res.status})`;
   }
 }
 
@@ -409,6 +454,53 @@ $("protocol-form").addEventListener("submit", (e) => {
 });
 $("protocol-stop").addEventListener("click", () => post("/api/protocol/stop"));
 
+// Open-Motion device -------------------------------------------------------
+
+let device = { connected: false, console: false, left: false, right: false, scanning: false };
+
+function setPart(id, label, known, ok) {
+  const el = $(id);
+  if (!known) {
+    delete el.dataset.status;
+    el.textContent = label;
+    return;
+  }
+  setState(el, ok ? "good" : "critical", `${label} ${ok ? "connected" : "not found"}`);
+}
+
+function renderDevice() {
+  const d = device;
+  setPart("dev-console", "Console", d.connected, d.console);
+  setPart("dev-left", "Left sensor", d.connected && d.console, d.left);
+  setPart("dev-right", "Right sensor", d.connected && d.console, d.right);
+  $("device-sdk").textContent = d.sdk_version ? `SDK ${d.sdk_version}` : "";
+  $("device-error").textContent = d.error || "";
+  $("device-connect").textContent = d.connected ? "Search again" : "Connect device";
+  $("device-disconnect").disabled = !d.connected;
+  $("scan-start").disabled = !d.connected || !d.console || !(d.left || d.right) || d.scanning;
+  $("scan-stop").disabled = !d.scanning;
+  const ready = d.connected && d.console && (d.left || d.right);
+  setChip("chip-device", d.scanning ? "open-motion scanning" : "open-motion", ready, d.error);
+}
+
+async function deviceAction(path, button) {
+  button.disabled = true;
+  const label = button.textContent;
+  if (path === "connect") button.textContent = "Searching…";
+  try {
+    await post(`/api/device/${path}`, {}, "device-error");
+  } finally {
+    button.textContent = label;
+    button.disabled = false;
+    renderDevice();
+  }
+}
+
+$("device-connect").addEventListener("click", (e) => deviceAction("connect", e.currentTarget));
+$("device-disconnect").addEventListener("click", (e) => deviceAction("disconnect", e.currentTarget));
+$("scan-start").addEventListener("click", (e) => deviceAction("scan/start", e.currentTarget));
+$("scan-stop").addEventListener("click", (e) => deviceAction("scan/stop", e.currentTarget));
+
 // View: operator or present ----------------------------------------------
 
 function setView(view) {
@@ -417,7 +509,7 @@ function setView(view) {
     b.setAttribute("aria-pressed", String(b.dataset.view === view));
   });
   try { localStorage.setItem("stress-alert:view", view); } catch { /* storage unavailable */ }
-  if (chart) chart.setSize({ width: $("chart").clientWidth, height: chartHeight() });
+  if (charts.bfi) resizeCharts();
 }
 document.querySelectorAll(".segmented button").forEach((b) => {
   b.addEventListener("click", () => setView(b.dataset.view));
@@ -441,9 +533,10 @@ function setChip(id, label, on, detail) {
 function handle(frame) {
   switch (frame.type) {
     case "bfi":
-      pushBfi(frame);
-      framesThisSecond += 1;
-      $("chart-card").dataset.live = "true";
+    case "bvi":
+      pushHemo(bufs[frame.type], frame);
+      if (frame.type === "bfi") framesThisSecond += 1;
+      $(`card-${frame.type}`).dataset.live = "true";
       dirty = true;
       break;
     case "hr":
@@ -474,6 +567,10 @@ function handle(frame) {
       renderEvents();
       dirty = true;
       break;
+    case "device":
+      device = frame;
+      renderDevice();
+      break;
     case "status":
       setChip(`chip-src-${frame.source.replace(/\W+/g, "-")}`, frame.source, frame.connected, frame.detail);
       break;
@@ -503,17 +600,20 @@ if (!initialView) {
   try { initialView = localStorage.getItem("stress-alert:view"); } catch { initialView = null; }
 }
 setView(initialView === "present" ? "present" : "operator");
-makeChart();
+METRICS.forEach(makeChart);
 renderControls();
+renderDevice();
 renderPhaseTile();
 connect();
 requestAnimationFrame(draw);
 
 $("spread").addEventListener("change", (event) => {
   showSpread = event.currentTarget.checked;
-  Object.assign(yRange, { lo: null, hi: null, shrinkSince: null });
-  updateYRange();
-  makeChart();
+  for (const metric of METRICS) {
+    Object.assign(bufs[metric].yRange, { lo: null, hi: null, shrinkSince: null });
+    updateYRange(bufs[metric]);
+    makeChart(metric);
+  }
 });
 
 $("pause").addEventListener("click", (event) => {
@@ -521,5 +621,8 @@ $("pause").addEventListener("click", (event) => {
   event.currentTarget.setAttribute("aria-pressed", String(paused));
   event.currentTarget.textContent = paused ? "Resume" : "Pause";
 });
-window.addEventListener("resize", () => chart.setSize({ width: $("chart").clientWidth, height: chartHeight() }));
-matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () => { makeChart(); dirty = true; });
+window.addEventListener("resize", resizeCharts);
+matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () => {
+  METRICS.forEach(makeChart);
+  dirty = true;
+});

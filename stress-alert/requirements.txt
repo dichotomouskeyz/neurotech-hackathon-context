@@ -5,16 +5,10 @@ uvicorn[standard]==0.54.0
 websockets==17.2
 
 # Offline replay. Lane 1 uses numpy, pandas, and scipy.
-# Lane 2 also uses neurokit2. Lane 1 does not import it.
 numpy>=1.26
 pandas>=2.2
 scipy>=1.11
-neurokit2>=0.2.7
 
 # Optional, and not installed by a plain `pip install -r requirements.txt`.
-# openmotion-sdk: live Open-Motion station path only (Windows host).
-# explorepy: live Mentalab path, off unless STRESS_ALERT_MENTALAB=1.
-# Use a separate environment (explorepy==4.5.1);
-# it hard-pins older numpy, scipy, and pylsl than this file.
+# openmotion-sdk: live Open-Motion station path only.
 #   pip install openmotion-sdk
-#   pip install explorepy==4.5.1

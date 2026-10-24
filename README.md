@@ -6,14 +6,14 @@ Prompt: **How can neurotechnology expand human cognitive potential?**
 
 The repo holds two things:
 
-- **`stress-alert/`**: the app. Open-Motion (forehead blood flow, optical heart rate) feeds a live dashboard. Lane 2 Mentalab / Mentalink ECG code stays in the repo and is off by default (`STRESS_ALERT_MENTALAB=1`, or `replay_mentalab.py --enable`). Lane 4 adds the breath-hold protocol and a contact-quality-gated stress index. See `stress-alert/README.md`.
+- **`stress-alert/`**: the app. Open-Motion (forehead blood flow, blood volume, optical heart rate) feeds a live dashboard. Lane 1 replays recorded CSVs offline. Lane 4 adds the breath-hold protocol and a contact-quality-gated stress index. See `stress-alert/README.md`.
 - **`docs/` and `sources/`**: event context, including rules, tracks, Openwater platform notes, and snapshots of the planning documents.
 
 ## Layout
 
 | Path | Contents |
 | :- | :- |
-| `stress-alert/` | The app: live dashboard, session/phase logger, Lane 1 Open-Motion replay, Lane 2 Mentalab ECG replay (off by default), Lane 4 stress index |
+| `stress-alert/` | The app: live dashboard, session/phase logger, Lane 1 Open-Motion replay, Lane 4 stress index |
 | `docs/DEMO_SCRIPT_60S.md` | 60-second demo script for the dry run and judging |
 | `docs/DEVPOST_DRAFT.md` | Devpost draft. For research. |
 | `docs/EVENT.md` | Prompt, scope rules, shared device inventory, links |

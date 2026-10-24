@@ -9,8 +9,7 @@ These procedures and recorded metrics do not constitute medical, diagnostic, scr
 This protocol induces transient, controlled physiological stress via voluntary breath-holding to evaluate:
 1. Optical cerebral blood flow index (BFI) and blood volume index (BVI) measured on the forehead at 40 Hz with the Open-Motion station.
 2. Optical heart rate estimated from pulsatile BFI residuals.
-3. Electrical cardiac ground truth (heart rate, R-R intervals) recorded with a Mentalab ECG on the chest.
-4. Contact-quality (CQ) gated stress alerting and recovery kinetics (exponential recovery time-constant tau).
+3. Contact-quality (CQ) gated stress alerting and recovery kinetics (exponential recovery time-constant tau).
 
 ## Safety and Scope Constraints
 
@@ -28,19 +27,7 @@ This protocol induces transient, controlled physiological stress via voluntary b
 - Secure the band firmly to minimize mechanical slippage while ensuring participant comfort.
 - Verify contact quality (CQ) using the contact quality check (`python scripts/sdk_examples.py contact-quality` or the dashboard CQ widget). Ensure mean CQ is >= 0.50 before starting a session.
 
-### 2. Chest Electrical Sensor (Mentalab ECG)
-
-Optional, and off by default. Skip this step for an Open-Motion run. `replay_mentalab.py` and `start_live_ecg` do not run until `STRESS_ALERT_MENTALAB=1` (or `--enable` on the replay CLI). Live recording also needs `allow_live=True` in the explorepy environment. The bridge below is that later step, not part of a normal run.
-
-- Place Lead I or Lead II disposable electrodes on the chest.
-- Connect the Mentalab Explore amplifier.
-- Start the LSL bridge in a dedicated Python environment:
-  ```bash
-  explorepy push2lsl -s <DEVICE_ID>
-  ```
-- Verify the stream is discovered on the local network (`Explore_ECG`).
-
-### 3. Dashboard and Session Logger
+### 2. Dashboard and Session Logger
 - Launch the stress-alert dashboard:
   ```bash
   python stress-alert/serve.py

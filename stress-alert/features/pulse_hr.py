@@ -8,7 +8,8 @@ Limitations, for research:
 
 - One dominant rate over the whole clip. Not beat-to-beat intervals, and not
   heart-rate variability.
-- Not checked against ECG. Do not report it as a clinical heart rate.
+- Not checked against a reference heart rate. Do not report it as a clinical
+  heart rate.
 - Clips shorter than about 8 seconds are rejected. A few clean cycles are
   required before the peak is stable.
 - Motion, bad coupling, and a weak pulse move or flatten the peak. Gate on

@@ -28,7 +28,7 @@ def test_ingest_frames_reach_browser_and_errors_go_back_to_producer(app):
                 {"type": "status", "source": "test", "connected": True, "detail": ""}
             ]
             good = {"type": "bfi", "t": 1.0, "left": CAMS, "right": CAMS}
-            bad = {"type": "hr", "t": 1.0, "source": "ecg", "bpm": -5}
+            bad = {"type": "hr", "t": 1.0, "source": "optical", "bpm": -5}
             producer.send_text(json.dumps([good, bad]))
             error = producer.receive_json()
             assert error["type"] == "error"

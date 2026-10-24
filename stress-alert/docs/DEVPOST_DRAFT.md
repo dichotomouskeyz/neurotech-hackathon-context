@@ -4,14 +4,14 @@
 
 **Event**: UC Berkeley Neurotechnology Hackathon (October 24 to 25, 2026)  
 **Sponsor**: Openwater  
-**Platform**: Open-Motion (Diffuse Optical Blood Flow Station) + Mentalab Explore ECG  
+**Platform**: Open-Motion (Diffuse Optical Blood Flow Station)  
 **Team**: Jahlon Burruss, Raymond Mak, Liam Lenh, Teammates  
 
 ---
 
 ## Elevator Pitch
 
-A real-time optical stress and recovery monitoring system built on Open-Motion and Mentalab ECG, featuring a contact-quality (CQ) gate that suppresses false alarms from motion artifacts and computes exponential recovery time-constants for research.
+A real-time optical stress and recovery monitoring system built on Open-Motion, featuring a contact-quality (CQ) gate that suppresses false alarms from motion artifacts and computes exponential recovery time-constants for research.
 
 ---
 
@@ -28,10 +28,9 @@ This project is a research engineering demonstration created during a 24-hour ha
 Expanding cognitive potential requires an objective, non-invasive window into cerebral autoregulation and autonomic stress. When individuals encounter acute cognitive or physiological load, cerebral hemodynamics and autonomic state shift rapidly. However, non-invasive optical neurotechnology in naturalistic settings faces a fundamental obstacle: sensor slippage, facial muscle movement, and hair obstruction create optical artifacts that closely mimic physiological surges.
 
 Existing platforms often overclaim, treating motion artifacts as physiological events. We set out to build an artifact-robust pipeline on Open-Motion that:
-1. Tracks forehead blood flow index (BFI) and optical heart rate at 40 Hz.
-2. Cross-references optical dynamics with ground-truth electrical cardiac activity (Mentalab ECG).
-3. Strictly gates stress alerts on per-camera contact quality (CQ).
-4. Models post-stress hemodynamic return using an exponential recovery time-constant (tau).
+1. Tracks forehead blood flow index (BFI), blood volume index (BVI), and optical heart rate at 40 Hz.
+2. Strictly gates stress alerts on per-camera contact quality (CQ).
+3. Models post-stress hemodynamic return using an exponential recovery time-constant (tau).
 
 ---
 
@@ -61,13 +60,12 @@ The system executes a standardized 3-minute breath-hold protocol and streams dat
 
 ## System Architecture and Modular Lanes
 
-The team divided development into four decoupled lanes operating against a strict schema contract (`stress-alert/dashboard/SCHEMA.md`):
+The team divided development into decoupled lanes operating against a strict schema contract (`stress-alert/dashboard/SCHEMA.md`):
 
 ```
 +-------------------------------------------------------------+
 |                     Participant Sensors                     |
 |  - Open-Motion Forehead Headband (16 cameras, 40 Hz BFI/BVI)|
-|  - Mentalab Explore ECG (Lead II chest, LSL stream)         |
 +-------------------------------------------------------------+
                               |
                               v
@@ -89,7 +87,7 @@ The team divided development into four decoupled lanes operating against a stric
                               |
                               v
 +-------------------------------------------------------------+
-|               Lane 2 & 3: Sync & Live Dashboard             |
+|                  Sync & Live Dashboard                      |
 |  - Fast API / WebSocket server with Pydantic frame contract |
 |  - session/phase_logger.py: automated timer & LSL markers   |
 |  - Real-time uPlot browser interface with status strips     |
@@ -134,8 +132,8 @@ We fit the linear slope $m = -1 / \tau$ via ordinary least squares regression ov
    Initial testing confirmed that physical head movements create high-amplitude spikes in optical BFI. Relying on BFI alone produced massive false-positive stress alerts. Gating strictly on per-camera contact quality solved this problem.
 2. **Non-Monotonic Recovery**:
    When participants swallow or speak during the 90-second recovery phase, the hemodynamic decay curve deviates from pure exponential decay. Instead of forcing a bad fit, our algorithm reports an honest null result (`tau_s = None`, `note = "signal rising rather than recovering"`).
-3. **Optical Heart Rate vs ECG**:
-   Optical pulse estimation from BFI residuals requires clean coupling and at least 8 to 10 seconds of steady data. Under motion, the optical estimator returns an honest null while the Mentalab ECG maintains ground truth.
+3. **Optical Heart Rate Without a Reference**:
+   Optical pulse estimation from BFI residuals requires clean coupling and at least 8 to 10 seconds of steady data. Under motion, the optical estimator returns an honest null. We planned a Mentalab ECG as a reference heart rate, but it did not work at the event, so the optical rate is reported as an unvalidated estimate.
 
 ---
 
@@ -150,6 +148,6 @@ In future research outside the hackathon, this non-invasive optical stress and r
 
 ## Built With
 
-- **Hardware**: Openwater Open-Motion Optical Station, Mentalab Explore ECG
+- **Hardware**: Openwater Open-Motion Optical Station
 - **Languages & Frameworks**: Python 3.12, FastAPI, WebSockets, uPlot, Pydantic, NumPy, SciPy
 - **Protocols & Standards**: Lab Streaming Layer (LSL), JSON frame messaging
