@@ -3,13 +3,16 @@
 from __future__ import annotations
 
 import csv
+import os
 import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 from features.ecg_hrv import EcgFeatureError, analyze_ecg
 from features.hr_compare import compare_hr, compare_hr_windows
+from ingest.mentalab_config import mentalab_enabled
 from ingest.mentalab_source import (
     MentalabCsvError,
     read_ecg_csv,
@@ -135,21 +138,44 @@ class HrCompareTests(unittest.TestCase):
 
 
 class LiveGateTests(unittest.TestCase):
+    def test_default_switch_is_off(self):
+        with mock.patch.dict(os.environ, {}, clear=False):
+            os.environ.pop("STRESS_ALERT_MENTALAB", None)
+            self.assertFalse(mentalab_enabled())
+            self.assertFalse(mentalab_enabled(explicit=False))
+            with self.assertRaises(RuntimeError) as blocked:
+                start_live_ecg(file_name="rec", device_name="Explore_TEST", allow_live=True)
+        self.assertIn("STRESS_ALERT_MENTALAB", str(blocked.exception))
+        self.assertNotIn("explorepy", sys.modules)
+
+    def test_env_values(self):
+        for value in ("1", "true", "yes", "on", " TRUE "):
+            with mock.patch.dict(os.environ, {"STRESS_ALERT_MENTALAB": value}):
+                self.assertTrue(mentalab_enabled())
+        for value in ("", "0", "false", "no", "off"):
+            with mock.patch.dict(os.environ, {"STRESS_ALERT_MENTALAB": value}):
+                self.assertFalse(mentalab_enabled())
+        with mock.patch.dict(os.environ, {"STRESS_ALERT_MENTALAB": "0"}):
+            self.assertTrue(mentalab_enabled(explicit=True))
+
     def test_live_refuses_without_allow_live(self):
-        with self.assertRaises(RuntimeError) as blocked:
-            start_live_ecg(file_name="rec", device_name="Explore_TEST")
+        with mock.patch.dict(os.environ, {"STRESS_ALERT_MENTALAB": "1"}):
+            with self.assertRaises(RuntimeError) as blocked:
+                start_live_ecg(file_name="rec", device_name="Explore_TEST")
         self.assertIn("allow_live", str(blocked.exception))
 
     def test_live_needs_a_device_id(self):
-        with self.assertRaises(ValueError):
-            start_live_ecg(file_name="rec", allow_live=True)
+        with mock.patch.dict(os.environ, {"STRESS_ALERT_MENTALAB": "1"}):
+            with self.assertRaises(ValueError):
+                start_live_ecg(file_name="rec", allow_live=True)
 
     def test_missing_explorepy_points_at_csv_replay(self):
         sentinel = sys.modules.get("explorepy", "missing")
         sys.modules["explorepy"] = None
         try:
-            with self.assertRaises(ImportError) as missing:
-                start_live_ecg(file_name="rec", device_name="Explore_TEST", allow_live=True)
+            with mock.patch.dict(os.environ, {"STRESS_ALERT_MENTALAB": "1"}):
+                with self.assertRaises(ImportError) as missing:
+                    start_live_ecg(file_name="rec", device_name="Explore_TEST", allow_live=True)
         finally:
             if sentinel == "missing":
                 sys.modules.pop("explorepy", None)
@@ -159,6 +185,23 @@ class LiveGateTests(unittest.TestCase):
 
 
 class CliTests(unittest.TestCase):
+    def test_cli_is_off_by_default(self):
+        import io
+        from contextlib import redirect_stderr
+
+        from replay_mentalab import main
+
+        err = io.StringIO()
+        with mock.patch.dict(os.environ, {}, clear=False):
+            os.environ.pop("STRESS_ALERT_MENTALAB", None)
+            with tempfile.TemporaryDirectory() as tmp:
+                out = Path(tmp) / "ecg_trace.csv"
+                with redirect_stderr(err):
+                    code = main(["--csv", str(FIXTURE), "--out", str(out)])
+                self.assertEqual(code, 2)
+                self.assertFalse(out.exists())
+        self.assertIn("off", err.getvalue())
+
     def test_cli_on_synthetic(self):
         import io
         from contextlib import redirect_stdout
@@ -169,7 +212,9 @@ class CliTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             out = Path(tmp) / "ecg_trace.csv"
             with redirect_stdout(buf):
-                code = main(["--csv", str(FIXTURE), "--out", str(out), "--optical-hr", "72"])
+                code = main(
+                    ["--enable", "--csv", str(FIXTURE), "--out", str(out), "--optical-hr", "72"]
+                )
             metrics = Path(tmp) / "ecg_trace_metrics.csv"
             self.assertEqual(code, 0)
             self.assertTrue(out.is_file())
