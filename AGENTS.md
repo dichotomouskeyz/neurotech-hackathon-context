@@ -1,6 +1,6 @@
 # Agent instructions
 
-Context repo for Jahlon's work at the UC Berkeley Neurotech Hackathon (October 24 to 25, 2026, Openwater sponsor). Read README.md, then docs/EVENT.md and docs/TRACKS.md before proposing a project.
+Context repo for Jahlon's work at the UC Berkeley Neurotech Hackathon (October 24 to 25, 2026, Openwater sponsor). The team is building on Open-Motion with the station available all weekend. Read README.md, then docs/OPEN-MOTION.md, docs/EVENT.md, and docs/TRACKS.md before proposing a project.
 
 Event scope rules apply to anything built from this context:
 
