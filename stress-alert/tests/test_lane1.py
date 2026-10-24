@@ -1,25 +1,12 @@
-"""Lane 1 replay, contact quality, and optical heart rate."""
+"""Lane 1 contact quality, optical heart rate, and the live-scan gate."""
 
 from __future__ import annotations
 
-import csv
-import tempfile
 import unittest
-from pathlib import Path
 
 from features.cq_score import cq_score
 from features.pulse_hr import estimate_optical_hr
-from ingest.omotion_source import (
-    ScanCsvError,
-    apply_window,
-    read_side_frames,
-    replay_scan,
-    start_live_scan,
-    write_side_csv,
-)
-
-ROOT = Path(__file__).resolve().parents[1]
-FIXTURE = ROOT / "data" / "synthetic_scan.csv"
+from ingest.omotion_source import start_live_scan
 
 
 class CqScoreTests(unittest.TestCase):
@@ -87,125 +74,7 @@ class PulseHrTests(unittest.TestCase):
         self.assertIn("8s", estimate.note)
 
 
-class ReplayTests(unittest.TestCase):
-    def test_synthetic_fixture_reports_pulse_and_cq(self):
-        rows = replay_scan(FIXTURE)
-        self.assertGreaterEqual(len(rows), 600)
-        self.assertEqual(rows[0].frame_id, 0)
-        self.assertIsNotNone(rows[0].bfi_l)
-        self.assertIsNotNone(rows[0].bfi_r)
-        self.assertAlmostEqual(rows[0].cq, 15 / 16)
-        self.assertFalse(rows[0].bad_coupling)
-        # r8 is the dropout, so the right side uses 7 cameras, not 8.
-        self.assertIsNotNone(rows[0].bvi_r)
-
-        estimate = estimate_optical_hr(
-            [row.timestamp_s for row in rows],
-            [row.bfi_l for row in rows],
-            bfi_right=[row.bfi_r for row in rows],
-        )
-        self.assertIsNotNone(estimate.bpm)
-        self.assertAlmostEqual(estimate.bpm, 72.0, delta=3.0)
-
-    def test_blank_camera_is_skipped_in_the_side_mean(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            path = Path(tmp) / "scan.csv"
-            _write_scan(
-                path,
-                [
-                    {
-                        "frame_id": "1",
-                        "timestamp_s": "0.0",
-                        "bfi_l1": "2",
-                        "bfi_l2": "",
-                        "bfi_r1": "4",
-                        "bvi_l1": "6",
-                        "quality_l1": "ok",
-                        "quality_l2": "nan_filled",
-                    }
-                ],
-            )
-            rows = read_side_frames(path)
-        self.assertEqual(len(rows), 1)
-        self.assertAlmostEqual(rows[0].bfi_l, 2.0)
-        self.assertAlmostEqual(rows[0].bfi_r, 4.0)
-        self.assertAlmostEqual(rows[0].cq, 0.5)
-        self.assertFalse(rows[0].bad_coupling)
-
-    def test_missing_quality_columns_leave_cq_blank(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            path = Path(tmp) / "scan.csv"
-            _write_scan(
-                path,
-                [
-                    {"frame_id": "1", "timestamp_s": "0.0", "bfi_l1": "1.5", "mean_l1": "100"},
-                    {"frame_id": "2", "timestamp_s": "0.025", "bfi_l1": "1.7", "mean_l1": "101"},
-                ],
-            )
-            rows = read_side_frames(path)
-            out = Path(tmp) / "side.csv"
-            write_side_csv(rows, out)
-            with out.open(newline="", encoding="utf-8") as handle:
-                written = list(csv.DictReader(handle))
-        self.assertIsNone(rows[0].cq)
-        self.assertEqual(written[0]["cq"], "")
-        self.assertEqual(written[0]["bfi_l"], "1.500000")
-        self.assertEqual(written[1]["bfi_r"], "")
-
-    def test_full_sample_header_is_accepted(self):
-        header = ["frame_id", "timestamp_s"]
-        for metric in ("bfi", "bvi", "mean", "contrast", "temp", "quality"):
-            for side in ("l", "r"):
-                for cam in range(1, 9):
-                    header.append(f"{metric}_{side}{cam}")
-        self.assertEqual(len(header), 98)
-        row = {name: "0" for name in header}
-        row["frame_id"] = "10"
-        row["timestamp_s"] = "0.225"
-        for side in ("l", "r"):
-            for cam in range(1, 9):
-                row[f"quality_{side}{cam}"] = "ok"
-                row[f"bfi_{side}{cam}"] = "2.0"
-                row[f"bvi_{side}{cam}"] = "6.0"
-        with tempfile.TemporaryDirectory() as tmp:
-            path = Path(tmp) / "sample_shaped.csv"
-            with path.open("w", newline="", encoding="utf-8") as handle:
-                writer = csv.DictWriter(handle, fieldnames=header)
-                writer.writeheader()
-                writer.writerow(row)
-            rows = read_side_frames(path)
-        self.assertAlmostEqual(rows[0].bfi_l, 2.0)
-        self.assertAlmostEqual(rows[0].bvi_r, 6.0)
-        self.assertEqual(rows[0].cq, 1.0)
-
-    def test_window_trails_and_keeps_one_row_per_frame(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            path = Path(tmp) / "scan.csv"
-            records = []
-            for index in range(5):
-                records.append(
-                    {
-                        "frame_id": str(index),
-                        "timestamp_s": f"{index * 0.5:.1f}",
-                        "bfi_l1": str(index),
-                        "quality_l1": "ok",
-                    }
-                )
-            _write_scan(path, records)
-            raw = read_side_frames(path)
-            windowed = apply_window(raw, 1.0)
-        self.assertEqual(len(windowed), 5)
-        # t=1.0 sees frames at 0.0, 0.5, and 1.0 (values 0, 1, 2).
-        self.assertAlmostEqual(windowed[2].bfi_l, 1.0)
-        self.assertEqual(windowed[2].frame_id, 2)
-
-    def test_missing_bfi_columns_raise(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            path = Path(tmp) / "scan.csv"
-            _write_scan(path, [{"timestamp_s": "0", "mean_l1": "1"}])
-            with self.assertRaises(ScanCsvError):
-                read_side_frames(path)
-
+class LiveScanTests(unittest.TestCase):
     def test_live_scan_is_gated(self):
         with self.assertRaises(RuntimeError) as blocked:
             start_live_scan(data_dir="/tmp/omotion-stress-alert")
@@ -217,18 +86,6 @@ class ReplayTests(unittest.TestCase):
                 demo_mode=True,
             )
         self.assertIn("demo_mode", str(demo.exception))
-
-
-def _write_scan(path: Path, records: list[dict[str, str]]) -> None:
-    names: list[str] = []
-    for record in records:
-        for key in record:
-            if key not in names:
-                names.append(key)
-    with path.open("w", newline="", encoding="utf-8") as handle:
-        writer = csv.DictWriter(handle, fieldnames=names)
-        writer.writeheader()
-        writer.writerows(records)
 
 
 if __name__ == "__main__":

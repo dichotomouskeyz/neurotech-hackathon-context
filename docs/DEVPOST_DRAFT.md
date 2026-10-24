@@ -71,7 +71,7 @@ The team divided development into decoupled lanes operating against a strict sch
                               v
 +-------------------------------------------------------------+
 |               Lane 1: Ingest & Signal Extraction            |
-|  - omotion_source.py: CSV replay / live station interface   |
+|  - dashboard/device.py: live Open-Motion connect and stream |
 |  - cq_score.py: 16-channel optical contact quality (0 to 1) |
 |  - pulse_hr.py: optical HR estimation from BFI residuals    |
 +-------------------------------------------------------------+
