@@ -29,6 +29,9 @@ This protocol induces transient, controlled physiological stress via voluntary b
 - Verify contact quality (CQ) using the contact quality check (`python scripts/sdk_examples.py contact-quality` or the dashboard CQ widget). Ensure mean CQ is >= 0.50 before starting a session.
 
 ### 2. Chest Electrical Sensor (Mentalab ECG)
+
+Optional, and off by default. Skip this step for an Open-Motion run. `replay_mentalab.py` and `start_live_ecg` do not run until `STRESS_ALERT_MENTALAB=1` (or `--enable` on the replay CLI). Live recording also needs `allow_live=True` in the explorepy environment. The bridge below is that later step, not part of a normal run.
+
 - Place Lead I or Lead II disposable electrodes on the chest.
 - Connect the Mentalab Explore amplifier.
 - Start the LSL bridge in a dedicated Python environment:

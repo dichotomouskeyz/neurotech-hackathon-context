@@ -1,4 +1,8 @@
-"""Replay a Mentalab Explore ExG CSV. Live explorepy stays behind a flag.
+"""Replay a Mentalab Explore ExG CSV. Live explorepy stays behind two gates.
+
+``start_live_ecg`` does nothing unless ``STRESS_ALERT_MENTALAB`` is on
+(see ``mentalab_config``) and ``allow_live=True``. The default is off, so a
+normal run does not import explorepy or open Bluetooth.
 
 explorepy ``record_data(..., file_type='csv')`` writes ``{file_name}_ExG.csv``
 with one header row and no units row. Columns are ``TimeStamp`` (seconds)
@@ -25,6 +29,8 @@ from pathlib import Path
 
 import numpy as np
 import pandas as pd
+
+from .mentalab_config import MENTALAB_ENV, mentalab_enabled
 
 ECG_TRACE_COLUMNS = ("timestamp_s", "ecg_uv", "hr_bpm")
 ECG_METRICS_COLUMNS = (
@@ -174,18 +180,27 @@ def start_live_ecg(
 ):
     """Record an Explore device to CSV and return the ``explorepy.Explore`` instance.
 
-    Refuses to run unless ``allow_live=True``. CSV replay does not import
+    Off unless ``STRESS_ALERT_MENTALAB`` is on. Even then, refuses to run
+    unless ``allow_live=True``. CSV helpers in this module do not import
     explorepy. The device must already be paired. Bluetooth name looks like
     ``Explore_XXXX``.
 
     When ``duration_sec`` is set, ``record_data`` blocks until that many
     seconds are written. The ECG file is ``{file_name}_ExG.csv`` with
-    ``TimeStamp`` and ``ch*`` columns. Replay that file with ``read_ecg_csv``.
+    ``TimeStamp`` and ``ch*`` columns. Replay that file with ``read_ecg_csv``
+    after passing ``--enable`` to ``replay_mentalab.py`` (or the same env var).
     """
+    if not mentalab_enabled():
+        raise RuntimeError(
+            f"Mentalab/Mentalink is off. Set {MENTALAB_ENV}=1 to enable Lane 2. "
+            "Live recording also needs allow_live=True. "
+            "This call does not import explorepy while the switch is off."
+        )
     if not allow_live:
         raise RuntimeError(
             "Live Mentalab is gated. Pass allow_live=True only when an Explore "
-            "device is paired. Offline work should replay an ExG CSV."
+            "device is paired. Offline work should replay an ExG CSV with "
+            "replay_mentalab.py --enable."
         )
     if not device_name and not mac_address:
         raise ValueError("pass device_name or mac_address")

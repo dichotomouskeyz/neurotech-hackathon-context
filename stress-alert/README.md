@@ -1,6 +1,6 @@
 # stress-alert
 
-Breath-hold stress dashboard for research use. Open-Motion on the forehead gives blood flow and optical heart rate. A Mentalab ECG on the chest gives an ECG heart rate and a short HRV set (RMSSD, SDNN) for the research cross-check. Protocol: 60 s baseline, then a 20 to 40 s breath hold, then 90 s recovery.
+Breath-hold stress dashboard for research use. Open-Motion on the forehead gives blood flow and optical heart rate. A Mentalab ECG on the chest can give an ECG heart rate and a short HRV set (RMSSD, SDNN) for the research cross-check. That Lane 2 path is off by default. Protocol: 60 s baseline, then a 20 to 40 s breath hold, then 90 s recovery.
 
 For research. These numbers are not a diagnosis, a screening result, or a treatment signal. Organizers told the team that human recordings are allowed. Do not change safety-critical optical output, and do not enable the laser from this package.
 
@@ -25,6 +25,8 @@ Two views, switched in the top bar or with `?view=present`:
 - **Present**: for the demo screen. Controls are hidden, and the status strip and chart are larger.
 
 From any working directory: `.venv/bin/python serve.py --dev-feed`.
+
+Mentalab / Mentalink (Lane 2) is off by default. `replay_mentalab.py` exits without reading a file, and `start_live_ecg` raises before it imports `explorepy`, unless `STRESS_ALERT_MENTALAB=1`. The replay CLI also accepts `--enable` for that one command. Live recording still needs `allow_live=True` in the separate explorepy environment. Open-Motion replay and the dashboard are unchanged.
 
 ## Lanes
 
@@ -110,14 +112,19 @@ Those examples talk to the console and can turn the laser on. Run them from an `
 
 ## Lane 2 Mentalab ECG
 
+Off unless you opt in. `python stress-alert/replay_mentalab.py` prints that the path is off and does not read the CSV. `start_live_ecg` does the same and does not import `explorepy`.
+
 Primary input is an explorepy ExG export, `{name}_ExG.csv`. `record_data(..., file_type="csv")` writes a header row `TimeStamp,ch1,ch2,...` and no units row. `TimeStamp` is seconds. Channel values are microvolts. The sampling rate is not in the file (Explore devices are 250, 500, or 1000 Hz); replay takes the median step from `TimeStamp`. A renamed file with `timestamp_s` and `ecg_uv` is accepted too. Pass `--channel ch2` to pick a lead other than the lowest `chN`. Orientation files (`*_ORN.csv`) are a different export and are rejected.
 
 ```bash
 python stress-alert/replay_mentalab.py \
+  --enable \
   --csv stress-alert/data/synthetic_ecg.csv \
   --out stress-alert/data/ecg_trace.csv \
   --optical-hr 72
 ```
+
+`STRESS_ALERT_MENTALAB=1` is the same switch and also unlocks `start_live_ecg`. `--enable` applies only to that replay process.
 
 `synthetic_ecg.csv` is 5000 samples at 250 Hz with a 72 bpm ECG. The command prints duration, sample rate, mean heart rate near 72, mean NN, SDNN, and RMSSD. `--optical-hr` is the Lane 1 `optical_hr_bpm` figure. The CLI prints the absolute difference and that difference as a percent of the ECG rate.
 
@@ -142,7 +149,11 @@ On the live socket, send `{"type": "hr", "t": <pylsl.local_clock()>, "source": "
 
 Clips shorter than 8 seconds are rejected. SDANN and the frequency-domain HRV set are left out: they need minutes of data.
 
-Live Explore recording, only with a paired device, and in the explorepy environment rather than this one:
+Live Explore recording, only with the switch on, a paired device, and the explorepy environment rather than this one:
+
+```bash
+STRESS_ALERT_MENTALAB=1
+```
 
 ```python
 from ingest.mentalab_source import start_live_ecg
@@ -155,7 +166,7 @@ explore = start_live_ecg(
 )
 ```
 
-`allow_live=False` raises. Without `explorepy` installed, the live call raises `ImportError` and says CSV replay does not need it. `record_data` writes `breathhold_ExG.csv`. Replay that file with the CLI above. Upstream connect and record examples: https://github.com/Mentalab-hub/explorepy/blob/master/docs/usage.rst
+With the env var unset, `start_live_ecg` raises and does not import `explorepy`. With the env var set, `allow_live=False` still raises. Without `explorepy` installed, the live call raises `ImportError` and says CSV replay does not need it. `record_data` writes `breathhold_ExG.csv`. Replay that file with `--enable` as above. Upstream connect and record examples: https://github.com/Mentalab-hub/explorepy/blob/master/docs/usage.rst
 
 ## Lane 4 protocol and stress index
 

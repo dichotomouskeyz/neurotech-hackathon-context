@@ -1,6 +1,9 @@
 #!/usr/bin/env python3
 """Replay a Mentalab Explore ECG CSV and print heart rate and HRV.
 
+Off unless ``--enable`` is passed or ``STRESS_ALERT_MENTALAB=1``. A normal
+invocation does not read the CSV and does not import explorepy.
+
 For research. Heart rate and HRV from this replay are a demo cross-check
 for the optical rate, not a clinical measurement.
 """
@@ -18,6 +21,7 @@ if str(_ROOT) not in sys.path:
 
 from features.ecg_hrv import EcgFeatureError, analyze_ecg  # noqa: E402
 from features.hr_compare import compare_hr  # noqa: E402
+from ingest.mentalab_config import mentalab_enabled  # noqa: E402
 from ingest.mentalab_source import (  # noqa: E402
     MentalabCsvError,
     read_ecg_csv,
@@ -28,13 +32,18 @@ from ingest.mentalab_source import (  # noqa: E402
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
-        description="Replay a Mentalab Explore ExG CSV (Lane 2). For research."
+        description="Replay a Mentalab Explore ExG CSV (Lane 2). Off by default. For research."
+    )
+    parser.add_argument(
+        "--enable",
+        action="store_true",
+        help="Run the replay. Off by default. STRESS_ALERT_MENTALAB=1 is the same switch.",
     )
     parser.add_argument(
         "--csv",
         type=Path,
-        required=True,
-        help="Explore *_ExG.csv or timestamp_s,ecg_uv",
+        default=None,
+        help="Explore *_ExG.csv or timestamp_s,ecg_uv. Required once the switch is on.",
     )
     parser.add_argument(
         "--out",
@@ -60,6 +69,16 @@ def main(argv: list[str] | None = None) -> int:
         help="Lane 1 optical_hr_bpm, for a research cross-check against this ECG rate.",
     )
     args = parser.parse_args(argv)
+    if not mentalab_enabled(True if args.enable else None):
+        print(
+            "Mentalab/Mentalink is off. Replay did not run. "
+            "Set STRESS_ALERT_MENTALAB=1 or pass --enable. "
+            "Live explorepy is a separate step and still needs allow_live=True.",
+            file=sys.stderr,
+        )
+        return 2
+    if args.csv is None:
+        parser.error("--csv is required")
     try:
         recording = read_ecg_csv(args.csv, channel=args.channel)
         summary, rates = analyze_ecg(recording.timestamps_s, recording.ecg_uv)
