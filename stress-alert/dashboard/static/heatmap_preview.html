@@ -1,0 +1,232 @@
+<!doctype html>
+<html lang="en" data-theme="light">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Open-Motion 2D Brain Heatmap Preview</title>
+  <link rel="stylesheet" href="/static/styles.css">
+  <style>
+    body {
+      background: var(--page);
+      font-family: var(--font-sans);
+      margin: 0;
+      padding: var(--space-4);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+    }
+    .preview-container {
+      max-width: 980px;
+      width: 100%;
+      margin: 0 auto;
+    }
+    .preview-header {
+      margin-bottom: var(--space-4);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      gap: var(--space-2);
+    }
+    .preview-header h1 {
+      font-size: var(--text-lg);
+      margin: 0;
+      color: var(--ink);
+    }
+    .preview-header p {
+      margin: 4px 0 0;
+      font-size: var(--text-xs);
+      color: var(--ink-muted);
+    }
+  </style>
+</head>
+<body>
+  <div class="preview-container">
+    <header class="preview-header">
+      <div>
+        <h1>Open-Motion 2D Brain Hemodynamic Heatmap</h1>
+        <p>16-channel prefrontal cortex optical spectroscopy (P-SCOS) • For research use</p>
+      </div>
+      <div>
+        <a href="/" style="font-size: var(--text-xs); color: var(--focus); text-decoration: none;">&larr; Return to main dashboard</a>
+      </div>
+    </header>
+
+    <section class="card heatmap-card" id="card-heatmap" data-live="true">
+      <div class="heatmap-head">
+        <div class="heatmap-title-row">
+          <h2 class="card-title">Real-time Cortical Heatmap</h2>
+          <div class="heatmap-live-chip">
+            <span class="chip-dot" style="background: var(--status-good);"></span>
+            <span id="heatmap-status-text">Simulated Open-Motion (40 Hz)</span>
+          </div>
+        </div>
+
+        <div class="heatmap-toolbar">
+          <div class="segmented segmented-sm" role="group" aria-label="Projection View">
+            <button type="button" class="btn-segmented active" id="btn-view-axial" aria-pressed="true">Axial (10-20)</button>
+            <button type="button" class="btn-segmented" id="btn-view-frontal" aria-pressed="false">Frontal PFC</button>
+          </div>
+
+          <div class="segmented segmented-sm" role="group" aria-label="Metric">
+            <button type="button" class="btn-segmented active" id="btn-metric-bfi" aria-pressed="true">BFI (Flow)</button>
+            <button type="button" class="btn-segmented" id="btn-metric-bvi" aria-pressed="false">BVI (Volume)</button>
+            <button type="button" class="btn-segmented" id="btn-metric-asym" aria-pressed="false">Laterality</button>
+          </div>
+
+          <label class="field-select">
+            <span>Colormap</span>
+            <select id="heatmap-colormap">
+              <option value="turbo" selected>Turbo</option>
+              <option value="viridis">Viridis</option>
+              <option value="coolwarm">Coolwarm</option>
+            </select>
+          </label>
+
+          <label class="toggle"><input type="checkbox" id="heatmap-show-optodes" checked> Optodes &amp; labels</label>
+          <label class="toggle"><input type="checkbox" id="heatmap-autoscale" checked> Auto-scale</label>
+        </div>
+      </div>
+
+      <div class="heatmap-body">
+        <div class="heatmap-canvas-container" id="heatmap-container">
+          <canvas id="heatmap-canvas" width="640" height="420"></canvas>
+          <div class="heatmap-tooltip" id="heatmap-tooltip" style="display: none;"></div>
+        </div>
+
+        <div class="heatmap-sidebar">
+          <div class="heatmap-stat-box">
+            <span class="stat-label">Left PFC Mean</span>
+            <span class="stat-value" id="heatmap-stat-left">--</span>
+            <span class="stat-sub">Channels L1–L8</span>
+          </div>
+          <div class="heatmap-stat-box">
+            <span class="stat-label">Right PFC Mean</span>
+            <span class="stat-value" id="heatmap-stat-right">--</span>
+            <span class="stat-sub">Channels R1–R8</span>
+          </div>
+          <div class="heatmap-stat-box" id="heatmap-stat-asym-box">
+            <span class="stat-label">Hemispheric Balance</span>
+            <span class="stat-value" id="heatmap-stat-asym">--</span>
+            <span class="stat-sub" id="heatmap-stat-asym-desc">R vs L asymmetry</span>
+          </div>
+
+          <div class="heatmap-colorbar-wrap">
+            <div class="colorbar-labels">
+              <span class="cb-label" id="cb-max">--</span>
+              <span class="cb-label" id="cb-mid">--</span>
+              <span class="cb-label" id="cb-min">--</span>
+            </div>
+            <div class="colorbar-bar" id="heatmap-colorbar"></div>
+            <span class="colorbar-unit" id="cb-unit">Index</span>
+          </div>
+        </div>
+      </div>
+    </section>
+  </div>
+
+  <script src="/static/heatmap.js"></script>
+  <script>
+    (function() {
+      const $ = (id) => document.getElementById(id);
+      const fmt = (v, digits = 2) => (v === null || v === undefined || Number.isNaN(v) ? "--" : v.toFixed(digits));
+
+      const COLORBAR_GRADIENTS = {
+        turbo: "linear-gradient(to top, #30123b, #4145ab, #4675ed, #39a2fc, #1bcfd4, #24eca6, #61fc4c, #a4fc3b, #d1e834, #f3c63a, #fe9b2d, #f36315, #d93806, #b11902, #7a0402)",
+        viridis: "linear-gradient(to top, #440154, #482777, #3f4a8a, #31678e, #26838f, #1f9d8a, #6cce5a, #b6de2b, #fee825)",
+        coolwarm: "linear-gradient(to top, #3b4cc0, #8cb2e9, #f2f2f2, #f49a7b, #b40426)"
+      };
+
+      const updateColorbarGradient = (cm) => {
+        const cb = $("heatmap-colorbar");
+        if (cb && COLORBAR_GRADIENTS[cm]) {
+          cb.style.background = COLORBAR_GRADIENTS[cm];
+        }
+      };
+
+      const heatmap = new BrainHeatmap($("heatmap-canvas"), {
+        container: $("heatmap-container"),
+        tooltipEl: $("heatmap-tooltip"),
+        onStatsUpdate: (stats) => {
+          $("heatmap-stat-left").textContent = fmt(stats.meanL);
+          $("heatmap-stat-right").textContent = fmt(stats.meanR);
+          $("heatmap-stat-asym").textContent = stats.asym !== null ? `${stats.asym > 0 ? "+" : ""}${stats.asym.toFixed(1)}%` : "--";
+          $("heatmap-stat-asym-desc").textContent = stats.asym !== null
+            ? (stats.asym > 2.5 ? "Right Dominant" : (stats.asym < -2.5 ? "Left Dominant" : "Symmetric (Balanced)"))
+            : "R vs L asymmetry";
+          $("cb-max").textContent = fmt(stats.scaleMax, 1);
+          $("cb-mid").textContent = fmt((stats.scaleMin + stats.scaleMax) / 2, 1);
+          $("cb-min").textContent = fmt(stats.scaleMin, 1);
+          $("cb-unit").textContent = stats.metric === "asym" ? "% Asym" : (stats.metric === "bfi" ? "BFI Index" : "BVI Index");
+        }
+      });
+
+      updateColorbarGradient("turbo");
+
+      // Projection toggle
+      $("btn-view-axial").addEventListener("click", () => {
+        $("btn-view-axial").classList.add("active");
+        $("btn-view-frontal").classList.remove("active");
+        heatmap.setProjection("axial");
+      });
+      $("btn-view-frontal").addEventListener("click", () => {
+        $("btn-view-frontal").classList.add("active");
+        $("btn-view-axial").classList.remove("active");
+        heatmap.setProjection("frontal");
+      });
+
+      // Metric buttons
+      const metrics = [
+        { id: "btn-metric-bfi", metric: "bfi" },
+        { id: "btn-metric-bvi", metric: "bvi" },
+        { id: "btn-metric-asym", metric: "asym" }
+      ];
+      metrics.forEach(({ id, metric }) => {
+        $(id).addEventListener("click", () => {
+          metrics.forEach((m) => $(m.id).classList.toggle("active", m.metric === metric));
+          heatmap.setMetric(metric);
+          $("heatmap-colormap").value = heatmap.colormap;
+          updateColorbarGradient(heatmap.colormap);
+        });
+      });
+
+      $("heatmap-colormap").addEventListener("change", (e) => {
+        heatmap.setColormap(e.target.value);
+        updateColorbarGradient(e.target.value);
+      });
+
+      $("heatmap-show-optodes").addEventListener("change", (e) => {
+        heatmap.setShowOptodes(e.target.checked);
+      });
+
+      $("heatmap-autoscale").addEventListener("change", (e) => {
+        heatmap.setAutoscale(e.target.checked);
+      });
+
+      // Realistic synthetic 40Hz streaming loop
+      const BASE_L = [3.4, 2.4, 1.3, 0.4, 0.3, 1.4, 2.5, 3.3];
+      const BASE_R = [3.5, 2.6, 1.3, 0.5, 0.4, 1.4, 3.5, 4.6];
+      const BVI_L = [5.6, 6.0, 6.1, 5.0, 5.6, 6.8, 7.0, 5.8];
+      const BVI_R = [5.6, 6.7, 6.9, 7.1, 6.7, 6.7, 6.3, 6.4];
+
+      let t = 0;
+      setInterval(() => {
+        t += 0.025; // 40 Hz
+        const pulse = 0.28 * Math.sin(2.0 * Math.PI * 1.2 * t);
+        const resp = 0.18 * Math.sin(2.0 * Math.PI * 0.2 * t);
+        const asymWave = 0.45 * Math.sin(2.0 * Math.PI * 0.1 * t);
+
+        const leftBfi = BASE_L.map((b) => Math.max(0.05, b + pulse + (Math.random() - 0.5) * 0.08));
+        const rightBfi = BASE_R.map((b) => Math.max(0.05, b + pulse + asymWave + (Math.random() - 0.5) * 0.08));
+
+        const leftBvi = BVI_L.map((b) => b + resp + (Math.random() - 0.5) * 0.05);
+        const rightBvi = BVI_R.map((b) => b + resp + (Math.random() - 0.5) * 0.05);
+
+        heatmap.update({ type: "bfi", t: t, left: leftBfi, right: rightBfi });
+        heatmap.update({ type: "bvi", t: t, left: leftBvi, right: rightBvi });
+        heatmap.update({ type: "cq", t: t, left: 0.95, right: 0.92 });
+      }, 25);
+    })();
+  </script>
+</body>
+</html>
