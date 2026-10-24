@@ -22,7 +22,7 @@ Every frame field `t` is seconds on `pylsl.local_clock()` of the machine running
 Two views, switched in the top bar or with `?view=present`:
 
 - **Operator**: status strip, session and timed-protocol controls, and two charts, blood flow index (BFI) and blood volume index (BVI). Each has its own scale, and they share the time axis, phase bands, and a synced crosshair. An optional camera-spread band shows the middle 50% of cameras.
-- **Present**: for the demo screen. Controls are hidden. The phase becomes a breathing circle that rises and falls gently at baseline, holds full during the breath hold, and moves faster during recovery, ringed by the timed-phase countdown. Heart rate, contact quality and stress sit beside it.
+- **Present**: for the demo screen. Controls are hidden. The phase becomes a breathing circle that rises and falls gently at baseline, holds full during the breath hold, and, when the closed loop pauses, guides a 4 second inhale and a 6 second exhale. Heart rate, contact quality, and the BFI/BVI stress label sit beside it.
 
 The look is a light, clinical base: flat surfaces, hairline borders, mono numerals. Dark tokens remain in `styles.css` but are off (`data-theme="light"` on `<html>`).
 
@@ -35,7 +35,8 @@ The demo runs on a MacBook with the Open-Motion console plugged in over USB.
 1. One-time setup on that Mac: `brew install libusb`, then `uv sync --locked` (installs `openmotion-sdk==1.12.0`, the version Openwater's bloodflow app uses). Use Openwater's USB cable only (part 100-00049).
 2. Power the console, connect both sensor modules, and start the dashboard.
 3. In Operator view, press **Connect device**. The SDK searches USB and serial. The panel shows console, left sensor, and right sensor, each connected or not found. Hotplug works while connected, and **Search again** re-reads the state.
-4. **Start scan (laser on)** starts the SDK scan with every camera on each connected side. Live BFI and BVI stream into the charts. **Stop scan** ends it. Scan CSVs go to `sessions/device-scans/`, which is gitignored.
+4. **Start scan (laser on)** starts the SDK scan with every camera on each connected side. Live BFI and BVI stream into the charts. Contact quality is scored from each camera's SDK `quality` label and from `low_light_rt` (a covered or unlit camera scores 0). **Stop scan** ends it. Scan CSVs go to `sessions/device-scans/`, which is gitignored.
+5. **Closed loop (~60s)** starts a session if you have not, then runs baseline (12 s, breathe normally), a breath-hold challenge (up to 18 s), and recovery (up to 20 s). If BFI or BVI stays at least 20% above the resting baseline and contact quality stays at least 0.50, the hold stops and the screen asks you to breathe with the circle. When perfusion is back near baseline and contact is still good, it says continue. Optical heart rate is estimated from the BFI pulse for the side panel. It is not the stress label. Switch to **Present** for the judge view. For research. Not a diagnosis.
 
 Errors name the fix: SDK not installed, libusb missing, no console found, or which sensor is missing. Code: `dashboard/device.py` (`DeviceManager`, plus `LiveSink` on the SDK's `live` channel). API: `GET /api/device`, `POST /api/device/connect`, `/disconnect`, `/scan/start`, `/scan/stop`.
 
@@ -55,7 +56,7 @@ Producers talk to the dashboard only through [dashboard/SCHEMA.md](dashboard/SCH
 | :- | :- |
 | 1. Server, hub, ingest and browser sockets, live BFI charts from replay | Done |
 | 2. Session/phase logger: session bar, phase buttons and timer, `events.csv`, chart shading, LSL markers | Done |
-| 3. Contact quality, optical heart rate, stress and alert panels | Panels done. CQ, optical heart rate, and the CQ-gated stress index exist as features; live producers that send them to the dashboard are still to do |
+| 3. Contact quality, optical heart rate, stress and alert panels | Done on the live scan and on `--dev-feed`. Stress is BFI/BVI versus baseline, gated on contact quality. Optical heart rate is a side panel |
 
 ## Versions
 

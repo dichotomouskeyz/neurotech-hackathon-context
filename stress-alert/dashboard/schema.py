@@ -41,15 +41,25 @@ class ContactQuality(_Frame):
 
 
 class Stress(_Frame):
+    """CQ-gated perfusion change versus the session baseline.
+
+    ``index`` is the larger of the BFI and BVI rises. ``alert`` is true only when
+    that index clears the threshold and contact quality passed. Optical heart rate
+    is a separate ``hr`` frame and does not set ``alert``. ``tau_s`` is the
+    recovery time constant, in seconds, once a decay fit succeeds.
+    """
+
     type: Literal["stress"]
     t: float
     index: float
     recovery_score: float | None = None
     alert: bool = False
     reason: str = ""
+    tau_s: float | None = None
 
 
 PhaseName = Literal["baseline", "hold", "recovery", "end"]
+LoopMode = Literal["off", "baseline", "challenge", "coach", "continue"]
 
 
 class Phase(_Frame):
@@ -72,6 +82,8 @@ class Session(_Frame):
     phase_t: float | None = None
     timer_next: PhaseName | None = None
     timer_ends_t: float | None = None
+    loop: LoopMode = "off"
+    loop_cue: str = ""
 
 
 class Device(_Frame):

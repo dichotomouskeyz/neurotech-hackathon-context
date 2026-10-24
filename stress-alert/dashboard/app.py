@@ -9,6 +9,7 @@ the Open-Motion device through ``/api/device``.
 import asyncio
 import contextlib
 import json
+import logging
 from collections.abc import AsyncIterator
 from pathlib import Path
 from typing import Any
@@ -21,8 +22,11 @@ from pydantic import BaseModel, Field, ValidationError
 from dashboard import clock, dev_feed
 from dashboard.device import DeviceError, DeviceManager
 from dashboard.hub import Hub, drain
+from dashboard.live_gate import LiveGate
 from dashboard.schema import PhaseName, frame_adapter
 from session.phase_logger import MarkerOutlet, PhaseError, PhaseLogger
+
+log = logging.getLogger(__name__)
 
 STATIC = Path(__file__).resolve().parent / "static"
 SESSIONS = Path(__file__).resolve().parent.parent / "sessions"
@@ -41,7 +45,10 @@ class ProtocolStart(BaseModel):
     baseline: float = Field(default=60, gt=0, le=600)
     hold: float = Field(default=30, gt=0, le=120)
     recovery: float = Field(default=90, gt=0, le=600)
+    continue_s: float = Field(default=3, gt=0, le=30)
     cycles: int = Field(default=1, ge=1, le=10)
+    closed_loop: bool = False
+    subject_id: str = Field(default="", max_length=64)
 
 
 def create_app(
@@ -56,15 +63,26 @@ def create_app(
     ``device_factory`` replaces the openmotion-sdk constructor (tests use a fake).
     """
     hub = Hub()
+    gate = LiveGate()
+
+    def publish(frames: list[dict[str, Any]]) -> None:
+        """Broadcast ``frames`` and any stress or heart-rate frames derived from them."""
+        extra: list[dict[str, Any]] = []
+        try:
+            extra = gate.observe(frames)
+        except Exception:
+            log.exception("hemodynamic gate failed")
+        hub.publish([*frames, *extra])
+
     markers = MarkerOutlet() if lsl_markers else None
-    logger = PhaseLogger(sessions_dir, emit=hub.publish, markers=markers)
+    logger = PhaseLogger(sessions_dir, emit=publish, markers=markers)
     device_kwargs = {"factory": device_factory} if device_factory else {}
-    device = DeviceManager(hub.publish, sessions_dir / "device-scans", **device_kwargs)
+    device = DeviceManager(publish, sessions_dir / "device-scans", **device_kwargs)
 
     @contextlib.asynccontextmanager
     async def lifespan(_: FastAPI) -> AsyncIterator[None]:
         if markers is not None:
-            hub.publish(
+            publish(
                 [
                     {
                         "type": "status",
@@ -74,7 +92,7 @@ def create_app(
                     }
                 ]
             )
-        hub.publish([logger.state(), device.state()])
+        publish([logger.state(), device.state()])
         device.start_polling(asyncio.get_running_loop())
         task = asyncio.create_task(dev_feed.run_forever(dev_feed_url)) if dev_feed_url else None
         yield
@@ -89,6 +107,7 @@ def create_app(
     app.state.hub = hub
     app.state.logger = logger
     app.state.device = device
+    app.state.gate = gate
     app.mount("/static", StaticFiles(directory=STATIC), name="static")
 
     def guarded(action: Any) -> dict[str, Any]:
@@ -152,8 +171,24 @@ def create_app(
 
     @app.post("/api/protocol/start")
     async def protocol_start(body: ProtocolStart) -> dict[str, Any]:
-        durations = {"baseline": body.baseline, "hold": body.hold, "recovery": body.recovery}
-        return guarded(lambda: logger.start_timer(durations, body.cycles))
+        if body.closed_loop and logger.session is not None and logger.session.phase == "end":
+            guarded(logger.stop_session)
+        if logger.session is None and body.closed_loop:
+            guarded(lambda: logger.start_session(body.subject_id.strip() or "demo"))
+        durations = {
+            "baseline": body.baseline,
+            "hold": body.hold,
+            "recovery": body.recovery,
+            "continue": body.continue_s,
+        }
+        return guarded(
+            lambda: logger.start_timer(
+                durations,
+                body.cycles,
+                closed_loop=body.closed_loop,
+                signals=gate if body.closed_loop else None,
+            )
+        )
 
     @app.post("/api/protocol/stop")
     async def protocol_stop() -> dict[str, Any]:
@@ -188,7 +223,7 @@ def create_app(
             while True:
                 accepted, errors = _validate(await ws.receive_text())
                 if accepted:
-                    hub.publish(accepted)
+                    publish(accepted)
                 if errors:
                     await ws.send_text(json.dumps({"type": "error", "errors": errors}))
         except WebSocketDisconnect:

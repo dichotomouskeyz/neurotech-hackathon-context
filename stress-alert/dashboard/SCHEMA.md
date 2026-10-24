@@ -26,12 +26,12 @@ ws://<dashboard-host>:8765/ws/ingest?source=<your-name>
 | type | fields | notes |
 | :- | :- | :- |
 | `bfi`, `bvi` | `t`, `left[8]`, `right[8]` | one value per camera, `null` for a disabled camera |
-| `hr` | `t`, `source` (`optical`), `bpm` | 0 < bpm < 300. Optical heart rate from the Open-Motion pulse. ECG was dropped on 2026-10-24 and `ecg` is rejected |
-| `cq` | `t`, `left`, `right` | contact quality, 0 to 1 |
-| `stress` | `t`, `index`, `recovery_score` (optional), `alert` (bool), `reason` | the dashboard only shows an alert when contact quality passes its threshold |
+| `hr` | `t`, `source` (`optical`), `bpm` | 0 < bpm < 300. Optical heart rate from the BFI pulse, side panel only. It does not set the stress label. ECG was dropped on 2026-10-24 and `ecg` is rejected |
+| `cq` | `t`, `left`, `right` | contact quality, 0 to 1, one score per side |
+| `stress` | `t`, `index`, `recovery_score` (optional), `alert` (bool), `reason`, `tau_s` (optional) | `index` is the larger of the BFI and BVI rises versus the session baseline. `alert` is true only when that index is at least 0.20 and contact quality is at least 0.50. `tau_s` is the recovery time constant in seconds once a decay fit succeeds |
 | `phase` | `t`, `session_id`, `phase` (`baseline`, `hold`, `recovery`, `end`), `source` (`manual` or `timer`) | sent by the session/phase logger |
-| `session` | `t`, `active`, `session_id`, `subject_id`, `phase`, `phase_t`, `timer_next`, `timer_ends_t` | sent by the dashboard itself whenever the session changes |
-| `device` | `t`, `connected`, `console`, `left`, `right`, `scanning`, `sdk_version`, `error` | sent by the dashboard itself for the Open-Motion device. While a scan runs, the dashboard also produces the `bfi` and `bvi` frames from the device |
+| `session` | `t`, `active`, `session_id`, `subject_id`, `phase`, `phase_t`, `timer_next`, `timer_ends_t`, `loop`, `loop_cue` | sent by the dashboard itself whenever the session changes. `loop` is `off`, `baseline`, `challenge`, `coach`, or `continue` |
+| `device` | `t`, `connected`, `console`, `left`, `right`, `scanning`, `sdk_version`, `error` | sent by the dashboard itself for the Open-Motion device. While a scan runs, the dashboard produces `bfi`, `bvi`, and `cq` from the SDK `live` channel (`quality` labels and `low_light_rt`). It then derives `stress` and optical `hr` |
 | `status` | `source`, `connected`, `detail` | the dashboard sends these itself on connect and disconnect. Producers may add detail, e.g. `"right sensor not connected"` |
 
 Unknown types and unknown fields are rejected. To change the contract, edit `dashboard/schema.py` and this file together, with Jahlon (dashboard lane owner).

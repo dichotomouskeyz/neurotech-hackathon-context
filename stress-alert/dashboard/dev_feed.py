@@ -15,6 +15,7 @@ from websockets.asyncio.client import connect
 from websockets.exceptions import WebSocketException
 
 from dashboard import clock
+from features.cq_score import cq_score
 
 DEFAULT_CSV = Path(__file__).resolve().parent.parent / "data" / "sample_scan.csv"
 RATE_HZ = 40.0
@@ -34,8 +35,23 @@ def load_rows(path: Path = DEFAULT_CSV) -> list[dict[str, str]]:
         return list(csv.DictReader(handle))
 
 
+def _side_cq(row: dict[str, str], side: str) -> float | None:
+    labels = []
+    for cam in range(1, 9):
+        raw = row.get(f"quality_{side}{cam}", "")
+        text = "" if raw is None else str(raw).strip()
+        if text and text.lower() != "nan":
+            labels.append(text)
+    if not labels:
+        return None
+    try:
+        return cq_score(labels).score
+    except (TypeError, ValueError):
+        return None
+
+
 def frames_for(row: dict[str, str], t: float) -> list[dict]:
-    return [
+    frames = [
         {
             "type": metric,
             "t": t,
@@ -44,6 +60,19 @@ def frames_for(row: dict[str, str], t: float) -> list[dict]:
         }
         for metric in ("bfi", "bvi")
     ]
+    left, right = _side_cq(row, "l"), _side_cq(row, "r")
+    if left is None and right is None:
+        return frames
+    # A missing side is not poor contact. See LiveSink.
+    frames.append(
+        {
+            "type": "cq",
+            "t": t,
+            "left": 1.0 if left is None else left,
+            "right": 1.0 if right is None else right,
+        }
+    )
+    return frames
 
 
 async def run(url: str, path: Path = DEFAULT_CSV) -> None:

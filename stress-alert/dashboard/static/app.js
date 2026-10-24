@@ -3,7 +3,9 @@
 const WINDOW_S = 30;
 const STALE_S = 5;
 const CQ_GOOD = 0.7;
-const CQ_WEAK = 0.4;
+const CQ_GATE = 0.5;
+const BREATH_IN_S = 4;
+const BREATH_OUT_S = 6;
 const NEXT = {
   null: ["baseline", "end"],
   baseline: ["hold", "end"],
@@ -107,7 +109,7 @@ function updateYRange(buf) {
 
 // Session and phase state ------------------------------------------------
 
-let session = { active: false, phase: null };
+let session = { active: false, phase: null, loop: "off", loop_cue: "" };
 let phases = [];
 
 function phaseBands(u, buf) {
@@ -301,25 +303,40 @@ function setState(el, status, text) {
   el.textContent = text;
 }
 
+function breathCycle(seconds) {
+  const period = BREATH_IN_S + BREATH_OUT_S;
+  const x = ((seconds % period) + period) % period;
+  if (x < BREATH_IN_S) {
+    return { word: "Inhale", scale: 0.7 + 0.3 * (x / BREATH_IN_S), progress: x / period };
+  }
+  const y = (x - BREATH_IN_S) / BREATH_OUT_S;
+  return { word: "Exhale", scale: 1 - 0.3 * y, progress: x / period };
+}
+
 function renderPhaseTile() {
   const now = sharedNow();
   const tile = $("tile-phase");
   const phase = session.active ? session.phase : null;
+  const loop = session.loop || "off";
   tile.dataset.phase = phase || "";
+  document.body.dataset.loop = loop;
   $("phase-name").textContent = session.active ? phase || "Ready" : "Idle";
   const running = phase && phase !== "end" && now !== null;
   $("phase-elapsed").textContent = running ? fmtClock(now - session.phase_t) : "";
   const timed = session.timer_next && session.timer_ends_t && now !== null;
   $("phase-next").textContent = timed ? `${session.timer_next} in ${fmtClock(session.timer_ends_t - now)}` : "";
-  const progress = timed
+  let progress = timed
     ? Math.min(1, (now - session.phase_t) / (session.timer_ends_t - session.phase_t))
     : 0;
+  const guided = loop === "coach" ? breathCycle(performance.now() / 1000) : null;
+  if (guided) progress = guided.progress;
   $("phase-progress").style.width = `${(progress * 100).toFixed(1)}%`;
-  $("breath-phase").textContent = $("phase-name").textContent;
-  $("breath-clock").textContent = $("phase-elapsed").textContent;
-  $("breath-next").textContent = $("phase-next").textContent;
+  $("breath-phase").textContent = guided ? guided.word : $("phase-name").textContent;
+  $("breath-clock").textContent = guided ? "Breathe" : $("phase-elapsed").textContent;
+  $("breath-next").textContent = guided ? "Follow the circle" : $("phase-next").textContent;
   $("breath-progress").style.strokeDasharray = `${(progress * 100).toFixed(1)} 100`;
   $("breath-progress").style.opacity = progress > 0 ? "1" : "0";
+  renderCoach(guided);
 }
 
 // Breathing circle: a slow ambient rise and fall at baseline, held full during the
@@ -328,12 +345,30 @@ const reduceMotion = matchMedia("(prefers-reduced-motion: reduce)");
 let breathScale = 0.72;
 function breathTarget(seconds) {
   const phase = session.active ? session.phase : null;
+  const loop = session.loop || "off";
   const wave = (period, amp) =>
     reduceMotion.matches ? 0 : amp * Math.sin((2 * Math.PI * seconds) / period);
-  if (phase === "baseline") return 0.84 + wave(5, 0.05);
-  if (phase === "hold") return 1;
-  if (phase === "recovery") return 0.88 + wave(3.5, 0.07);
+  if (loop === "coach") return breathCycle(seconds).scale;
+  if (loop === "challenge" || phase === "hold") return 1;
+  if (loop === "baseline" || phase === "baseline") return 0.84 + wave(5, 0.05);
+  if (loop === "continue" || phase === "recovery") return 0.88 + wave(3.5, 0.07);
   return 0.72;
+}
+
+function renderCoach(guided) {
+  const loop = session.loop || "off";
+  const el = $("coach");
+  el.dataset.mode = loop;
+  el.hidden = loop === "off";
+  $("coach-cue").textContent = session.loop_cue || "";
+  $("coach-step").textContent = loop === "coach" ? (guided ? guided.word : "") : "";
+  const kicker = {
+    baseline: "Baseline",
+    challenge: "Breath-hold",
+    coach: "Pause",
+    continue: "Continue",
+  };
+  $("coach-kicker").textContent = kicker[loop] || "Closed loop";
 }
 function animateBreath() {
   if (document.body.dataset.view !== "present") return;
@@ -356,7 +391,7 @@ function cqStatus() {
   if (!latest.cq) return null;
   const worst = Math.min(latest.cq.left, latest.cq.right);
   if (worst >= CQ_GOOD) return ["good", "Good contact"];
-  if (worst >= CQ_WEAK) return ["warning", "Weak contact"];
+  if (worst >= CQ_GATE) return ["warning", "Contact ok to score"];
   return ["critical", "Fix sensor coupling"];
 }
 
@@ -375,17 +410,29 @@ function renderCqTile() {
 function renderStressTile() {
   const s = latest.stress;
   if (!s) return;
+  const reason = s.reason || "";
+  const uncalibrated = reason.includes("uncalibrated") || reason.includes("collecting");
   $("tile-stress").dataset.live = "true";
-  $("stress-index").textContent = fmt(s.index);
-  const cq = cqStatus();
-  $("tile-stress").dataset.alert = String(Boolean(s.alert && (!cq || cq[0] === "good")));
-  if (cq && cq[0] !== "good") {
-    setState($("stress-state"), "warning", "Contact too weak to judge");
+  // The server already gates alert on contact quality. Do not require a
+  // stricter "good" band here, or a real elevation is hidden.
+  $("tile-stress").dataset.alert = String(Boolean(s.alert));
+  $("stress-index").textContent = uncalibrated ? "--" : `${Math.round(s.index * 100)}%`;
+  if (reason.includes("poor_coupling")) {
+    setState($("stress-state"), "warning", "Poor contact, alert off");
   } else if (s.alert) {
-    setState($("stress-state"), "critical", s.reason ? `Alert: ${s.reason}` : "Alert");
+    setState($("stress-state"), "critical", "Elevated vs baseline");
+  } else if (reason.includes("resting baseline") || reason.includes("collecting")) {
+    setState($("stress-state"), "good", "Resting baseline");
+  } else if (uncalibrated) {
+    setState($("stress-state"), "warning", "Needs a baseline");
   } else {
-    setState($("stress-state"), "good", "No alert");
+    setState($("stress-state"), "good", "Near baseline");
   }
+  const parts = [];
+  if (!uncalibrated && reason && !reason.startsWith("resting baseline")) parts.push(reason);
+  if (s.tau_s !== null && s.tau_s !== undefined) parts.push(`recovery tau ${Math.round(s.tau_s)} s`);
+  if (typeof s.recovery_score === "number") parts.push(`${Math.round(s.recovery_score * 100)}% returned`);
+  $("stress-detail").textContent = parts.join(". ");
 }
 
 setInterval(() => { renderPhaseTile(); renderHrTile(); }, 250);
@@ -402,9 +449,11 @@ function renderControls() {
   document.querySelectorAll(".phase-buttons button").forEach((b) => {
     b.disabled = !allowed.includes(b.dataset.phase);
   });
-  const timerRunning = Boolean(session.timer_next);
+  const timerRunning = Boolean(session.timer_next) || ["baseline", "challenge", "coach", "continue"].includes(session.loop);
+  const idlePhase = !session.active || session.phase === null || session.phase === "recovery" || session.phase === "end";
   const canTime = session.active && (session.phase === null || session.phase === "recovery");
   $("protocol-start").disabled = !canTime || timerRunning;
+  $("loop-start").disabled = !idlePhase || timerRunning;
   $("protocol-stop").disabled = !timerRunning;
   document.querySelectorAll("#protocol-form input").forEach((i) => { i.disabled = timerRunning; });
 }
@@ -453,6 +502,17 @@ $("protocol-form").addEventListener("submit", (e) => {
   });
 });
 $("protocol-stop").addEventListener("click", () => post("/api/protocol/stop"));
+$("loop-start").addEventListener("click", () => {
+  post("/api/protocol/start", {
+    baseline: 12,
+    hold: 18,
+    recovery: 20,
+    continue_s: 3,
+    cycles: 1,
+    closed_loop: true,
+    subject_id: $("subject").value,
+  });
+});
 
 // Open-Motion device -------------------------------------------------------
 

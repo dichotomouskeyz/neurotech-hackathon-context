@@ -14,7 +14,7 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, Protocol
 
 from dashboard import clock
 
@@ -30,6 +30,16 @@ DEFAULT_DURATIONS = {"baseline": 60.0, "hold": 30.0, "recovery": 90.0}
 EVENT_FIELDS = ["t", "wall_time", "session_id", "phase", "source"]
 
 Emit = Callable[[list[dict[str, Any]]], None]
+
+
+class LoopSignals(Protocol):
+    """What the closed loop asks the hemodynamic gate."""
+
+    def challenge_done(self, now: float) -> bool:
+        """Elevation versus baseline has held, with contact good enough to score."""
+
+    def settled(self, now: float) -> bool:
+        """Perfusion is back near baseline and contact is still good."""
 
 
 class PhaseError(ValueError):
@@ -84,6 +94,8 @@ class PhaseLogger:
         self.session: Session | None = None
         self.timer_next: str | None = None
         self.timer_ends_t: float | None = None
+        self.loop = "off"
+        self.loop_cue = ""
         self._timer: asyncio.Task[None] | None = None
 
     # Sessions
@@ -115,6 +127,8 @@ class PhaseLogger:
         if self.session is None:
             return
         self.cancel_timer()
+        self.loop = "off"
+        self.loop_cue = ""
         if self.session.phase != "end":
             self.mark("end", "manual")
         self.session = None
@@ -152,21 +166,42 @@ class PhaseLogger:
 
     # Timed protocol
 
-    def start_timer(self, durations: dict[str, float] | None = None, cycles: int = 1) -> None:
+    def start_timer(
+        self,
+        durations: dict[str, float] | None = None,
+        cycles: int = 1,
+        *,
+        closed_loop: bool = False,
+        signals: LoopSignals | None = None,
+    ) -> None:
         if self.session is None:
             raise PhaseError("start a session first")
         if self.session.phase not in (None, "recovery"):
             raise PhaseError("the timed protocol starts from a new session or after recovery")
+        if closed_loop and signals is None:
+            raise PhaseError("closed loop needs the hemodynamic gate")
         self.cancel_timer()
         plan = {**DEFAULT_DURATIONS, **(durations or {})}
-        self._timer = asyncio.get_running_loop().create_task(self._run(plan, cycles))
+        if closed_loop:
+            assert signals is not None
+            self._timer = asyncio.get_running_loop().create_task(
+                self._run_closed_loop(plan, cycles, signals)
+            )
+        else:
+            self._timer = asyncio.get_running_loop().create_task(self._run(plan, cycles))
 
     def cancel_timer(self) -> None:
-        if self._timer is not None and self._timer is not asyncio.current_task():
-            self._timer.cancel()
+        task = self._timer
         self._timer = None
-        if self.timer_next is not None:
+        cancelled = task is not None and task is not asyncio.current_task()
+        if cancelled:
+            task.cancel()
+            self.loop = "off"
+            self.loop_cue = ""
+        pending = self.timer_next is not None
+        if pending:
             self.timer_next = self.timer_ends_t = None
+        if self.session is not None and (cancelled or pending):
             self._emit_state()
 
     async def _run(self, plan: dict[str, float], cycles: int) -> None:
@@ -179,6 +214,100 @@ class PhaseLogger:
         self.timer_next = self.timer_ends_t = None
         self._timer = None
         self.mark("end", "timer")
+
+    async def _run_closed_loop(
+        self, plan: dict[str, float], cycles: int, signals: LoopSignals
+    ) -> None:
+        """Baseline, breath-hold, then breathe until perfusion settles.
+
+        The hold ends early when the gate reports a sustained elevation. That
+        is the pause: the task stops and the cue switches to the breathing
+        guide. Recovery ends early when perfusion is back near baseline and
+        contact is still good. A hold that never elevates does not pretend it did.
+        """
+        try:
+            # Let a stop that arrived before this task ran cancel it cleanly,
+            # before any phase is written.
+            await asyncio.sleep(0)
+            if self.session is None:
+                return
+            for cycle in range(cycles):
+                if self.session is None:
+                    return
+                last = cycle + 1 == cycles
+                nxt = "end" if last else "baseline"
+                self.loop = "baseline"
+                self.loop_cue = "Breathe normally. This sets the resting baseline."
+                self.timer_next = "hold"
+                self.timer_ends_t = self.now() + plan["baseline"]
+                self.mark("baseline", "timer")
+                await self._wait(plan["baseline"])
+
+                self.loop = "challenge"
+                self.loop_cue = "Hold a gentle breath. The challenge is underway."
+                self.timer_next = "recovery"
+                self.timer_ends_t = self.now() + plan["hold"]
+                self.mark("hold", "timer")
+                elevated = await self._wait_until(
+                    plan["hold"], lambda: signals.challenge_done(self.now())
+                )
+
+                self.timer_next = nxt
+                self.timer_ends_t = self.now() + plan["recovery"]
+                if elevated:
+                    self.loop = "coach"
+                    self.loop_cue = (
+                        "Elevated versus baseline. Pause the hold and breathe with the circle."
+                    )
+                    self.mark("recovery", "timer")
+                    settled = await self._wait_until(
+                        plan["recovery"], lambda: signals.settled(self.now())
+                    )
+                    if settled:
+                        cue = "Perfusion settled and contact is good. Continue."
+                    else:
+                        cue = "Recovery window ended before perfusion settled. Continue when ready."
+                else:
+                    self.loop = "continue"
+                    self.loop_cue = "No sustained elevation versus baseline. Continue."
+                    self.mark("recovery", "timer")
+                    await self._wait(min(4.0, plan["recovery"]))
+                    cue = "Hold complete. Continue."
+
+                self.loop = "continue"
+                self.loop_cue = cue
+                self.timer_next = None
+                self.timer_ends_t = None
+                self._emit_state()
+                await self._wait(plan.get("continue", 3.0))
+            self.loop = "off"
+            self.loop_cue = ""
+            self.timer_next = self.timer_ends_t = None
+            self._timer = None
+            self.mark("end", "timer")
+        except asyncio.CancelledError:
+            raise
+        except PhaseError:
+            return
+        finally:
+            if self.loop != "off":
+                self.loop = "off"
+                self.loop_cue = ""
+                if self.session is not None:
+                    self._emit_state()
+
+    async def _wait(self, seconds: float) -> None:
+        await self._wait_until(seconds, lambda: False)
+
+    async def _wait_until(self, seconds: float, done: Callable[[], bool]) -> bool:
+        deadline = asyncio.get_running_loop().time() + max(0.0, seconds)
+        while True:
+            if done():
+                return True
+            remaining = deadline - asyncio.get_running_loop().time()
+            if remaining <= 0:
+                return False
+            await asyncio.sleep(min(0.05, remaining))
 
     # State
 
@@ -194,6 +323,8 @@ class PhaseLogger:
             "phase_t": s.phase_t if s else None,
             "timer_next": self.timer_next,
             "timer_ends_t": self.timer_ends_t,
+            "loop": self.loop,
+            "loop_cue": self.loop_cue,
         }
 
     def _emit_state(self) -> None:

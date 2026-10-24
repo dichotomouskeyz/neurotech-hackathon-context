@@ -119,7 +119,7 @@ def test_disconnect_stops_interface(tmp_path):
     assert not state["connected"] and not state["scanning"]
 
 
-def live_batch(rows):
+def live_batch(rows, quality=None, low_light=None):
     """rows: (abs_frame_id, side, cam, t, bfi, bvi, frame_type)."""
     n = len(rows)
     bfi = np.full((n, 2, 8), np.nan)
@@ -127,7 +127,7 @@ def live_batch(rows):
     for i, (_, side, cam, _, b, v, _) in enumerate(rows):
         bfi[i, side, cam] = b
         bvi[i, side, cam] = v
-    return SimpleNamespace(
+    batch = SimpleNamespace(
         bfi_live=bfi,
         bvi_live=bvi,
         side_ids=np.array([r[1] for r in rows]),
@@ -136,6 +136,11 @@ def live_batch(rows):
         timestamp_s=np.array([r[3] for r in rows]),
         frame_type=np.array([r[6] for r in rows]),
     )
+    if quality is not None:
+        batch.quality = np.array(quality)
+    if low_light is not None:
+        batch.low_light_rt = low_light
+    return batch
 
 
 def test_live_sink_assembles_one_frame_per_capture():
@@ -161,6 +166,121 @@ def test_live_sink_assembles_one_frame_per_capture():
     sink.on_complete()
     assert published[-2]["left"][0] == pytest.approx(2.2)
     assert published[-2]["t"] == pytest.approx(1000.025)
+
+
+def test_live_sink_emits_cq_from_quality_labels():
+    published = []
+    sink = LiveSink(published.extend, now=lambda: 1000.0)
+    sink.on_scan_start(None)
+    sink.consume(
+        "live",
+        live_batch(
+            [
+                (10, 0, 0, 0.0, 2.0, 6.0, "light"),
+                (10, 1, 0, 0.0, 2.1, 6.1, "light"),
+                (11, 0, 0, 0.025, 2.2, 6.2, "light"),
+            ],
+            quality=["ok", "nan_filled", "ok"],
+        ),
+    )
+    cq = next(frame for frame in published if frame["type"] == "cq")
+    assert cq["t"] == pytest.approx(1000.0)
+    assert cq["left"] == pytest.approx(1.0)
+    assert cq["right"] == pytest.approx(0.0)
+    assert [frame["type"] for frame in published[:3]] == ["bfi", "bvi", "cq"]
+
+
+def test_live_sink_low_light_is_poor_contact_and_unknown_labels_do_not_raise():
+    published = []
+    sink = LiveSink(published.extend, now=lambda: 50.0)
+    sink.on_scan_start(None)
+    low = np.zeros((2, 2, 8), dtype=bool)
+    low[0, 0, 0] = True
+    sink.consume(
+        "live",
+        live_batch(
+            [
+                (4, 0, 0, 0.0, 2.0, 6.0, "light"),
+                (5, 0, 0, 0.025, 2.0, 6.0, "light"),
+            ],
+            quality=["ok", "not-a-label"],
+            low_light=low,
+        ),
+    )
+    cq = next(frame for frame in published if frame["type"] == "cq")
+    assert cq["left"] == pytest.approx(0.0)
+    assert cq["right"] == pytest.approx(1.0)
+    sink.on_complete()
+
+
+def test_live_sink_frames_are_scored_by_the_gate(tmp_path):
+    """The scan sink's BFI, BVI, and CQ frames are what the stress label reads."""
+    from dashboard.live_gate import LiveGate
+
+    published = []
+    gate = LiveGate(stress_hold_s=0.4)
+
+    def emit(frames):
+        published.extend(frames)
+        published.extend(gate.observe(frames))
+
+    iface = FakeInterface()
+    mgr = DeviceManager(
+        emit, tmp_path, factory=lambda d: (iface, FakeRequest, "1.12.0"), now=lambda: 1000.0
+    )
+    mgr.connect()
+    mgr.start_scan("scan")
+    sink = iface.request.sinks[0]
+    emit(
+        [
+            {
+                "type": "session",
+                "t": 1000.0,
+                "active": True,
+                "session_id": "s1",
+                "subject_id": "scan",
+                "phase": None,
+                "loop": "off",
+                "loop_cue": "",
+            }
+        ]
+    )
+    emit(
+        [
+            {
+                "type": "phase",
+                "t": 1000.0,
+                "session_id": "s1",
+                "phase": "baseline",
+                "source": "manual",
+            }
+        ]
+    )
+    sink.on_scan_start(None)
+
+    def push(frame_id, t, bfi):
+        sink.consume(
+            "live",
+            live_batch(
+                [
+                    (frame_id, 0, 0, t, bfi, 5.0, "light"),
+                    (frame_id + 1, 0, 0, t + 0.01, bfi, 5.0, "light"),
+                ],
+                quality=["ok", "ok"],
+            ),
+        )
+
+    for i in range(6):
+        push(i * 2, i * 0.3, 2.0)
+    emit([{"type": "phase", "t": 1005.0, "session_id": "s1", "phase": "hold", "source": "manual"}])
+    push(30, 8.0, 2.8)
+    push(34, 8.6, 2.8)
+    assert any(frame["type"] == "cq" and frame["left"] == pytest.approx(1.0) for frame in published)
+    assert any(
+        frame["type"] == "stress" and frame["alert"] and "BFI" in frame["reason"]
+        for frame in published
+    )
+    assert gate.challenge_done(0.0)
 
 
 def test_live_sink_ignores_other_channels():

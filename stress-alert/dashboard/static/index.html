@@ -4,6 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="description" content="Breath-hold stress dashboard: Open-Motion blood flow and optical heart rate, for research use.">
+  <link rel="icon" href="data:,">
   <title>stress-alert</title>
   <link rel="preload" href="/static/vendor/geist-latin-wght-normal.woff2" as="font" type="font/woff2" crossorigin>
   <link rel="stylesheet" href="/static/vendor/uPlot.min.css">
@@ -56,6 +57,7 @@
       <article class="card tile" id="tile-hr">
         <h2 class="card-title">Heart rate</h2>
         <div class="value live-only"><span class="num" id="hr-optical">--</span><span class="unit">bpm optical</span></div>
+        <div class="sub" id="hr-role">Side panel, from the optical pulse. Not the stress label.</div>
         <div class="sub live-only" id="hr-note"></div>
         <p class="waiting">Waiting for optical heart rate</p>
       </article>
@@ -72,10 +74,18 @@
 
       <article class="card tile" id="tile-stress">
         <h2 class="card-title">Stress</h2>
-        <div class="value num live-only" id="stress-index">--</div>
+        <div class="value live-only"><span class="num" id="stress-index">--</span><span class="unit">vs baseline</span></div>
         <span class="state live-only" id="stress-state"></span>
-        <p class="waiting">Waiting for stress index</p>
+        <div class="sub live-only" id="stress-detail"></div>
+        <p class="waiting">Waiting for BFI and BVI versus baseline</p>
       </article>
+    </section>
+
+    <section class="card coach" id="coach" data-mode="off" hidden aria-live="polite">
+      <h2 class="card-title" id="coach-kicker">Closed loop</h2>
+      <p class="coach-step" id="coach-step"></p>
+      <p class="coach-cue" id="coach-cue"></p>
+      <p class="coach-note">For research. Not a diagnosis, a screening result, or a treatment signal.</p>
     </section>
 
     <section class="card controls operator-only" aria-label="Session controls">
@@ -114,13 +124,17 @@
 
       <div class="control-group">
         <h2 class="card-title">Timed protocol</h2>
+        <div class="row loop-row">
+          <button type="button" class="primary" id="loop-start">Closed loop (~60s)</button>
+          <p class="hint">Baseline, breath-hold, then a breathing guide if perfusion is elevated. Continues when it settles and contact is good.</p>
+        </div>
         <form class="row" id="protocol-form">
           <label class="field">Baseline (s) <input type="number" id="dur-baseline" value="60" min="1" max="600"></label>
           <label class="field">Hold (s) <input type="number" id="dur-hold" value="30" min="1" max="120"></label>
           <label class="field">Recovery (s) <input type="number" id="dur-recovery" value="90" min="1" max="600"></label>
           <label class="field">Cycles <input type="number" id="cycles" value="1" min="1" max="10"></label>
-          <button type="submit" class="primary" id="protocol-start">Run</button>
-          <button type="button" id="protocol-stop">Stop timer</button>
+          <button type="submit" class="primary" id="protocol-start">Run timed</button>
+          <button type="button" id="protocol-stop">Stop protocol</button>
         </form>
         <ol class="events" id="events" aria-label="Phase events"></ol>
       </div>

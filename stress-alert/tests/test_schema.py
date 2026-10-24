@@ -47,3 +47,33 @@ def test_valid_frames_round_trip(frame):
 def test_invalid_frames_rejected(frame):
     with pytest.raises(ValidationError):
         frame_adapter.validate_python(frame)
+
+
+def test_stress_tau_and_closed_loop_session_are_in_the_contract():
+    stress = frame_adapter.validate_python(
+        {
+            "type": "stress",
+            "t": 1.0,
+            "index": 0.35,
+            "alert": True,
+            "reason": "elevated_stress: BFI 35% >= 20% vs baseline",
+            "tau_s": 22.4,
+            "recovery_score": 0.8,
+        }
+    )
+    assert stress.tau_s == pytest.approx(22.4)
+    session = frame_adapter.validate_python(
+        {
+            "type": "session",
+            "t": 1.0,
+            "active": True,
+            "phase": "recovery",
+            "loop": "coach",
+            "loop_cue": "Pause the hold and breathe with the circle.",
+        }
+    )
+    assert session.loop == "coach"
+    with pytest.raises(ValidationError):
+        frame_adapter.validate_python(
+            {"type": "session", "t": 1.0, "active": True, "loop": "stressed"}
+        )

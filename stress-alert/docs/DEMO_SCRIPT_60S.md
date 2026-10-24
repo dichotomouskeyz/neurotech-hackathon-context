@@ -1,4 +1,4 @@
-# 60-Second Demo Script: CQ-Gated Stress and Recovery Alert
+# 60-Second Demo Script: Closed-Loop Perfusion Alert
 
 For research use only. Research engineering demonstration for the UC Berkeley Neurotech Hackathon (October 24 to 25, 2026, sponsored by Openwater).
 
@@ -8,34 +8,40 @@ No diagnostic, screening, clinical, treatment, or therapeutic claims.
 
 ## Overview
 
-- **Format**: Live 60-second pitch and demonstration for judges (Sunday 3:00 to 5:00 pm).
+- **Format**: Live demonstration for judges (Sunday 3:00 to 5:00 pm). The closed-loop button is built to finish in about a minute.
 - **Dry-run target**: Sunday 2:30 pm.
-- **Hardware on screen**:
-  - Open-Motion optical headband on forehead (40 Hz BFI/BVI).
-  - Live stress-alert dashboard (status strip, phase bands, live BFI and BVI charts, CQ gauges, alert banner).
-- **Backup**: If live station optical stream is not connected, replay `stress-alert/data/sample_scan.csv` through `replay_csv.py` with identical screen results.
+- **On screen**: Open-Motion on the forehead, dashboard in Present view. BFI and BVI charts, contact quality, the stress label, and a breathing circle.
+- **Stress label**: the larger of the BFI and BVI rises versus the resting baseline, and only when contact quality is at least 0.50. Optical heart rate is the side panel. It does not set the label.
+- **Backup**: `uv run python -m dashboard --dev-feed` replays `stress-alert/data/sample_scan.csv` and fills contact quality from that file. It does not invent a breath-hold rise. Use the live scan for the pause-and-breathe moment.
 
----
+## Before the judges
 
-## Timeline (0:00 to 1:00)
+```bash
+cd stress-alert
+uv sync --locked
+uv run python -m dashboard
+```
 
-| Elapsed | Speaker Cue (What to Say) | Screen / Visual Cue (What to Show) | Status & System State |
-| :- | :- | :- | :- |
-| **0:00 - 0:12** (12 s) | "We built an optical stress and recovery alert on Open-Motion, gated by contact quality. On our subject, Open-Motion records forehead blood flow and blood volume at 40 Hz, and we estimate heart rate from the optical pulse. We begin in a resting baseline phase: contact quality is green at 0.92, baseline BFI is steady at 2.0, and heart rate is nominal." | Point to subject wearing headband. Direct judge attention to dashboard status strip (green chips) and steady baseline trace across the 60-second baseline band. | Phase: `baseline`<br>CQ: `0.92`<br>BFI: `2.0`<br>Alert: `False` (nominal) |
-| **0:12 - 0:28** (16 s) | "Now our subject begins a controlled 30-second breath-hold. As arterial carbon dioxide rises, cerebral autoregulation drives vasodilation. Watch the forehead BFI trace climb by 35%. Because contact quality remains above 0.50, our pipeline verifies this as physiological elevation, and the stress alert turns red." | Subject holds breath. Timer marks `hold`. Blood flow curve rises visibly above the baseline dotted line. Dashboard displays red alert banner: `elevated_stress: index 0.35 >= 0.20`. | Phase: `hold`<br>CQ: `0.89`<br>BFI: `2.70`<br>Alert: `True` (elevated) |
-| **0:28 - 0:42** (14 s) | "Here is the critical engineering feature: the contact-quality gate. In real-world neurotech, motion artifacts and probe slippage mimic vascular surges. Watch what happens when the subject shifts the sensor. BFI spikes wildly, but contact quality plummets to 0.35. Instead of triggering a false alarm, our gate immediately suppresses the alert and labels it 'poor coupling'." | Subject gently shifts probe/frowns. CQ bar drops into amber/red (< 0.50). Dashboard alert banner instantly clears from red stress to amber status: `poor_coupling: CQ 0.35 < 0.50`. | Phase: `hold`<br>CQ: `0.35`<br>Alert: `False` (gated off) |
-| **0:42 - 0:54** (12 s) | "The subject resumes normal breathing into the recovery phase. Forehead hemodynamics decay back toward baseline. Our pipeline fits an exponential decay model in real time, calculating a recovery time-constant tau of 22 seconds, showing healthy cerebrovascular return." | Subject breathes normally. Phase logger marks `recovery`. BFI decay curve flattens toward baseline. Recovery panel displays fitted exponential curve, `tau = 22.4 s`, and `R^2 = 0.98`. | Phase: `recovery`<br>CQ: `0.91`<br>Tau: `22.4 s`<br>Alert: `False` |
-| **0:54 - 1:00** (6 s) | "In summary: an artifact-robust hemodynamic stress alert on Open-Motion for research, demonstrating how optical neurotech can reliably monitor cognitive and autonomic state." | Show full 3-phase dashboard summary. Hand over for questions. | Phase: `end`<br>Session saved to `sessions/` |
+1. **Connect device.** Console and at least one sensor should read connected.
+2. **Start scan (laser on).** This is the only control that turns the laser on. BFI and BVI should leave "Waiting for bfi frames". Contact quality should leave "Waiting for contact quality" within the first captures.
+3. **Closed loop (~60s).** This starts the session if you have not. Subject id can stay blank (the session is named `demo`).
+4. Switch the top bar to **Present**.
 
----
+## Timeline
 
-## Contingency Checklist (For Sunday 2:30 Dry Run)
+Speak to the live numbers. Do not quote a fixed heart rate, tau, or percent unless that is what the tile shows.
 
-1. **Hardware Ingest Green**:
-   - Open-Motion live station scanning.
-2. **Hardware Ingest Blocked or Station In Use**:
-   - Switch dashboard to CSV replay mode:
-     ```bash
-     python stress-alert/replay_csv.py --csv stress-alert/data/synthetic_scan.csv --dashboard ws://localhost:8765/ws/ingest?source=omotion
-     ```
-   - Replay executes the exact same 3-phase sequence with synthetic breath-hold dynamics and identical dashboard visualization.
+| Elapsed | What to say | What to point at |
+| :- | :- | :- |
+| 0:00 | "This is a research demo on Open-Motion. Forehead blood flow and blood volume, gated on contact quality. Heart rate is only the side panel." | Headband. Green contact. Stress tile: resting baseline. |
+| 0:12 | "Hold a gentle breath." | Banner: challenge. Phase `hold`. The BFI or BVI trace should rise. |
+| when the label crosses 20% | "Perfusion is up versus this person's baseline, and contact is still good, so the task stops." | Red stress tile, "Elevated vs baseline". Banner: pause. Circle says Inhale, then Exhale. |
+| if contact drops under 0.50 | "That swing does not count. Contact is too poor to call it elevation." | Contact tile. Stress label clears. The banner does not treat it as settled. |
+| when the trace returns | "Perfusion is back near baseline and contact is still good, so we continue." | Banner: continue. If recovery lasted long enough, the stress tile shows a recovery tau. |
+| last few seconds | "For research. Not a diagnosis. The loop is baseline, challenge, pause and breathe, continue." | Session is saved under `stress-alert/sessions/`. |
+
+A hold that never rises does not fake the pause. The banner says there was no sustained elevation.
+
+## If the station is not scanning
+
+Leave the laser off. Run `uv run python -m dashboard --dev-feed` and show the charts, contact quality from the sample file, and the stress tile asking for a baseline. Say the closed loop needs the live breath-hold. Do not describe the replay as the same physiological result.
