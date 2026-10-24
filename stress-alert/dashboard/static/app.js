@@ -1,7 +1,9 @@
 "use strict";
 
 const WINDOW_S = 30;
-const CAMERAS = 8;
+const STALE_S = 5;
+const CQ_GOOD = 0.7;
+const CQ_WEAK = 0.4;
 const NEXT = {
   null: ["baseline", "end"],
   baseline: ["hold", "end"],
@@ -12,6 +14,11 @@ const NEXT = {
 
 const $ = (id) => document.getElementById(id);
 const css = (name) => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+const fmtClock = (s) => {
+  const sec = Math.max(0, Math.round(s));
+  return `${Math.floor(sec / 60)}:${String(sec % 60).padStart(2, "0")}`;
+};
+const fmt = (v, digits = 2) => (v === null || v === undefined || Number.isNaN(v) ? "--" : v.toFixed(digits));
 
 // Shared clock: server t (LSL local_clock) mapped onto performance.now().
 let clockOffset = null;
@@ -19,178 +26,351 @@ const sharedNow = () => (clockOffset === null ? null : performance.now() / 1000 
 async function syncClock() {
   const sent = performance.now();
   const { t } = await (await fetch("/api/clock")).json();
-  const rtt = (performance.now() - sent) / 1000;
-  clockOffset = t + rtt / 2 - performance.now() / 1000;
+  clockOffset = t + (performance.now() - sent) / 2000 - performance.now() / 1000;
 }
 
-// Signal buffers -----------------------------------------------------------
+// Blood flow buffers: per side, the camera mean and the spread of the middle
+// 50% of cameras (25th to 75th percentile). Min/max is dominated by one outlier
+// camera in real data, so the interquartile band is the honest spread.
 
-function makeSeries() {
-  return { t: [], cams: Array.from({ length: CAMERAS }, () => []), mean: [] };
-}
-const bfi = { left: makeSeries(), right: makeSeries() };
+const SIDES = ["left", "right"];
+const buf = { t: [], left: { mean: [], lo: [], hi: [] }, right: { mean: [], lo: [], hi: [] } };
 let paused = false;
 let dirty = false;
+let framesThisSecond = 0;
 
-function pushHemo(series, t, values) {
-  series.t.push(t);
-  let sum = 0;
-  let n = 0;
-  values.forEach((v, i) => {
-    series.cams[i].push(v);
-    if (v !== null) { sum += v; n += 1; }
-  });
-  series.mean.push(n ? sum / n : null);
-  const cutoff = t - WINDOW_S;
+function quantile(sorted, q) {
+  const pos = (sorted.length - 1) * q;
+  const base = Math.floor(pos);
+  const next = sorted[base + 1] ?? sorted[base];
+  return sorted[base] + (pos - base) * (next - sorted[base]);
+}
+
+function summarize(values) {
+  const v = values.filter((x) => x !== null).sort((a, b) => a - b);
+  if (!v.length) return [null, null, null];
+  const mean = v.reduce((a, b) => a + b, 0) / v.length;
+  return [mean, quantile(v, 0.25), quantile(v, 0.75)];
+}
+
+function pushBfi(frame) {
+  buf.t.push(frame.t);
+  for (const side of SIDES) {
+    const [mean, lo, hi] = summarize(frame[side]);
+    buf[side].mean.push(mean);
+    buf[side].lo.push(lo);
+    buf[side].hi.push(hi);
+  }
   let drop = 0;
-  while (drop < series.t.length && series.t[drop] < cutoff) drop += 1;
+  while (drop < buf.t.length && buf.t[drop] < frame.t - WINDOW_S) drop += 1;
   if (drop) {
-    series.t.splice(0, drop);
-    series.mean.splice(0, drop);
-    series.cams.forEach((c) => c.splice(0, drop));
+    buf.t.splice(0, drop);
+    for (const side of SIDES) for (const k of ["mean", "lo", "hi"]) buf[side][k].splice(0, drop);
   }
 }
 
-// Phase state --------------------------------------------------------------
-
-let session = { active: false, phase: null };
-let phases = []; // phase frames for the current session, oldest first
-
-function phaseRgb(phase) {
-  return css(`--phase-${phase}`);
+// Y range that grows at once but only shrinks after it has been too wide for a while,
+// so the traces do not jump on every frame.
+const yRange = { lo: null, hi: null, shrinkSince: null };
+function updateYRange() {
+  let lo = Infinity;
+  let hi = -Infinity;
+  const [loKey, hiKey] = showSpread ? ["lo", "hi"] : ["mean", "mean"];
+  for (const side of SIDES) {
+    for (const v of buf[side][loKey]) if (v !== null && v < lo) lo = v;
+    for (const v of buf[side][hiKey]) if (v !== null && v > hi) hi = v;
+  }
+  if (!Number.isFinite(lo)) return;
+  const pad = Math.max((hi - lo) * 0.08, 0.1);
+  const target = { lo: Math.floor((lo - pad) * 2) / 2, hi: Math.ceil((hi + pad) * 2) / 2 };
+  if (yRange.lo === null || target.lo < yRange.lo || target.hi > yRange.hi) {
+    yRange.lo = Math.min(target.lo, yRange.lo ?? target.lo);
+    yRange.hi = Math.max(target.hi, yRange.hi ?? target.hi);
+    yRange.shrinkSince = null;
+  } else if (target.lo > yRange.lo || target.hi < yRange.hi) {
+    yRange.shrinkSince ??= performance.now();
+    if (performance.now() - yRange.shrinkSince > 8000) {
+      Object.assign(yRange, { lo: target.lo, hi: target.hi, shrinkSince: null });
+    }
+  } else {
+    yRange.shrinkSince = null;
+  }
 }
 
-// Shade each phase interval behind the traces and label it at the top.
-function phaseBands(u, series) {
-  if (!phases.length || !series.t.length) return;
-  const last = series.t[series.t.length - 1];
+// Session and phase state ------------------------------------------------
+
+let session = { active: false, phase: null };
+let phases = [];
+
+function phaseBands(u) {
+  if (!phases.length || !buf.t.length) return;
+  const last = buf.t[buf.t.length - 1];
   const { ctx } = u;
   const { top, height } = u.bbox;
+  const dpr = devicePixelRatio;
+  const fills = { hold: css("--phase-hold"), recovery: css("--phase-recovery") };
   ctx.save();
-  ctx.font = `${11 * devicePixelRatio}px system-ui, sans-serif`;
+  ctx.font = `500 ${11 * dpr}px ${css("--font-sans")}`;
+  ctx.textAlign = "left";
+  ctx.textBaseline = "alphabetic";
   phases.forEach((p, i) => {
     if (p.phase === "end") return;
     const end = i + 1 < phases.length ? phases[i + 1].t : last;
+    if (end - last < -WINDOW_S) return;
     const x0 = u.valToPos(Math.max(p.t - last, -WINDOW_S), "x", true);
     const x1 = u.valToPos(Math.min(end - last, 0), "x", true);
     if (x1 <= x0) return;
-    const rgb = phaseRgb(p.phase);
-    ctx.fillStyle = `rgba(${rgb}, 0.12)`;
-    ctx.fillRect(x0, top, x1 - x0, height);
-    const pad = 4 * devicePixelRatio;
+    if (fills[p.phase]) {
+      ctx.fillStyle = fills[p.phase];
+      ctx.fillRect(x0, top, x1 - x0, height);
+    }
+    if (p.t - last >= -WINDOW_S) {
+      ctx.fillStyle = css("--phase-edge");
+      ctx.fillRect(Math.round(x0), top, dpr, height);
+    }
+    const pad = 6 * dpr;
     if (ctx.measureText(p.phase).width + 2 * pad <= x1 - x0) {
-      ctx.fillStyle = `rgba(${rgb}, 0.9)`;
-      ctx.fillText(p.phase, x0 + pad, top + 13 * devicePixelRatio);
+      ctx.fillStyle = css("--ink-muted");
+      ctx.fillText(p.phase, x0 + pad, top + 14 * dpr);
     }
   });
   ctx.restore();
 }
 
-// Charts -------------------------------------------------------------------
-
-function makeChart(el, side) {
-  const series = [{}];
-  for (let i = 0; i < CAMERAS; i += 1) {
-    series.push({ label: `cam ${i + 1}`, stroke: css("--muted"), width: 1, alpha: 0.35 });
+// Name each side at the right end of its line, in text ink beside a colored dot.
+function directLabels(u) {
+  const n = u.data[0].length;
+  if (!n) return;
+  const { ctx } = u;
+  const dpr = devicePixelRatio;
+  const labels = [[1, "Left", "--series-left"], [4, "Right", "--series-right"]]
+    .map(([idx, label, color]) => {
+      const v = u.data[idx][n - 1];
+      return v === null || v === undefined ? null : { label, color, y: u.valToPos(v, "y", true) };
+    })
+    .filter(Boolean)
+    .sort((a, b) => a.y - b.y);
+  // Keep the two labels at least one line apart, centered on their true positions.
+  const gap = 14 * dpr;
+  if (labels.length === 2 && labels[1].y - labels[0].y < gap) {
+    const mid = (labels[0].y + labels[1].y) / 2;
+    labels[0].y = mid - gap / 2;
+    labels[1].y = mid + gap / 2;
   }
-  series.push({ label: "mean", stroke: css("--accent"), width: 2 });
-  const axis = { stroke: css("--muted"), grid: { stroke: css("--line") } };
-  return new uPlot(
+  ctx.save();
+  ctx.font = `500 ${11 * dpr}px ${css("--font-sans")}`;
+  ctx.textAlign = "left";
+  ctx.textBaseline = "middle";
+  labels.forEach(({ label, color, y }) => {
+    const x = u.bbox.left + u.bbox.width + 12 * dpr;
+    ctx.fillStyle = css(color);
+    ctx.beginPath();
+    ctx.arc(x + 3 * dpr, y, 3 * dpr, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = css("--ink-2");
+    ctx.fillText(label, x + 10 * dpr, y);
+  });
+  ctx.restore();
+}
+
+// Chart --------------------------------------------------------------------
+
+let chart = null;
+let hoverIdx = null;
+// The camera spread is mostly the cameras' different analog gains, so it is an
+// operator view, off by default.
+let showSpread = false;
+
+const chartHeight = () => (document.body.dataset.view === "present" ? 440 : 300);
+
+function makeChart() {
+  const el = $("chart");
+  el.replaceChildren();
+  const axis = {
+    stroke: css("--ink-muted"),
+    grid: { stroke: css("--hairline"), width: 1 },
+    ticks: { show: false },
+    font: `12px ${css("--font-mono")}`,
+  };
+  const envelope = { stroke: "transparent", width: 0, points: { show: false } };
+  chart = new uPlot(
     {
       width: el.clientWidth,
-      height: 220,
+      height: chartHeight(),
+      padding: [8, 60, 0, 0],
       legend: { show: false },
-      cursor: { show: false },
-      scales: { x: { time: false } },
+      cursor: { y: false, points: { size: 7, width: 2 }, drag: { x: false, y: false } },
+      scales: {
+        x: { time: false, range: [-WINDOW_S, 0] },
+        y: { range: () => (yRange.lo === null ? [0, 1] : [yRange.lo, yRange.hi]) },
+      },
       axes: [
-        { ...axis, label: "seconds", values: (u, ticks) => ticks.map((v) => v.toFixed(0)) },
-        { ...axis, label: "BFI" },
+        { ...axis, values: (u, ticks) => ticks.map((v) => (v === 0 ? "now" : `${v}s`)) },
+        { ...axis, size: 44, values: (u, ticks) => ticks.map((v) => v.toFixed(1)) },
       ],
-      series,
-      hooks: { drawClear: [(u) => phaseBands(u, bfi[side])] },
+      series: [
+        {},
+        { label: "Left", stroke: css("--series-left"), width: 2 },
+        { label: "Left max", ...envelope },
+        { label: "Left min", ...envelope },
+        { label: "Right", stroke: css("--series-right"), width: 2 },
+        { label: "Right max", ...envelope },
+        { label: "Right min", ...envelope },
+      ],
+      bands: showSpread
+        ? [
+            { series: [2, 3], fill: css("--band-left") },
+            { series: [5, 6], fill: css("--band-right") },
+          ]
+        : [],
+      hooks: {
+        drawClear: [phaseBands],
+        draw: [directLabels],
+        setCursor: [(u) => { hoverIdx = u.cursor.idx ?? null; renderLegend(); }],
+      },
     },
-    [[], ...Array.from({ length: CAMERAS + 1 }, () => [])],
+    chartData(),
     el,
   );
 }
 
-const charts = {
-  left: makeChart($("chart-left"), "left"),
-  right: makeChart($("chart-right"), "right"),
-};
-
-function chartData(series) {
-  const last = series.t.length ? series.t[series.t.length - 1] : 0;
-  return [series.t.map((t) => t - last), ...series.cams, series.mean];
+function chartData() {
+  const last = buf.t.length ? buf.t[buf.t.length - 1] : 0;
+  return [
+    buf.t.map((t) => t - last),
+    buf.left.mean, buf.left.hi, buf.left.lo,
+    buf.right.mean, buf.right.hi, buf.right.lo,
+  ];
 }
 
-const counts = { left: 0, right: 0 };
-setInterval(() => {
-  for (const side of ["left", "right"]) {
-    $(`rate-${side}`).textContent = counts[side] ? `${counts[side]} Hz` : "";
-    counts[side] = 0;
-  }
-}, 1000);
+function renderLegend() {
+  const n = buf.t.length;
+  const i = hoverIdx ?? n - 1;
+  $("val-left").textContent = n ? fmt(buf.left.mean[i]) : "--";
+  $("val-right").textContent = n ? fmt(buf.right.mean[i]) : "--";
+}
 
 function draw() {
   if (dirty && !paused) {
-    charts.left.setData(chartData(bfi.left));
-    charts.right.setData(chartData(bfi.right));
+    updateYRange();
+    chart.setData(chartData());
+    if (hoverIdx === null) renderLegend();
     dirty = false;
   }
   requestAnimationFrame(draw);
 }
-requestAnimationFrame(draw);
 
-// Session panel ------------------------------------------------------------
+setInterval(() => {
+  $("rate").textContent = framesThisSecond ? `${framesThisSecond} Hz` : "";
+  framesThisSecond = 0;
+}, 1000);
 
-const fmt = (s) => {
-  const sec = Math.max(0, Math.round(s));
-  return `${Math.floor(sec / 60)}:${String(sec % 60).padStart(2, "0")}`;
-};
+// Status strip -----------------------------------------------------------
 
-function renderSession() {
+const latest = { hr: {}, cq: null, stress: null };
+
+function setState(el, status, text) {
+  el.dataset.status = status;
+  el.textContent = text;
+}
+
+function renderPhaseTile() {
+  const now = sharedNow();
+  const tile = $("tile-phase");
+  const phase = session.active ? session.phase : null;
+  tile.dataset.phase = phase || "";
+  $("phase-name").textContent = session.active ? phase || "Ready" : "Idle";
+  const running = phase && phase !== "end" && now !== null;
+  $("phase-elapsed").textContent = running ? fmtClock(now - session.phase_t) : "";
+  const timed = session.timer_next && session.timer_ends_t && now !== null;
+  $("phase-next").textContent = timed ? `${session.timer_next} in ${fmtClock(session.timer_ends_t - now)}` : "";
+  const progress = timed
+    ? Math.min(1, (now - session.phase_t) / (session.timer_ends_t - session.phase_t))
+    : 0;
+  $("phase-progress").style.width = `${(progress * 100).toFixed(1)}%`;
+}
+
+function renderHrTile() {
+  const { optical, ecg } = latest.hr;
+  const now = sharedNow();
+  const fresh = (f) => f && (now === null || now - f.t < STALE_S);
+  $("tile-hr").dataset.live = String(Boolean(optical || ecg));
+  const main = optical || ecg;
+  if (!main) return;
+  $("hr-optical").textContent = Math.round(main.bpm);
+  $("tile-hr").querySelector(".unit").textContent = optical ? "bpm optical" : "bpm ECG";
+  const parts = [];
+  if (optical && ecg) {
+    parts.push(`ECG ${Math.round(ecg.bpm)} bpm`, `difference ${fmt(Math.abs(optical.bpm - ecg.bpm), 1)}`);
+  }
+  if (!fresh(main)) parts.push(`last value ${Math.round(now - main.t)} s ago`);
+  $("hr-ecg").textContent = parts.join(" · ");
+}
+
+function cqStatus() {
+  if (!latest.cq) return null;
+  const worst = Math.min(latest.cq.left, latest.cq.right);
+  if (worst >= CQ_GOOD) return ["good", "Good contact"];
+  if (worst >= CQ_WEAK) return ["warning", "Weak contact"];
+  return ["critical", "Fix sensor coupling"];
+}
+
+function renderCqTile() {
+  if (!latest.cq) return;
+  $("tile-cq").dataset.live = "true";
+  for (const side of SIDES) {
+    const v = latest.cq[side];
+    $(`cq-${side}`).textContent = fmt(v);
+    $(`cq-${side}-fill`).style.width = `${Math.round(v * 100)}%`;
+  }
+  const [status, text] = cqStatus();
+  setState($("cq-state"), status, text);
+}
+
+function renderStressTile() {
+  const s = latest.stress;
+  if (!s) return;
+  $("tile-stress").dataset.live = "true";
+  $("stress-index").textContent = fmt(s.index);
+  const cq = cqStatus();
+  $("tile-stress").dataset.alert = String(Boolean(s.alert && (!cq || cq[0] === "good")));
+  if (cq && cq[0] !== "good") {
+    setState($("stress-state"), "warning", "Contact too weak to judge");
+  } else if (s.alert) {
+    setState($("stress-state"), "critical", s.reason ? `Alert: ${s.reason}` : "Alert");
+  } else {
+    setState($("stress-state"), "good", "No alert");
+  }
+}
+
+setInterval(() => { renderPhaseTile(); renderHrTile(); }, 250);
+
+// Operator controls --------------------------------------------------------
+
+function renderControls() {
   $("session-id").textContent = session.active ? session.session_id : "no session";
   $("session-start").disabled = session.active;
   $("session-stop").disabled = !session.active;
   $("subject").disabled = session.active;
   $("notes").disabled = session.active;
-
   const allowed = session.active ? NEXT[session.phase] : [];
   document.querySelectorAll(".phase-buttons button").forEach((b) => {
     b.disabled = !allowed.includes(b.dataset.phase);
   });
-
-  const timerRunning = session.timer_next !== null && session.timer_next !== undefined;
+  const timerRunning = Boolean(session.timer_next);
   const canTime = session.active && (session.phase === null || session.phase === "recovery");
   $("protocol-start").disabled = !canTime || timerRunning;
   $("protocol-stop").disabled = !timerRunning;
   document.querySelectorAll("#protocol-form input").forEach((i) => { i.disabled = timerRunning; });
-
-  $("phase-now").dataset.phase = session.phase || "";
-  $("phase-name").textContent = session.active ? session.phase || "ready" : "idle";
-  tick();
 }
-
-function tick() {
-  const now = sharedNow();
-  const running = session.active && session.phase && session.phase !== "end" && now !== null;
-  $("phase-elapsed").textContent = running ? fmt(now - session.phase_t) : "";
-  const timed = session.timer_next && session.timer_ends_t && now !== null;
-  $("phase-next").textContent = timed
-    ? `${session.timer_next} in ${fmt(session.timer_ends_t - now)}`
-    : "";
-}
-setInterval(tick, 250);
 
 function renderEvents() {
-  const list = $("events");
-  list.replaceChildren(
+  const start = phases.length ? phases[0].t : 0;
+  $("events").replaceChildren(
     ...phases.slice(-8).map((p) => {
       const li = document.createElement("li");
-      const start = phases[0].t;
-      li.textContent = `${fmt(p.t - start)} ${p.phase}${p.source === "timer" ? " (timer)" : ""}`;
-      li.style.borderColor = p.phase === "end" ? "" : `rgb(${phaseRgb(p.phase)})`;
+      li.dataset.phase = p.phase;
+      li.textContent = `${fmtClock(p.t - start)} ${p.phase}${p.source === "timer" ? " · timer" : ""}`;
       return li;
     }),
   );
@@ -206,7 +386,7 @@ async function post(url, body) {
   if (!res.ok) {
     const data = await res.json().catch(() => ({}));
     const detail = Array.isArray(data.detail) ? data.detail[0].msg : data.detail;
-    $("session-error").textContent = detail || `request failed (${res.status})`;
+    $("session-error").textContent = detail || `Request failed (${res.status})`;
   }
 }
 
@@ -229,7 +409,21 @@ $("protocol-form").addEventListener("submit", (e) => {
 });
 $("protocol-stop").addEventListener("click", () => post("/api/protocol/stop"));
 
-// Stream -------------------------------------------------------------------
+// View: operator or present ----------------------------------------------
+
+function setView(view) {
+  document.body.dataset.view = view;
+  document.querySelectorAll(".segmented button").forEach((b) => {
+    b.setAttribute("aria-pressed", String(b.dataset.view === view));
+  });
+  try { localStorage.setItem("stress-alert:view", view); } catch { /* storage unavailable */ }
+  if (chart) chart.setSize({ width: $("chart").clientWidth, height: chartHeight() });
+}
+document.querySelectorAll(".segmented button").forEach((b) => {
+  b.addEventListener("click", () => setView(b.dataset.view));
+});
+
+// Stream -----------------------------------------------------------------
 
 function setChip(id, label, on, detail) {
   let chip = $(id);
@@ -247,19 +441,30 @@ function setChip(id, label, on, detail) {
 function handle(frame) {
   switch (frame.type) {
     case "bfi":
-      pushHemo(bfi.left, frame.t, frame.left);
-      pushHemo(bfi.right, frame.t, frame.right);
-      counts.left += 1;
-      counts.right += 1;
-      $("panel-bfi-left").classList.add("live");
-      $("panel-bfi-right").classList.add("live");
+      pushBfi(frame);
+      framesThisSecond += 1;
+      $("chart-card").dataset.live = "true";
       dirty = true;
+      break;
+    case "hr":
+      latest.hr[frame.source] = frame;
+      renderHrTile();
+      break;
+    case "cq":
+      latest.cq = frame;
+      renderCqTile();
+      renderStressTile();
+      break;
+    case "stress":
+      latest.stress = frame;
+      renderStressTile();
       break;
     case "session":
       // Keep the last session's bands after it stops; clear them when a new one starts.
       if (frame.session_id && frame.session_id !== session.session_id) phases = [];
       session = frame;
-      renderSession();
+      renderControls();
+      renderPhaseTile();
       renderEvents();
       dirty = true;
       break;
@@ -273,34 +478,48 @@ function handle(frame) {
       setChip(`chip-src-${frame.source.replace(/\W+/g, "-")}`, frame.source, frame.connected, frame.detail);
       break;
     default:
-      break; // bvi, hr, cq, stress: rendered in milestone 3
+      break;
   }
 }
 
 function connect(delay = 500) {
   const ws = new WebSocket(`${location.protocol === "https:" ? "wss" : "ws"}://${location.host}/ws`);
   ws.onopen = () => {
-    setChip("chip-socket", "dashboard socket", true);
+    setChip("chip-socket", "dashboard", true);
     delay = 500;
     syncClock();
   };
   ws.onmessage = (event) => { JSON.parse(event.data).forEach(handle); };
   ws.onclose = () => {
-    setChip("chip-socket", "dashboard socket", false);
+    setChip("chip-socket", "dashboard", false);
     setTimeout(() => connect(Math.min(delay * 2, 5000)), delay);
   };
 }
+
+// Start --------------------------------------------------------------------
+
+let initialView = new URLSearchParams(location.search).get("view");
+if (!initialView) {
+  try { initialView = localStorage.getItem("stress-alert:view"); } catch { initialView = null; }
+}
+setView(initialView === "present" ? "present" : "operator");
+makeChart();
+renderControls();
+renderPhaseTile();
 connect();
-renderSession();
+requestAnimationFrame(draw);
+
+$("spread").addEventListener("change", (event) => {
+  showSpread = event.currentTarget.checked;
+  Object.assign(yRange, { lo: null, hi: null, shrinkSince: null });
+  updateYRange();
+  makeChart();
+});
 
 $("pause").addEventListener("click", (event) => {
   paused = !paused;
   event.currentTarget.setAttribute("aria-pressed", String(paused));
-  event.currentTarget.textContent = paused ? "Resume view" : "Pause view";
+  event.currentTarget.textContent = paused ? "Resume" : "Pause";
 });
-
-window.addEventListener("resize", () => {
-  for (const side of ["left", "right"]) {
-    charts[side].setSize({ width: $(`chart-${side}`).clientWidth, height: 220 });
-  }
-});
+window.addEventListener("resize", () => chart.setSize({ width: $("chart").clientWidth, height: chartHeight() }));
+matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () => { makeChart(); dirty = true; });

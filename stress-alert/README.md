@@ -11,6 +11,11 @@ uv run python -m dashboard --dev-feed
 
 Open http://127.0.0.1:8765. `--dev-feed` replays `data/sample_scan.csv` so the charts move without hardware. Without it, the dashboard waits for producers on `/ws/ingest`.
 
+Two views, switched in the top bar or with `?view=present`:
+
+- **Operator**: status strip, session and timed-protocol controls, and the blood flow chart, with an optional camera-spread band (middle 50% of cameras).
+- **Present**: for the demo screen. Controls are hidden, and the status strip and chart are larger.
+
 From any working directory: `.venv/bin/python serve.py --dev-feed`.
 
 ## Lanes
@@ -32,7 +37,7 @@ Producers talk to the dashboard only through the message contract in [dashboard/
 
 ## Versions
 
-Python 3.12, exact pins in `pyproject.toml`, locked in `uv.lock`: fastapi 0.143.0, uvicorn 0.54.0, websockets 17.2, pylsl 1.18.5 (bundles liblsl 1.18). Dev: pytest 9.1.1, pytest-asyncio 1.4.0, httpx 0.28.1, ruff 0.17.0. Vendored: uPlot 1.6.32 (MIT, `dashboard/static/vendor/`).
+Python 3.12, exact pins in `pyproject.toml`, locked in `uv.lock`: fastapi 0.143.0, uvicorn 0.54.0, websockets 17.2, pylsl 1.18.5 (bundles liblsl 1.18). Dev: pytest 9.1.1, pytest-asyncio 1.4.0, httpx 0.28.1, ruff 0.17.0. Vendored in `dashboard/static/vendor/`: uPlot 1.6.32 (MIT), Geist and Geist Mono variable fonts 5.3.0 from Fontsource (OFL-1.1). Chart and status colors come from the dataviz reference palette. The left/right pair passes its palette validator in light and dark.
 
 The Mentalab ECG runs in its own environment (`explorepy==4.5.1`, `explorepy push2lsl`) because explorepy hard-pins old numpy, scipy, and pylsl.
 
