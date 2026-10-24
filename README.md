@@ -4,12 +4,13 @@ Working context for the Neurotechnology at Berkeley Hackathon, October 24 to 25,
 
 Prompt: **How can neurotechnology expand human cognitive potential?**
 
-This repo is a local fork of the event planning material shared with Jahlon on October 24, plus a map from each challenge track to the Openwater repositories it touches. It holds context only. Project code goes in its own repo or in forks of the Openwater repos.
+This repo is a local fork of the event planning material shared with Jahlon on October 24, plus a map from each challenge track to the Openwater repositories it touches. Event context stays in `docs/` and `sources/`. Team project code for the stress-alert demo lives in `stress-alert/`.
 
 ## Layout
 
 | Path | Contents |
 | :- | :- |
+| `stress-alert/` | Lane 1 Open-Motion code: CSV replay, contact quality, optical pulse. Other lanes are placeholders. |
 | `docs/EVENT.md` | Prompt, scope rules, shared device inventory, links |
 | `docs/OPEN-MOTION.md` | The team's platform: physics, hardware, data path, SDK, data formats, Mac test results, track fit, judging |
 | `docs/FLOW-STATE.md` | Flow-state idea: what the device can do, literature, datasets, a rule-compliant design |

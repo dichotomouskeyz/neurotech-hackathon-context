@@ -1,0 +1,23 @@
+[project]
+name = "stress-alert"
+version = "0.1.0"
+description = "Lane 1 Open-Motion ingest, contact quality, and optical pulse. For research."
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "numpy>=1.26",
+    "pandas>=2.2",
+    "scipy>=1.11",
+]
+
+[project.optional-dependencies]
+live = ["openmotion-sdk"]
+lsl = ["pylsl"]
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["ingest*", "features*"]
+exclude = ["tests*"]
