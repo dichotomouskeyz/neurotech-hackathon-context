@@ -49,3 +49,17 @@ def test_heatmap_defaults_to_viridis_without_a_circular_clip():
 def test_live_math_node():
     script = ROOT / "tests" / "test_live_math.test.js"
     subprocess.run(["node", "--test", str(script)], check=True, cwd=ROOT)
+
+
+def test_cycle_charts_shows_one_panel_at_a_time():
+    html = (ROOT / "dashboard/static/index.html").read_text()
+    css = (ROOT / "dashboard/static/styles.css").read_text()
+    js = (ROOT / "dashboard/static/app.js").read_text()
+    assert 'id="cycle" aria-pressed="false"' in html
+    for card in ("card-bfi", "card-heatmap", "card-bvi"):
+        assert f'id="{card}"' in html
+    assert 'body[data-cycle="bfi"] #card-heatmap' in css
+    assert 'body[data-cycle="heatmap"] #card-bfi' in css
+    assert 'body[data-cycle="bvi"] #card-heatmap' in css
+    assert 'const CYCLE = ["bfi", "heatmap", "bvi"]' in js
+    assert "const CYCLE_MS = 8000" in js

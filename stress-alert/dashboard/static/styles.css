@@ -251,6 +251,15 @@ button.primary { background: var(--primary-bg); color: var(--primary-ink); borde
 button.primary:hover:not(:disabled) { background: color-mix(in srgb, var(--primary-bg) 85%, var(--page)); }
 button.quiet { border-color: transparent; background: transparent; color: var(--ink-2); }
 button.quiet:hover:not(:disabled) { background: var(--control-hover); color: var(--ink); }
+button.quiet[aria-pressed="true"] { background: var(--surface-raised); color: var(--ink); }
+
+/* Cycle charts: one panel at a time in the chart slot */
+body[data-cycle="bfi"] #card-heatmap,
+body[data-cycle="bfi"] #card-bvi,
+body[data-cycle="heatmap"] #card-bfi,
+body[data-cycle="heatmap"] #card-bvi,
+body[data-cycle="bvi"] #card-bfi,
+body[data-cycle="bvi"] #card-heatmap { display: none; }
 .segmented button:hover:not([aria-pressed="true"]) { background: transparent; color: var(--ink); }
 
 input {

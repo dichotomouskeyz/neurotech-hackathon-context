@@ -769,6 +769,37 @@ document.querySelectorAll(".segmented button").forEach((b) => {
   b.addEventListener("click", () => setView(b.dataset.view));
 });
 
+// Cycle charts: blood flow, the heatmap, then blood volume in one slot -------
+
+const CYCLE = ["bfi", "heatmap", "bvi"];
+const CYCLE_MS = 8000;
+let cycleTimer = null;
+
+function showCycleSlot(slot) {
+  document.body.dataset.cycle = slot;
+  // A chart sized while hidden has no width; size it again now that it shows.
+  if (charts.bfi) resizeCharts();
+}
+
+function setCycle(on) {
+  clearInterval(cycleTimer);
+  cycleTimer = null;
+  $("cycle").setAttribute("aria-pressed", String(on));
+  if (on) {
+    let i = 0;
+    showCycleSlot(CYCLE[i]);
+    cycleTimer = setInterval(() => {
+      i = (i + 1) % CYCLE.length;
+      showCycleSlot(CYCLE[i]);
+    }, CYCLE_MS);
+  } else {
+    delete document.body.dataset.cycle;
+    if (charts.bfi) resizeCharts();
+  }
+  try { localStorage.setItem("stress-alert:cycle", on ? "1" : "0"); } catch { /* storage unavailable */ }
+}
+$("cycle").addEventListener("click", () => setCycle($("cycle").getAttribute("aria-pressed") !== "true"));
+
 // Stream -----------------------------------------------------------------
 
 function setChip(id, label, on, detail) {
@@ -875,6 +906,11 @@ if (!initialView) {
 }
 setView(initialView === "present" ? "present" : "operator");
 METRICS.forEach(makeChart);
+let initialCycle = new URLSearchParams(location.search).get("cycle");
+if (!initialCycle) {
+  try { initialCycle = localStorage.getItem("stress-alert:cycle"); } catch { initialCycle = null; }
+}
+setCycle(initialCycle === "1");
 renderControls();
 renderDevice();
 renderPhaseTile();
