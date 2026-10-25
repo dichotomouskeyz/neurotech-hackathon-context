@@ -6,10 +6,11 @@
  * across the prefrontal cortex with continuous 2D spatial interpolation.
  *
  * Supports:
- * - Dual projections: Top-down Axial (10-20 system) & Coronal Frontal PFC
- * - Real-time continuous Gaussian/IDW interpolation on HTML5 Canvas
+ * - Dual projections: forehead-focused axial 10-20 and coronal frontal PFC
+ * - Real-time Gaussian interpolation on HTML5 Canvas
+ * - A soft prefrontal field. Nothing is clipped to a circle or a head oval.
  * - Multiple metrics: BFI, BVI, Hemispheric Asymmetry [(R - L)/(R + L)]
- * - Scientific colormaps: Turbo, Viridis, Coolwarm
+ * - Scientific colormaps: Turbo, Viridis (default), Coolwarm
  * - Interactive optode inspection, gain mapping & contact quality gating
  */
 
@@ -102,6 +103,9 @@
     })()
   };
 
+  // Second toolbar option. Turbo stays available; this is only the load default.
+  const DEFAULT_COLORMAP = "viridis";
+
   // Hardware sensor specs from Openwater Open-Motion
   // 8 cameras per module. Analog gain: [16, 4, 2, 1, 1, 2, 4, 16]
   // Layout on each module (cam number):
@@ -123,44 +127,44 @@
     "medial superior"
   ];
 
-  // Normalized 2D coordinates for the two projection styles:
-  // View 1: Axial (Top-down 10-20 head model, nose at top, front of head y: 0.15 .. 0.35)
-  // View 2: Frontal (Coronal view of prefrontal cortex lobes, y: 0.22 .. 0.78)
+  // Normalized 2D coordinates. Both views are framed on the forehead, which
+  // is the only scalp Open-Motion measures. Axial is a zoomed top-down 10-20
+  // view with nasion toward the top. Medial cameras sit slightly anterior of
+  // the lateral ones so the cloud follows the brow instead of a rectangle.
+  // Posterior sites (Cz, Pz, Oz) are outside this frame.
+  // Frontal is the same two modules face-on.
   const SENSOR_GEOMETRY = {
     axial: {
       left: [
-        { id: "L1", cam: 1, x: 0.33, y: 0.30, gain: 16, col: "outer", row: 0 },
-        { id: "L2", cam: 2, x: 0.32, y: 0.26, gain: 4,  col: "outer", row: 1 },
-        { id: "L3", cam: 3, x: 0.31, y: 0.22, gain: 2,  col: "outer", row: 2 },
-        { id: "L4", cam: 4, x: 0.30, y: 0.18, gain: 1,  col: "outer", row: 3 },
-        { id: "L5", cam: 5, x: 0.43, y: 0.18, gain: 1,  col: "inner", row: 3 },
-        { id: "L6", cam: 6, x: 0.42, y: 0.22, gain: 2,  col: "inner", row: 2 },
-        { id: "L7", cam: 7, x: 0.42, y: 0.26, gain: 4,  col: "inner", row: 1 },
-        { id: "L8", cam: 8, x: 0.42, y: 0.30, gain: 16, col: "inner", row: 0 }
+        { id: "L1", cam: 1, x: 0.31, y: 0.70, gain: 16, col: "outer", row: 0 },
+        { id: "L2", cam: 2, x: 0.27, y: 0.57, gain: 4,  col: "outer", row: 1 },
+        { id: "L3", cam: 3, x: 0.26, y: 0.44, gain: 2,  col: "outer", row: 2 },
+        { id: "L4", cam: 4, x: 0.30, y: 0.32, gain: 1,  col: "outer", row: 3 },
+        { id: "L5", cam: 5, x: 0.43, y: 0.28, gain: 1,  col: "inner", row: 3 },
+        { id: "L6", cam: 6, x: 0.44, y: 0.41, gain: 2,  col: "inner", row: 2 },
+        { id: "L7", cam: 7, x: 0.45, y: 0.54, gain: 4,  col: "inner", row: 1 },
+        { id: "L8", cam: 8, x: 0.45, y: 0.67, gain: 16, col: "inner", row: 0 }
       ],
       right: [
-        { id: "R1", cam: 1, x: 0.67, y: 0.30, gain: 16, col: "outer", row: 0 },
-        { id: "R2", cam: 2, x: 0.68, y: 0.26, gain: 4,  col: "outer", row: 1 },
-        { id: "R3", cam: 3, x: 0.69, y: 0.22, gain: 2,  col: "outer", row: 2 },
-        { id: "R4", cam: 4, x: 0.70, y: 0.18, gain: 1,  col: "outer", row: 3 },
-        { id: "R5", cam: 5, x: 0.57, y: 0.18, gain: 1,  col: "inner", row: 3 },
-        { id: "R6", cam: 6, x: 0.58, y: 0.22, gain: 2,  col: "inner", row: 2 },
-        { id: "R7", cam: 7, x: 0.58, y: 0.26, gain: 4,  col: "inner", row: 1 },
-        { id: "R8", cam: 8, x: 0.58, y: 0.30, gain: 16, col: "inner", row: 0 }
+        { id: "R1", cam: 1, x: 0.69, y: 0.70, gain: 16, col: "outer", row: 0 },
+        { id: "R2", cam: 2, x: 0.73, y: 0.57, gain: 4,  col: "outer", row: 1 },
+        { id: "R3", cam: 3, x: 0.74, y: 0.44, gain: 2,  col: "outer", row: 2 },
+        { id: "R4", cam: 4, x: 0.70, y: 0.32, gain: 1,  col: "outer", row: 3 },
+        { id: "R5", cam: 5, x: 0.57, y: 0.28, gain: 1,  col: "inner", row: 3 },
+        { id: "R6", cam: 6, x: 0.56, y: 0.41, gain: 2,  col: "inner", row: 2 },
+        { id: "R7", cam: 7, x: 0.55, y: 0.54, gain: 4,  col: "inner", row: 1 },
+        { id: "R8", cam: 8, x: 0.55, y: 0.67, gain: 16, col: "inner", row: 0 }
       ],
       landmarks: [
-        { label: "Nz", x: 0.50, y: 0.11 },
-        { label: "Fpz", x: 0.50, y: 0.18 },
-        { label: "Fp1", x: 0.37, y: 0.17 },
-        { label: "Fp2", x: 0.63, y: 0.17 },
-        { label: "Fz", x: 0.50, y: 0.35 },
-        { label: "F3", x: 0.34, y: 0.35 },
-        { label: "F4", x: 0.66, y: 0.35 },
-        { label: "F7", x: 0.20, y: 0.33 },
-        { label: "F8", x: 0.80, y: 0.33 },
-        { label: "Cz", x: 0.50, y: 0.54 },
-        { label: "Pz", x: 0.50, y: 0.74 },
-        { label: "Oz", x: 0.50, y: 0.91 }
+        { label: "Nz", x: 0.50, y: 0.075 },
+        { label: "Fp1", x: 0.20, y: 0.24 },
+        { label: "Fpz", x: 0.50, y: 0.16 },
+        { label: "Fp2", x: 0.80, y: 0.24 },
+        { label: "F7", x: 0.13, y: 0.50 },
+        { label: "F8", x: 0.87, y: 0.50 },
+        { label: "F3", x: 0.22, y: 0.82 },
+        { label: "Fz", x: 0.50, y: 0.84 },
+        { label: "F4", x: 0.78, y: 0.82 }
       ]
     },
 
@@ -194,6 +198,15 @@
     }
   };
 
+  // Gaussian extent in normalized canvas units. Wide enough that neighboring
+  // cameras become one scalp field, narrow enough that the brow row stays
+  // distinct from the hairline row. fissure is the longitudinal darkening,
+  // in the same units, and it does not mask pixels out.
+  const FIELD_KERNEL = {
+    axial: { sigmaX: 0.09, sigmaY: 0.074, fissure: 0.024, fissureDepth: 0.2 },
+    frontal: { sigmaX: 0.086, sigmaY: 0.078, fissure: 0.026, fissureDepth: 0.18 }
+  };
+
   function finiteUnit(value) {
     if (typeof value !== "number" || !Number.isFinite(value) || value < 0 || value > 1) {
       return null;
@@ -211,7 +224,9 @@
       // Settings
       this.projection = options.projection || "axial"; // 'axial' | 'frontal'
       this.metric = options.metric || "bfi";           // 'bfi' | 'bvi' | 'asym'
-      this.colormap = options.colormap || "turbo";     // 'turbo' | 'viridis' | 'coolwarm'
+      this.colormap = options.colormap || DEFAULT_COLORMAP;
+      // Map to restore when leaving laterality. Coolwarm stays the asymmetry map.
+      this._colormapBeforeAsym = null;
       this.showOptodes = options.showOptodes !== undefined ? options.showOptodes : true;
       this.autoscale = options.autoscale !== undefined ? options.autoscale : true;
 
@@ -231,14 +246,13 @@
         cq: { left: null, right: null }
       };
 
-      // Offscreen low-resolution interpolation grid
-      this.gridWidth = 120;
-      this.gridHeight = 90;
+      // Offscreen interpolation grid. Sized to the view aspect in ensureGrid
+      // so the upscale does not stretch blocks sideways.
+      this.gridWidth = 0;
+      this.gridHeight = 0;
       this.offscreenCanvas = document.createElement("canvas");
-      this.offscreenCanvas.width = this.gridWidth;
-      this.offscreenCanvas.height = this.gridHeight;
       this.offscreenCtx = this.offscreenCanvas.getContext("2d");
-      this.gridImageData = this.offscreenCtx.createImageData(this.gridWidth, this.gridHeight);
+      this.gridImageData = null;
 
       // Mouse interaction
       this.hoveredOptode = null;
@@ -289,7 +303,23 @@
       this.canvas.width = bw;
       this.canvas.height = bh;
       this.ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      this.ensureGrid();
       this.render();
+    }
+
+    ensureGrid() {
+      const aspect = Math.max(0.5, (this.viewWidth || 640) / (this.viewHeight || 420));
+      const budget = 22000;
+      let gh = Math.round(Math.sqrt(budget / aspect));
+      let gw = Math.round(gh * aspect);
+      gh = Math.max(72, Math.min(150, gh));
+      gw = Math.max(96, Math.min(340, gw));
+      if (gw === this.gridWidth && gh === this.gridHeight && this.gridImageData) return;
+      this.gridWidth = gw;
+      this.gridHeight = gh;
+      this.offscreenCanvas.width = gw;
+      this.offscreenCanvas.height = gh;
+      this.gridImageData = this.offscreenCtx.createImageData(gw, gh);
     }
 
     setProjection(projection) {
@@ -300,16 +330,21 @@
     }
 
     setMetric(metric) {
-      if (this.metric !== metric) {
-        this.metric = metric;
-        // If asymmetry is chosen, default colormap to coolwarm for intuitive R/L balance
-        if (metric === "asym" && this.colormap !== "coolwarm") {
+      if (this.metric === metric) return;
+      const previous = this.metric;
+      this.metric = metric;
+      // Laterality is a signed contrast, so it still switches to coolwarm.
+      // Leaving it restores the map in use before that switch. On a fresh
+      // load that map is viridis, not turbo.
+      if (metric === "asym") {
+        if (this.colormap !== "coolwarm") {
+          this._colormapBeforeAsym = this.colormap;
           this.setColormap("coolwarm");
-        } else if (metric !== "asym" && this.colormap === "coolwarm") {
-          this.setColormap("turbo");
         }
-        this.render();
+      } else if (previous === "asym" && this.colormap === "coolwarm") {
+        this.setColormap(this._colormapBeforeAsym || DEFAULT_COLORMAP);
       }
+      this.render();
     }
 
     setColormap(colormap) {
@@ -340,7 +375,9 @@
           this.latestData[frame.type].right = frame.right.slice();
         }
         this.updateStats();
-        this.render();
+        // bfi and bvi both arrive at 40 Hz. Repaint only the metric on screen.
+        const shown = this.metric === "asym" ? "bfi" : this.metric;
+        if (frame.type === shown) this.render();
       } else if (frame.type === "cq") {
         // null is a real "no measurement" value. Only a finite 0..1 score
         // is contact. Anything else stays unknown rather than becoming 1.
@@ -465,118 +502,78 @@
       return sensors;
     }
 
-    // High performance continuous 2D spatial interpolation
-    computeHeatmapGrid(sensors, width, height) {
+    // Continuous field. Alpha follows distance from the cameras, so the color
+    // fades out past the forehead instead of being cut into a silhouette.
+    computeHeatmapGrid(sensors) {
       const validSensors = sensors.filter((s) => s.value !== null && !isNaN(s.value));
       if (!validSensors.length) return false;
+      this.ensureGrid();
+      if (!this.gridImageData) return false;
 
       const { min: rangeMin, max: rangeMax } = this.getScaleRange();
-      const lut = COLORMAPS[this.colormap] || COLORMAPS.turbo;
+      const lut = COLORMAPS[this.colormap] || COLORMAPS[DEFAULT_COLORMAP];
+      const kernel = FIELD_KERNEL[this.projection] || FIELD_KERNEL.axial;
       const gw = this.gridWidth;
       const gh = this.gridHeight;
       const data = this.gridImageData.data;
+      data.fill(0);
 
-      // Mean value for background falloff
-      const meanVal = validSensors.reduce((acc, s) => acc + s.value, 0) / validSensors.length;
-
-      // Precalculate sensor grid positions
-      const sensorPts = validSensors.map((s) => ({
-        gx: s.x * gw,
-        gy: s.y * gh,
-        val: s.value
-      }));
-
-      // Interpolation tuning parameters
-      const sigma = this.projection === "axial" ? 18.0 : 22.0;
-      const twoSigmaSq = 2 * sigma * sigma;
-      const epsilon = 1.8;
-      const p = 1.35;
+      const sensorPts = validSensors.map((s) => ({ nx: s.x, ny: s.y, val: s.value }));
+      const invTwoSigmaX = 1 / (2 * kernel.sigmaX * kernel.sigmaX);
+      const invTwoSigmaY = 1 / (2 * kernel.sigmaY * kernel.sigmaY);
+      const range = (rangeMax - rangeMin) || 1;
+      const fissureInv = kernel.fissure > 0 ? 1 / (2 * kernel.fissure * kernel.fissure) : 0;
 
       let idx = 0;
       for (let gy = 0; gy < gh; gy++) {
-        const ny = gy / gh;
+        const ny = (gy + 0.5) / gh;
         for (let gx = 0; gx < gw; gx++) {
-          const nx = gx / gw;
+          const nx = (gx + 0.5) / gw;
+          let sumW = 0;
+          let sumV = 0;
+          let maxW = 0;
 
-          // Check if point is inside anatomical mask
-          const inside = this.isInsideAnatomicalMask(nx, ny);
-
-          if (!inside) {
-            data[idx] = 0;
-            data[idx + 1] = 0;
-            data[idx + 2] = 0;
-            data[idx + 3] = 0;
-          } else {
-            let sumWeight = 0;
-            let sumVal = 0;
-
-            for (let i = 0; i < sensorPts.length; i++) {
-              const sp = sensorPts[i];
-              const dx = gx - sp.gx;
-              const dy = gy - sp.gy;
-              const distSq = dx * dx + dy * dy;
-              const dist = Math.sqrt(distSq);
-
-              // Gaussian + Inverse Distance Weighting
-              const w = Math.exp(-distSq / twoSigmaSq) / Math.pow(dist + epsilon, p);
-              sumWeight += w;
-              sumVal += w * sp.val;
-            }
-
-            let finalVal = meanVal;
-            let alpha = 245;
-
-            if (sumWeight > 0.0001) {
-              const interpolated = sumVal / sumWeight;
-              // Smooth relaxation to mean for points far from forehead optodes
-              const distWeightNorm = Math.min(1.0, sumWeight * 12.0);
-              finalVal = interpolated * distWeightNorm + meanVal * (1.0 - distWeightNorm);
-
-              // Keep the field opaque inside the head. Tying alpha to
-              // distWeightNorm left a white card with a faint halo on each
-              // optode whenever the color scale was not stretched (autoscale
-              // off), so Viridis and Turbo both read as blank.
-              let cover = 0.94;
-              if (this.projection === "axial") {
-                const occipitalAtten = Math.max(0.78, 1.0 - Math.max(0, ny - 0.42) * 0.55);
-                cover *= occipitalAtten;
-              }
-              alpha = Math.round(255 * cover);
-            } else {
-              alpha = 48;
-            }
-
-            // Normalize through colormap
-            const norm = Math.max(0, Math.min(1, (finalVal - rangeMin) / (rangeMax - rangeMin || 1)));
-            const colorIdx = Math.floor(norm * 255);
-            const lutOffset = colorIdx * 3;
-
-            data[idx] = lut[lutOffset];
-            data[idx + 1] = lut[lutOffset + 1];
-            data[idx + 2] = lut[lutOffset + 2];
-            data[idx + 3] = alpha;
+          for (let i = 0; i < sensorPts.length; i++) {
+            const sp = sensorPts[i];
+            const dx = nx - sp.nx;
+            const dy = ny - sp.ny;
+            const w = Math.exp(-dx * dx * invTwoSigmaX - dy * dy * invTwoSigmaY);
+            if (w < 0.004) continue;
+            sumW += w;
+            sumV += w * sp.val;
+            if (w > maxW) maxW = w;
           }
 
+          // Interior of the camera cloud stays opaque. The edge feathers
+          // where every camera's weight has fallen off.
+          let cover = (maxW - 0.06) / 0.42;
+          if (cover <= 0) {
+            idx += 4;
+            continue;
+          }
+          if (cover > 1) cover = 1;
+          cover = cover * cover * (3 - 2 * cover);
+
+          const finalVal = sumV / sumW;
+          const norm = Math.max(0, Math.min(1, (finalVal - rangeMin) / range));
+          const lutOffset = Math.floor(norm * 255) * 3;
+
+          let shade = 1;
+          if (fissureInv) {
+            const fx = nx - 0.5;
+            shade = 1 - kernel.fissureDepth * Math.exp(-fx * fx * fissureInv);
+          }
+
+          data[idx] = Math.round(lut[lutOffset] * shade);
+          data[idx + 1] = Math.round(lut[lutOffset + 1] * shade);
+          data[idx + 2] = Math.round(lut[lutOffset + 2] * shade);
+          data[idx + 3] = Math.round(255 * cover * 0.94);
           idx += 4;
         }
       }
 
       this.offscreenCtx.putImageData(this.gridImageData, 0, 0);
       return true;
-    }
-
-    isInsideAnatomicalMask(nx, ny) {
-      if (this.projection === "axial") {
-        // Head oval centered at (0.5, 0.54)
-        const dx = (nx - 0.5) / 0.38;
-        const dy = (ny - 0.53) / 0.40;
-        return (dx * dx + dy * dy) <= 1.0;
-      } else {
-        // Frontal view: prefrontal forehead region
-        const dx = (nx - 0.5) / 0.42;
-        const dy = (ny - 0.50) / 0.38;
-        return (dx * dx + dy * dy) <= 1.0 && ny >= 0.16 && ny <= 0.86;
-      }
     }
 
     render() {
@@ -588,48 +585,25 @@
       ctx.clearRect(0, 0, w, h);
 
       const sensors = this.getSensorValues();
-      const hasData = this.computeHeatmapGrid(sensors, w, h);
+      const hasData = this.computeHeatmapGrid(sensors);
 
-      // Render interpolated color field
       if (hasData) {
         ctx.save();
-        this.clipAnatomicalPath(ctx, w, h);
         ctx.imageSmoothingEnabled = true;
         ctx.imageSmoothingQuality = "high";
         ctx.drawImage(this.offscreenCanvas, 0, 0, w, h);
         ctx.restore();
       }
 
-      // Render anatomical contours
       this.drawAnatomicalOverlays(ctx, w, h);
 
-      // Render optodes & sensor overlays
       if (this.showOptodes) {
         this.drawOptodes(ctx, sensors, w, h);
       }
 
-      // Render hover highlight
       if (this.hoveredOptode) {
         this.drawHoverHighlight(ctx, this.hoveredOptode, w, h);
       }
-    }
-
-    clipAnatomicalPath(ctx, w, h) {
-      ctx.beginPath();
-      if (this.projection === "axial") {
-        const cx = w * 0.5;
-        const cy = h * 0.53;
-        const rx = w * 0.38;
-        const ry = h * 0.40;
-        ctx.ellipse(cx, cy, rx, ry, 0, 0, Math.PI * 2);
-      } else {
-        const cx = w * 0.5;
-        const cy = h * 0.50;
-        const rx = w * 0.40;
-        const ry = h * 0.35;
-        ctx.ellipse(cx, cy, rx, ry, 0, 0, Math.PI * 2);
-      }
-      ctx.clip();
     }
 
     drawAnatomicalOverlays(ctx, w, h) {
@@ -637,116 +611,79 @@
       const isDark = document.documentElement.dataset.theme === "dark" ||
         (!document.documentElement.dataset.theme && window.matchMedia("(prefers-color-scheme: dark)").matches);
 
-      const strokePrimary = isDark ? "rgba(255, 255, 255, 0.45)" : "rgba(20, 20, 19, 0.55)";
-      const strokeMuted = isDark ? "rgba(255, 255, 255, 0.18)" : "rgba(20, 20, 19, 0.18)";
-      const textFill = isDark ? "rgba(255, 255, 255, 0.60)" : "rgba(20, 20, 19, 0.60)";
+      const stroke = isDark ? "rgba(255, 255, 255, 0.38)" : "rgba(20, 20, 19, 0.32)";
+      const strokeMuted = isDark ? "rgba(255, 255, 255, 0.22)" : "rgba(20, 20, 19, 0.2)";
+      const textFill = isDark ? "rgba(255, 255, 255, 0.72)" : "rgba(20, 20, 19, 0.72)";
+      const halo = isDark ? "rgba(20, 20, 19, 0.8)" : "rgba(246, 245, 242, 0.92)";
+
+      const paintLabel = (text, x, y) => {
+        ctx.lineWidth = 3;
+        ctx.strokeStyle = halo;
+        ctx.strokeText(text, x, y);
+        ctx.fillStyle = textFill;
+        ctx.fillText(text, x, y);
+      };
+
+      ctx.lineJoin = "round";
+      ctx.lineCap = "round";
+      ctx.strokeStyle = stroke;
+      ctx.lineWidth = 1.25;
 
       if (this.projection === "axial") {
-        const cx = w * 0.5;
-        const cy = h * 0.53;
-        const rx = w * 0.38;
-        const ry = h * 0.40;
-
-        // 1. Skull outline
-        ctx.strokeStyle = strokePrimary;
-        ctx.lineWidth = 2.0;
+        // No skull oval and no clip. A short nasion tick plus the 10-20
+        // names orient the forehead; the color itself is the unclipped field.
         ctx.beginPath();
-        ctx.ellipse(cx, cy, rx, ry, 0, 0, Math.PI * 2);
+        ctx.moveTo(w * 0.50, h * 0.045);
+        ctx.lineTo(w * 0.50, h * 0.095);
         ctx.stroke();
 
-        // 2. Nose (triangle at top pointing up)
-        const noseY = cy - ry;
-        ctx.beginPath();
-        ctx.moveTo(cx - 15, noseY + 2);
-        ctx.lineTo(cx, noseY - 18);
-        ctx.lineTo(cx + 15, noseY + 2);
-        ctx.stroke();
-
-        // 3. Left & Right ears
-        ctx.beginPath();
-        // Left ear
-        ctx.arc(cx - rx - 2, cy, 14, Math.PI * 0.55, Math.PI * 1.45, false);
-        // Right ear
-        ctx.arc(cx + rx + 2, cy, 14, Math.PI * 1.55, Math.PI * 0.45, false);
-        ctx.stroke();
-
-        // 4. Longitudinal fissure & coronal reference line
         ctx.strokeStyle = strokeMuted;
-        ctx.lineWidth = 1.0;
-        ctx.setLineDash([4, 4]);
-
-        // Midline (anterior-posterior)
+        ctx.lineWidth = 1;
+        ctx.setLineDash([3, 5]);
         ctx.beginPath();
-        ctx.moveTo(cx, cy - ry + 4);
-        ctx.lineTo(cx, cy + ry - 4);
-        ctx.stroke();
-
-        // Coronal line (C3 - Cz - C4)
-        ctx.beginPath();
-        ctx.moveTo(cx - rx + 4, cy);
-        ctx.lineTo(cx + rx - 4, cy);
+        ctx.moveTo(w * 0.50, h * 0.18);
+        ctx.lineTo(w * 0.50, h * 0.78);
         ctx.stroke();
         ctx.setLineDash([]);
 
-        // 5. Prefrontal Region Boundary Highlight
-        ctx.strokeStyle = isDark ? "rgba(42, 120, 214, 0.40)" : "rgba(42, 120, 214, 0.30)";
-        ctx.lineWidth = 1.5;
-        ctx.beginPath();
-        ctx.ellipse(cx, cy - ry * 0.45, rx * 0.85, ry * 0.45, 0, 0, Math.PI * 2);
-        ctx.stroke();
-
-        // 6. 10-20 Landmark labels
-        ctx.fillStyle = textFill;
         ctx.font = "10px Geist, system-ui, sans-serif";
         ctx.textAlign = "center";
         ctx.textBaseline = "middle";
-
-        const landmarks = SENSOR_GEOMETRY.axial.landmarks;
-        landmarks.forEach((lm) => {
-          ctx.fillText(lm.label, lm.x * w, lm.y * h);
+        SENSOR_GEOMETRY.axial.landmarks.forEach((lm) => {
+          paintLabel(lm.label, lm.x * w, lm.y * h);
         });
-
       } else {
-        // Frontal Prefrontal Coronal View
-        const cx = w * 0.5;
-        const cy = h * 0.50;
-        const rx = w * 0.40;
-        const ry = h * 0.35;
-
-        // 1. Forehead arch boundary
-        ctx.strokeStyle = strokePrimary;
-        ctx.lineWidth = 2.0;
+        // Shallow hairline and two brow arches. They do not meet, so the
+        // guide cannot read as a head oval, and neither path clips the field.
         ctx.beginPath();
-        ctx.ellipse(cx, cy, rx, ry, 0, 0, Math.PI * 2);
+        ctx.moveTo(w * 0.24, h * 0.13);
+        ctx.quadraticCurveTo(w * 0.50, h * 0.07, w * 0.76, h * 0.13);
         ctx.stroke();
 
-        // 2. Eyebrow / supraorbital line at bottom
         ctx.strokeStyle = strokeMuted;
-        ctx.lineWidth = 1.5;
         ctx.beginPath();
-        ctx.moveTo(cx - rx * 0.85, cy + ry * 0.65);
-        ctx.quadraticCurveTo(cx - rx * 0.45, cy + ry * 0.55, cx, cy + ry * 0.65);
-        ctx.quadraticCurveTo(cx + rx * 0.45, cy + ry * 0.55, cx + rx * 0.85, cy + ry * 0.65);
+        ctx.moveTo(w * 0.20, h * 0.90);
+        ctx.quadraticCurveTo(w * 0.33, h * 0.82, w * 0.46, h * 0.90);
+        ctx.moveTo(w * 0.54, h * 0.90);
+        ctx.quadraticCurveTo(w * 0.67, h * 0.82, w * 0.80, h * 0.90);
         ctx.stroke();
 
-        // 3. Longitudinal interhemispheric fissure (vertical midline)
-        ctx.setLineDash([4, 4]);
+        ctx.lineWidth = 1;
+        ctx.setLineDash([3, 5]);
         ctx.beginPath();
-        ctx.moveTo(cx, cy - ry + 4);
-        ctx.lineTo(cx, cy + ry - 4);
+        ctx.moveTo(w * 0.50, h * 0.16);
+        ctx.lineTo(w * 0.50, h * 0.84);
         ctx.stroke();
         ctx.setLineDash([]);
 
-        // Hemisphere headers sit above the outline, clear of the optodes.
-        // Per-column captions ("Superior DLPFC", "Ventral / Frontopolar")
-        // used to span both columns, so two different dots shared one label.
-        ctx.fillStyle = isDark ? "#82b4f5" : "#2a78d6";
+        // Headers sit in the margin above the hairline, clear of the optodes.
         ctx.font = "600 12px Geist, system-ui, sans-serif";
         ctx.textAlign = "center";
-        ctx.fillText("LEFT PFC", cx - rx * 0.48, cy - ry - 16);
-
+        ctx.textBaseline = "middle";
+        ctx.fillStyle = isDark ? "#82b4f5" : "#2a78d6";
+        ctx.fillText("LEFT PFC", w * 0.32, h * 0.045);
         ctx.fillStyle = isDark ? "#f28b61" : "#eb6834";
-        ctx.fillText("RIGHT PFC", cx + rx * 0.48, cy - ry - 16);
+        ctx.fillText("RIGHT PFC", w * 0.68, h * 0.045);
       }
 
       ctx.restore();
@@ -780,20 +717,25 @@
         ctx.fill();
 
         // Channel id sits off the dot, toward the outside of its column,
-        // so a neighbor's id is not drawn on top of this optode.
-        ctx.fillStyle = isDark ? "#f0f0ee" : "#141413";
+        // so a neighbor's id is not drawn on top of this optode. The halo
+        // keeps the id readable on the dark end of viridis.
         ctx.font = "bold 9px Geist Mono, monospace";
         ctx.textBaseline = "middle";
+        ctx.lineWidth = 3;
+        ctx.strokeStyle = isDark ? "rgba(20, 20, 19, 0.85)" : "rgba(255, 255, 255, 0.9)";
+        ctx.fillStyle = isDark ? "#f0f0ee" : "#141413";
         const outward = s.side === "left"
           ? (s.col === "outer" ? -1 : 1)
           : (s.col === "outer" ? 1 : -1);
         ctx.textAlign = outward < 0 ? "right" : "left";
-        ctx.fillText(s.id, px + outward * 14, py);
+        const labelX = px + outward * 14;
+        ctx.strokeText(s.id, labelX, py);
+        ctx.fillText(s.id, labelX, py);
 
         if (this.projection === "frontal" && hasVal) {
           ctx.font = "8px Geist Mono, monospace";
-          ctx.fillStyle = isDark ? "rgba(255, 255, 255, 0.70)" : "rgba(20, 20, 19, 0.70)";
           ctx.textAlign = "center";
+          ctx.strokeText(s.value.toFixed(1), px, py + 16);
           ctx.fillText(s.value.toFixed(1), px, py + 16);
         }
       });
