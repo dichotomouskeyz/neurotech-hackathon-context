@@ -26,7 +26,7 @@ ws://<dashboard-host>:8765/ws/ingest?source=<your-name>
 | type | fields | notes |
 | :- | :- | :- |
 | `bfi`, `bvi` | `t`, `left[8]`, `right[8]` | one value per camera, `null` for a disabled camera |
-| `hr` | `t`, `source` (`optical`), `bpm` | 0 < bpm < 300. Optical heart rate from the Open-Motion pulse. ECG was dropped on 2026-10-24 and `ecg` is rejected |
+| `hr` | `t`, `source` (`optical`), `bpm`, optional `confidence` (0 to 1) and `window_s` | 0 < bpm < 300. Optical heart rate from the Open-Motion pulse. The dashboard produces these itself (`dashboard/vitals.py`) from live or replayed `bfi` frames, about once a second when the estimate is confident. ECG was dropped on 2026-10-24 and `ecg` is rejected |
 | `cq` | `t`, `left`, `right` | contact quality, 0 to 1 |
 | `stress` | `t`, `index`, `recovery_score` (optional), `alert` (bool), `reason` | the dashboard only shows an alert when contact quality passes its threshold |
 | `phase` | `t`, `session_id`, `phase` (`baseline`, `hold`, `recovery`, `end`), `source` (`manual` or `timer`) | sent by the session/phase logger |

@@ -22,6 +22,7 @@ from dashboard import clock, dev_feed
 from dashboard.device import DeviceError, DeviceManager
 from dashboard.hub import Hub, drain
 from dashboard.schema import PhaseName, frame_adapter
+from dashboard.vitals import HeartRateEstimator
 from session.phase_logger import MarkerOutlet, PhaseError, PhaseLogger
 
 STATIC = Path(__file__).resolve().parent / "static"
@@ -62,6 +63,13 @@ def create_app(
     logger = PhaseLogger(sessions_dir, emit=hub.publish, markers=markers)
     device_kwargs = {"factory": device_factory} if device_factory else {}
     device = DeviceManager(hub.publish, sessions_dir / "device-scans", **device_kwargs)
+    heart_rate = HeartRateEstimator(hub.publish)
+    hub.add_listener(heart_rate.feed)
+
+    async def estimate_heart_rate() -> None:
+        while True:
+            await asyncio.sleep(1.0)
+            heart_rate.tick()
 
     @contextlib.asynccontextmanager
     async def lifespan(_: FastAPI) -> AsyncIterator[None]:
@@ -78,14 +86,14 @@ def create_app(
             )
         hub.publish([logger.state(), device.state()])
         device.start_polling(asyncio.get_running_loop())
-        task = None
+        tasks = [asyncio.create_task(estimate_heart_rate())]
         if replay_url:
             path = replay_csv or dev_feed.DEFAULT_CSV
-            task = asyncio.create_task(dev_feed.run_forever(replay_url, path))
+            tasks.append(asyncio.create_task(dev_feed.run_forever(replay_url, path)))
         yield
         logger.stop_session()
         await asyncio.to_thread(device.shutdown)
-        if task:
+        for task in tasks:
             task.cancel()
             with contextlib.suppress(asyncio.CancelledError):
                 await task
@@ -94,6 +102,7 @@ def create_app(
     app.state.hub = hub
     app.state.logger = logger
     app.state.device = device
+    app.state.heart_rate = heart_rate
     app.mount("/static", StaticFiles(directory=STATIC), name="static")
 
     def guarded(action: Any) -> dict[str, Any]:

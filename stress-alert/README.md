@@ -56,7 +56,7 @@ Producers talk to the dashboard only through [dashboard/SCHEMA.md](dashboard/SCH
 | :- | :- |
 | 1. Server, hub, ingest and browser sockets, live BFI charts from replay | Done |
 | 2. Session/phase logger: session bar, phase buttons and timer, `events.csv`, chart shading, LSL markers | Done |
-| 3. Contact quality, optical heart rate, stress and alert panels | Panels done. CQ, optical heart rate, and the CQ-gated stress index exist as features; live producers that send them to the dashboard are still to do |
+| 3. Contact quality, optical heart rate, stress and alert panels | Panels done. Optical heart rate is live: `dashboard/vitals.py` runs Lane 1's estimator on a rolling 12 s window of live or replayed BFI and publishes about once a second when confident (about 77 bpm on Openwater's sample). Live CQ and stress producers are still to do |
 
 ## Versions
 
