@@ -54,8 +54,50 @@ function yExtent(values) {
   };
 }
 
+// BFI keeps the raw pulse on the trace. The axis follows the slow level of
+// the last few seconds, plus the pulse amplitude and a little room, so a band
+// that sits near 5 to 7 can move to 6 to 8. It does not lock to one heartbeat
+// peak, and it does not keep the whole 30 s of history (that is what left the
+// axis wide after the level had already moved). BVI does not use this.
+const BFI_BOUND_WINDOW_S = 8;
+
+function levelBounds(values) {
+  const sorted = (values || []).filter((value) => Number.isFinite(value)).sort((a, b) => a - b);
+  if (!sorted.length) return null;
+  const mid = quantile(sorted, 0.5);
+  let lo = quantile(sorted, 0.02);
+  let hi = quantile(sorted, 0.98);
+  // A flat stretch still needs a readable span. The pulse path is wider than this.
+  if (hi - lo < 0.5) {
+    lo = mid - 0.25;
+    hi = mid + 0.25;
+  }
+  const half = Math.max(mid - lo, hi - mid);
+  const pad = Math.max(half * 0.15, 0.1);
+  return { lo: mid - half - pad, hi: mid + half + pad };
+}
+
+function bfiBounds(times, seriesList, origin) {
+  const t = times || [];
+  if (!t.length) return null;
+  const last = t[t.length - 1];
+  const start = last - BFI_BOUND_WINDOW_S;
+  const picked = [];
+  const fallback = [];
+  for (const values of seriesList || []) {
+    for (let i = 0; i < t.length; i += 1) {
+      const value = values ? values[i] : undefined;
+      if (!Number.isFinite(value)) continue;
+      if (origin != null && t[i] < origin) continue;
+      fallback.push(value);
+      if (t[i] >= start) picked.push(value);
+    }
+  }
+  return levelBounds(picked.length >= 8 ? picked : fallback);
+}
+
 // Scale from the current phase once it has a handful of samples, so a level
-// shift at hold does not leave the pulse flattened on the baseline axis.
+// shift at hold does not leave the trace flattened on the baseline axis.
 function traceExtent(times, left, right, origin) {
   const picked = [];
   const take = (series) => {
@@ -232,8 +274,11 @@ function stressState(stress, phase) {
 
 const liveMath = {
   LOOP_DEFAULTS,
+  BFI_BOUND_WINDOW_S,
   cameraStats,
   yExtent,
+  levelBounds,
+  bfiBounds,
   traceExtent,
   phaseFraction,
   safeClock,
