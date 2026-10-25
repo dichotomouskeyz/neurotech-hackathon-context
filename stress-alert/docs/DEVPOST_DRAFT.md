@@ -11,7 +11,7 @@
 
 ## Elevator Pitch
 
-A research demo on Open-Motion. A short calibration learns resting forehead blood flow. Then, during work, the next step unlocks only when BFI has returned and contact quality is good. Difficulty, a break, and a breath coach follow BFI, blood volume (BVI), and recovery tau. Same loop shape as an adaptive focus product, with optical perfusion as the control signal. For research. Not a stress classifier and not a diagnosis.
+A research demo on Open-Motion. A short calibration learns resting forehead blood flow. Then a long work bout, about 20 minutes, unlocks the next step only when BFI has returned and contact quality is good. When flow leaves that baseline and contact is still good, a breath starts on its own. Difficulty, a break, and that breath coach follow BFI, blood volume (BVI), and recovery tau. For research. Not a stress classifier and not a diagnosis.
 
 ---
 
@@ -25,18 +25,18 @@ This project is a research engineering demonstration created during a 24-hour ha
 
 **Prompt**: *How can neurotechnology expand human cognitive potential?*
 
-Expanding cognitive potential needs a control signal for when the next piece of work should start, ease off, or wait. A short breath-hold calibrates resting forehead blood flow and how it returns. The product is what happens after that, while someone is working: Open-Motion BFI and BVI decide the next step. Contact quality tells us whether that return is trustworthy.
+Expanding cognitive potential needs a control signal for when the next piece of work should start, ease off, or wait. A short baseline sit calibrates resting forehead blood flow. An optional breath-hold shows how that flow returns. The product is what happens after that, while someone is working for a long bout: Open-Motion BFI and BVI decide the next step, and a breath starts when flow leaves the baseline. Contact quality tells us whether that signal is trustworthy.
 
 We built a perfusion-ready gate on that signal:
-1. Calibrate. Baseline, a breath-hold, and recovery learn per-camera resting BFI and how flow returns. The task stays locked. Optical heart rate stays a side panel and does not drive the loop.
-2. Work. The next step unlocks only when BFI has returned toward that baseline and contact quality is at least 0.50. Bad contact cannot unlock the step.
-3. Once the gate is open, step difficulty up. If BVI is still high, ease the step or ask for a break. If the recovery time constant is slow, coach a breath. The policy uses BFI, BVI, and tau, not an EEG-style focus score.
+1. Calibrate. A short baseline learns per-camera resting BFI. A breath-hold and recovery are optional proof. The task stays locked. Optical heart rate stays a side panel and does not drive the loop.
+2. Work. The bout defaults to 20 minutes. The next step unlocks only when BFI has returned toward that baseline and contact quality is at least 0.50. Bad contact cannot unlock the step.
+3. During that bout, if BFI is off the calibrated baseline and contact is still good, the breath coach starts on its own and stops when flow returns. If BVI is still high, ease the step or ask for a break. If the recovery time constant is slow, coach a breath as well. The policy uses BFI, BVI, and tau, not an EEG-style focus score.
 
 ---
 
 ## What It Does
 
-The dashboard has two parts. Calibration is a short breath-hold that learns resting forehead BFI. Work is the application: an adaptive task gated by the recovery policy. Demo Mode plays both without a laser. Its contact scores stay below 1.00, and Demo Mode will not start during a live scan.
+The dashboard has two parts. Calibration is a short baseline sit that learns resting forehead BFI. The breath-hold is optional. Work is the application: a long bout gated by the recovery policy, with a breath that starts when flow leaves baseline and contact is good. Demo Mode is a short offline fallback and plays both without a laser. Its contact scores stay below 1.00, and Demo Mode will not start during a live scan.
 
 1. **Calibration**
    - Baseline breathing sets a per-camera BFI and BVI baseline, and only while contact quality is at least 0.50.
@@ -47,7 +47,7 @@ The dashboard has two parts. Calibration is a short breath-hold that learns rest
    - The chart is the proof. Flow starts up, as if the person has been working, and the next step stays locked.
    - The gate opens only when forehead BFI is back under 5% of the calibrated baseline and contact quality is still at least 0.50.
    - If contact drops below 0.50, the gate locks even if the flow trace looks recovered.
-   - When the gate opens, task difficulty advances one step. If BVI is still elevated, the step eases or the banner asks for a break. If recovery tau is 18 seconds or slower, the step eases and the breath coach runs.
+   - When the gate opens, task difficulty advances one step. While the bout is running, BFI off baseline with contact still at least 0.50 starts the breath coach, and the coach stops when flow returns. If BVI is still elevated, the step eases or the banner asks for a break. If recovery tau is 18 seconds or slower, the step eases and the breath coach runs.
    - A calibration hold that never rises does not pretend the work step unlocked.
 
 ---

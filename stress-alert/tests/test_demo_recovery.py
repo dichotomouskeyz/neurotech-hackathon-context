@@ -69,6 +69,7 @@ def test_scripted_work_unlocks_only_after_calibration():
     eased = False
     relocked = False
     reopened = False
+    coached = False
     for i in range(240):
         elapsed = i * 0.1
         bfi, bvi, cq = demo_sample("work", elapsed)
@@ -80,7 +81,10 @@ def test_scripted_work_unlocks_only_after_calibration():
             if elapsed < 2.0:
                 assert frame["gate"] == "locked"
                 assert frame["gate_reason"] == "locked_bfi"
-            if 8.0 <= elapsed < WORK_BVI_START_S and frame["gate"] == "open":
+                assert frame["task"] != "coach"
+            if frame["task"] == "coach" and frame["gate"] == "locked":
+                coached = True
+            if 10.0 <= elapsed < WORK_BVI_START_S and frame["gate"] == "open":
                 opened = True
                 assert frame["difficulty"] >= 2
                 assert frame["task"] in {"advance", "hold"}
@@ -94,7 +98,11 @@ def test_scripted_work_unlocks_only_after_calibration():
             if elapsed >= WORK_CQ_DIP_END_S + 1.0 and frame["gate"] == "open":
                 reopened = True
                 assert frame["difficulty"] >= 2
-    assert opened and eased and relocked and reopened
+    assert coached
+    assert opened
+    assert eased
+    assert relocked
+    assert reopened
 
 
 def test_demo_recovery_publishes_a_fitted_tau_and_work_keeps_it():
