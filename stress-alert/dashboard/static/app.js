@@ -217,7 +217,21 @@ let hoverIdx = null;
 // operator view, off by default.
 let showSpread = false;
 
-const chartHeight = () => (document.body.dataset.view === "present" ? 300 : 240);
+function outerHeight(el) {
+  if (!el || getComputedStyle(el).display === "none") return 0;
+  const style = getComputedStyle(el);
+  return el.offsetHeight + (parseFloat(style.marginTop) || 0) + (parseFloat(style.marginBottom) || 0);
+}
+
+function chartHeight(metric) {
+  if (document.body.dataset.view !== "present") return 240;
+  const card = $(`card-${metric}`);
+  const head = card && card.querySelector(".chart-head");
+  if (!card || !head || card.clientHeight < 80) return 140;
+  const pad = parseFloat(getComputedStyle(card).paddingTop) + parseFloat(getComputedStyle(card).paddingBottom);
+  const empty = card.querySelector(".chart-empty");
+  return Math.max(96, Math.floor(card.clientHeight - outerHeight(head) - pad - outerHeight(empty)));
+}
 
 function makeChart(metric) {
   const buf = bufs[metric];
@@ -234,7 +248,7 @@ function makeChart(metric) {
   charts[metric] = new uPlot(
     {
       width: el.clientWidth,
-      height: chartHeight(),
+      height: chartHeight(metric),
       padding: [8, 60, 0, 0],
       legend: { show: false },
       cursor: {
@@ -299,7 +313,7 @@ function renderLegends() {
 
 function resizeCharts() {
   for (const metric of METRICS) {
-    charts[metric].setSize({ width: $(`chart-${metric}`).clientWidth, height: chartHeight() });
+    charts[metric].setSize({ width: $(`chart-${metric}`).clientWidth, height: chartHeight(metric) });
   }
 }
 
@@ -426,6 +440,21 @@ function renderCoach(guided) {
   };
   const title = calibrating && loop !== "off" ? "Calibration" : kicker[loop];
   $("coach-kicker").textContent = title || "Recovery gate";
+  const task = $("phase-task");
+  if (task) {
+    task.textContent = loop === "off" ? "" : phaseTaskLine(title, $("coach-step").textContent, session.loop_cue);
+  }
+}
+
+function phaseTaskLine(title, step, cue) {
+  const cueText = (cue || "").trim();
+  if (cueText) return cueText;
+  const titleText = (title || "").trim();
+  const stepText = (step || "").trim();
+  if (!stepText || stepText.toLowerCase() === titleText.toLowerCase()) return titleText;
+  if (titleText.toLowerCase().includes(stepText.toLowerCase())) return titleText;
+  if (stepText.toLowerCase().includes(titleText.toLowerCase())) return stepText;
+  return titleText ? `${titleText} · ${stepText}` : stepText;
 }
 function animateBreath() {
   if (document.body.dataset.view !== "present") return;
@@ -515,67 +544,22 @@ function renderStressTile() {
   $("stress-detail").textContent = parts.join(". ");
 }
 
-function gateSource() {
-  if (latest.stress && (latest.stress.gate === "open" || latest.stress.gate === "locked")) {
-    return latest.stress;
-  }
-  if (session.gate === "open" || session.gate === "locked") {
-    return {
-      gate: session.gate,
-      gate_reason: session.gate === "open" ? "open" : "",
-      difficulty: session.difficulty || 1,
-      task: session.loop === "coach" ? "coach" : session.loop === "task" ? "hold" : "locked",
-      reason: "",
-    };
-  }
-  return null;
-}
-
-function renderGate() {
-  const source = gateSource();
-  const tile = $("tile-gate");
-  const chart = $("gate-chart");
-  if (!source) {
-    tile.dataset.live = "false";
-    tile.dataset.gate = "off";
-    renderTau(tile);
-    if (chart) {
-      chart.dataset.gate = "off";
-      chart.textContent = "Gate waiting for BFI, BVI, and contact quality";
-    }
-    return;
-  }
-  const label = liveMath.gateState(source, latest.cq);
-  const contact = liveMath.worstCq(latest.cq);
-  tile.dataset.live = "true";
-  tile.dataset.gate = contact !== null && contact < 0.5 ? "locked" : source.gate;
-  $("gate-state").textContent = label.headline;
-  renderTau(tile);
-  setState($("gate-status"), label.status, label.text);
-  const detail = [];
-  if (source.gate_reason) detail.push(source.gate_reason.replaceAll("_", " "));
-  if (Number.isFinite(source.difficulty)) detail.push(`step ${source.difficulty}`);
-  $("gate-detail").textContent = detail.join(" · ");
-  if (chart) {
-    chart.dataset.gate = source.gate;
-    chart.textContent = liveMath.gateReadout(source, latest.cq);
-  }
-}
-
-function renderTau(tile) {
-  const text = liveMath.recoveryTauText(latest.stress);
-  const el = $("gate-tau");
-  const unit = $("gate-tau-unit");
-  if (!el) return;
-  el.textContent = text;
-  const ready = text !== "--";
-  if (unit) unit.hidden = !ready;
-  if (tile) tile.dataset.tau = ready ? "ready" : "waiting";
-}
-
 setInterval(() => { renderPhaseTile(); renderHrTile(); }, 250);
 
 // Operator controls --------------------------------------------------------
+
+const TIMED_LOOPS = ["baseline", "challenge", "coach", "continue", "locked", "task", "ease", "break"];
+
+function protocolRunning() {
+  return Boolean(session.timer_next) || TIMED_LOOPS.includes(session.loop);
+}
+
+function setModeButton(button, on, label) {
+  if (!button || button.dataset.busy === "true") return;
+  button.textContent = label;
+  button.classList.toggle("active", on);
+  button.setAttribute("aria-pressed", String(on));
+}
 
 function renderControls() {
   $("session-id").textContent = session.active ? session.session_id : "no session";
@@ -587,14 +571,14 @@ function renderControls() {
   document.querySelectorAll(".phase-buttons button").forEach((b) => {
     b.disabled = !allowed.includes(b.dataset.phase);
   });
-  const timerRunning = Boolean(session.timer_next) || ["baseline", "challenge", "coach", "continue", "locked", "task", "ease", "break"].includes(session.loop);
-  const idlePhase = !session.active || session.phase === null || session.phase === "recovery" || session.phase === "work" || session.phase === "end";
-  const canTime = session.active && (session.phase === null || session.phase === "recovery" || session.phase === "work");
-  $("protocol-start").disabled = !canTime || timerRunning;
-  $("loop-start").disabled = !idlePhase || timerRunning;
-  $("protocol-stop").disabled = !timerRunning;
+  const timerRunning = protocolRunning();
+  // Same window as the old long-session button: a new session, after calibration,
+  // or once the previous bout has ended. The server starts the session when needed.
+  const canTime = !session.active || session.phase === null || session.phase === "recovery" || session.phase === "work" || session.phase === "end";
+  const run = $("protocol-start");
+  run.disabled = timerRunning ? false : !canTime;
+  setModeButton(run, timerRunning, timerRunning ? "Stop protocol" : "Run timed");
   document.querySelectorAll("#protocol-form input").forEach((i) => { i.disabled = timerRunning; });
-  refreshLoopButton();
 }
 
 function renderEvents() {
@@ -642,42 +626,26 @@ function readProtocolFields() {
   };
 }
 
-function workUntilEndChecked() {
-  const box = $("work-until-end");
-  return Boolean(box && box.checked);
-}
-
-function refreshLoopButton() {
-  const untilEnd = workUntilEndChecked();
-  const timerRunning = Boolean(session.timer_next) || ["baseline", "challenge", "coach", "continue", "locked", "task", "ease", "break"].includes(session.loop);
-  const workField = $("dur-continue");
-  if (workField && !timerRunning) workField.disabled = untilEnd;
-  const body = liveMath.protocolBody(readProtocolFields());
-  $("loop-start").textContent = liveMath.loopButtonLabel(body, { workUntilEnd: untilEnd });
+function timedProtocolBody() {
+  // Duration fields are the long session. closed_loop runs Work and starts a
+  // session when there is none. work_until_end stays off, the old Until End default.
+  const body = liveMath.protocolBody(readProtocolFields(), {
+    closedLoop: true,
+    subjectId: $("subject").value,
+  });
+  body.work_until_end = false;
+  return body;
 }
 
 $("protocol-form").addEventListener("submit", (e) => {
   e.preventDefault();
-  post("/api/protocol/start", liveMath.protocolBody(readProtocolFields()));
-});
-$("protocol-stop").addEventListener("click", () => post("/api/protocol/stop"));
-$("loop-start").addEventListener("click", () => {
-  post("/api/protocol/start", liveMath.protocolBody(readProtocolFields(), {
-    closedLoop: true,
-    subjectId: $("subject").value,
-    workUntilEnd: workUntilEndChecked(),
-  }));
+  if (protocolRunning()) post("/api/protocol/stop");
+  else post("/api/protocol/start", timedProtocolBody());
 });
 
 function setDemoRunning(on) {
   document.body.dataset.demo = on ? "on" : "off";
-  for (const id of ["demo-start", "btn-heatmap-demo"]) {
-    const btn = $(id);
-    if (!btn) continue;
-    btn.classList.toggle("active", on);
-    btn.textContent = on ? "Stop Demo" : "Demo Mode";
-    btn.setAttribute("aria-pressed", String(on));
-  }
+  setModeButton($("demo-start"), on, on ? "Stop Demo" : "Demo Mode");
 }
 
 async function toggleDemo() {
@@ -693,10 +661,7 @@ async function toggleDemo() {
   const data = await res.json().catch(() => ({}));
   if (!res.ok) {
     const detail = Array.isArray(data.detail) ? data.detail[0].msg : data.detail;
-    const msg = detail || "Demo mode did not start";
-    $("session-error").textContent = msg;
-    const statusText = $("heatmap-status-text");
-    if (statusText) statusText.textContent = msg;
+    $("session-error").textContent = detail || "Demo mode did not start";
     return;
   }
   $("session-error").textContent = "";
@@ -705,8 +670,6 @@ async function toggleDemo() {
 
 $("demo-start").addEventListener("click", () => { toggleDemo(); });
 fetch("/api/demo").then((res) => res.json()).then((data) => setDemoRunning(Boolean(data.running))).catch(() => {});
-$("protocol-form").addEventListener("input", refreshLoopButton);
-refreshLoopButton();
 
 // Open-Motion device -------------------------------------------------------
 
@@ -729,31 +692,39 @@ function renderDevice() {
   setPart("dev-right", "Right sensor", d.connected && d.console, d.right);
   $("device-sdk").textContent = d.sdk_version ? `SDK ${d.sdk_version}` : "";
   $("device-error").textContent = d.error || "";
-  $("device-connect").textContent = d.connected ? "Search again" : "Connect device";
-  $("device-disconnect").disabled = !d.connected;
-  $("scan-start").disabled = !d.connected || !d.console || !(d.left || d.right) || d.scanning;
-  $("scan-stop").disabled = !d.scanning;
+  setModeButton($("device-connect"), Boolean(d.connected), d.connected ? "Disconnect" : "Search");
+  const scan = $("scan-start");
+  const scanning = Boolean(d.scanning);
+  setModeButton(scan, scanning, scanning ? "Stop scan" : "Start scan");
+  if (scan && scan.dataset.busy !== "true") {
+    const canScan = d.connected && d.console && (d.left || d.right);
+    scan.disabled = scanning ? false : !canScan;
+  }
   const ready = d.connected && d.console && (d.left || d.right);
   setChip("chip-device", d.scanning ? "open-motion scanning" : "open-motion", ready, d.error);
 }
 
 async function deviceAction(path, button) {
   button.disabled = true;
+  button.dataset.busy = "true";
   const label = button.textContent;
   if (path === "connect") button.textContent = "Searching…";
   try {
     await post(`/api/device/${path}`, {}, "device-error");
   } finally {
+    delete button.dataset.busy;
     button.textContent = label;
     button.disabled = false;
     renderDevice();
   }
 }
 
-$("device-connect").addEventListener("click", (e) => deviceAction("connect", e.currentTarget));
-$("device-disconnect").addEventListener("click", (e) => deviceAction("disconnect", e.currentTarget));
-$("scan-start").addEventListener("click", (e) => deviceAction("scan/start", e.currentTarget));
-$("scan-stop").addEventListener("click", (e) => deviceAction("scan/stop", e.currentTarget));
+$("device-connect").addEventListener("click", (e) => {
+  deviceAction(device.connected ? "disconnect" : "connect", e.currentTarget);
+});
+$("scan-start").addEventListener("click", (e) => {
+  deviceAction(device.scanning ? "scan/stop" : "scan/start", e.currentTarget);
+});
 
 // View: operator or present ----------------------------------------------
 
@@ -763,7 +734,13 @@ function setView(view) {
     b.setAttribute("aria-pressed", String(b.dataset.view === view));
   });
   try { localStorage.setItem("stress-alert:view", view); } catch { /* storage unavailable */ }
-  if (charts.bfi) resizeCharts();
+  if (view === "present" && paused) {
+    paused = false;
+    const pause = $("pause");
+    pause.setAttribute("aria-pressed", "false");
+    pause.textContent = "Pause";
+  }
+  if (charts.bfi) requestAnimationFrame(resizeCharts);
 }
 document.querySelectorAll(".segmented button").forEach((b) => {
   b.addEventListener("click", () => setView(b.dataset.view));
@@ -790,21 +767,14 @@ function handle(frame) {
     case "bvi":
       pushHemo(bufs[frame.type], frame);
       if (frame.type === "bfi") framesThisSecond += 1;
-      $(`card-${frame.type}`).dataset.live = "true";
+      const card = $(`card-${frame.type}`);
+      if (card.dataset.live !== "true") requestAnimationFrame(resizeCharts);
+      card.dataset.live = "true";
       dirty = true;
       if (brainHeatmap) {
         brainHeatmap.update(frame);
         const cardH = $("card-heatmap");
-        if (cardH && cardH.dataset.live !== "true") {
-          cardH.dataset.live = "true";
-          const s = $("heatmap-status-text");
-          if (s) {
-            s.textContent = document.body.dataset.demo === "on" ? "Demo recovery" : "Live Stream (40 Hz)";
-          }
-        } else if (cardH && document.body.dataset.demo === "on") {
-          const s = $("heatmap-status-text");
-          if (s) s.textContent = "Demo recovery";
-        }
+        if (cardH) cardH.dataset.live = "true";
       }
       break;
     case "hr":
@@ -815,13 +785,11 @@ function handle(frame) {
       latest.cq = frame;
       renderCqTile();
       renderStressTile();
-      renderGate();
       if (brainHeatmap) brainHeatmap.update(frame);
       break;
     case "stress":
       latest.stress = frame;
       renderStressTile();
-      renderGate();
       break;
     case "session":
       // Keep the last session's bands after it stops; clear them when a new one starts.
@@ -831,7 +799,6 @@ function handle(frame) {
       renderControls();
       renderPhaseTile();
       renderStressTile();
-      renderGate();
       renderEvents();
       dirty = true;
       break;
@@ -875,6 +842,7 @@ if (!initialView) {
 }
 setView(initialView === "present" ? "present" : "operator");
 METRICS.forEach(makeChart);
+requestAnimationFrame(resizeCharts);
 renderControls();
 renderDevice();
 renderPhaseTile();
@@ -1002,9 +970,6 @@ if (heatmapCanvas && typeof BrainHeatmap !== "undefined") {
       brainHeatmap.setAutoscale(e.target.checked);
     });
   }
-
-  const demoBtn = $("btn-heatmap-demo");
-  if (demoBtn) demoBtn.addEventListener("click", () => { toggleDemo(); });
 }
 
 $("spread").addEventListener("change", (event) => {

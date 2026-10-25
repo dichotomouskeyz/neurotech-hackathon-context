@@ -92,4 +92,4 @@ For research. The live copy of this section is `stress-alert/protocol/breathhold
 
 If the hold ends without a rise, the screen says so and does not unlock the task. Optical heart rate stays on the side panel and is not an input.
 
-Laser light still comes only from **Start scan (laser on)**.
+Laser light still comes only from **Start scan**.
