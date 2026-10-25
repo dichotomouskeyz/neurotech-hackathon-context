@@ -13,7 +13,7 @@ Rules that still apply:
 - Do not open the console. It contains a Class 3 laser source and high voltage. No changes to safety-critical optical output.
 - No diagnostic, screening, or clinical claims.
 
-The app lives in `stress-alert/`.
+The app is the repository root. See [README.md](../../README.md).
 
 ## What it measures
 

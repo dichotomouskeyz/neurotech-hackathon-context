@@ -8,8 +8,6 @@ The file name is historical. Speak for about three minutes. The Work phase itsel
 
 Three beats. Calibrate is a short baseline sit: learn resting forehead blood flow. The breath-hold is optional proof, off by default. The task stays locked. Work is the session: wear it and do something. When forehead BFI leaves that baseline and contact quality is still good, a breath starts on its own. When flow is back and contact is still good, the step unlocks. Bad contact keeps the gate shut and does not start a breath. Blood volume and recovery tau can ease the step, ask for a break, or coach a breath after an optional hold. The chart during work is the proof. The perfusion tile is secondary telemetry. It does not unlock the task, and it is not a stress classifier.
 
-The same script lives at `stress-alert/docs/DEMO_SCRIPT_60S.md`.
-
 ---
 
 ## Overview
@@ -31,7 +29,7 @@ Speak to the tiles. Do not quote a fixed percent or tau unless that is what the 
 | Flow leaves the baseline, coach appears | "Forehead flow left the calibrated baseline, and contact is still good, so a breath starts on its own. This is a readiness cue. It is not a stress score." | Phase tile task line: Breath coach, then inhale and exhale. |
 | Gate opens | "Perfusion-ready. Flow is back and contact is still good, so the step unlocks and the breath stops." | Phase tile task line: the step unlocked. |
 | Contact dips under 0.50 | "Contact failed. The gate locks, and we do not coach a breath on a bad signal." | Contact quality tile. The task line stays on the locked step. |
-| Last line | "For research. Not a diagnosis. The control signal is forehead BFI and BVI from Open-Motion." | Session under `stress-alert/sessions/`. |
+| Last line | "For research. Not a diagnosis. The control signal is forehead BFI and BVI from Open-Motion." | Session under `sessions/`. |
 
 ## Live scan
 
@@ -48,8 +46,9 @@ A hold that never rises does not fake an unlock. Calibration says there was no s
 
 Same 16-channel replay as `--dev-feed`. Leave this path if the console is up.
 
+From the repository root:
+
 ```bash
-cd stress-alert
 uv sync --locked
 uv run python -m dashboard
 ```

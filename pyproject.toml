@@ -1,7 +1,7 @@
 [project]
 name = "stress-alert"
 version = "0.1.0"
-description = "Breath-hold stress dashboard: Open-Motion blood flow and optical heart rate, for research only"
+description = "Recovery gate from Open-Motion forehead blood flow, for research"
 requires-python = ">=3.12,<3.13"
 # Dashboard pins are exact. Replay deps are the Lane 1 minimums.
 # Add a new pin with `uv add`.

@@ -54,7 +54,7 @@ The dashboard has two parts. Calibration is a short baseline sit that learns res
 
 ## System Architecture and Modular Lanes
 
-The team divided development into decoupled lanes operating against a strict schema contract (`stress-alert/dashboard/SCHEMA.md`):
+The team divided development into decoupled lanes operating against a strict schema contract (`dashboard/SCHEMA.md`):
 
 ```
 +-------------------------------------------------------------+
@@ -75,7 +75,7 @@ The team divided development into decoupled lanes operating against a strict sch
 |               Lane 4: Alert Math & Protocol (Our Lane)      |
 |  - protocol/breathhold.md: standardized 3-phase procedure   |
 |  - stress_index.py: CQ-gated stress index & recovery tau    |
-|  - Gating: alert = (CQ >= 0.50) and (delta_BFI >= 20%)     |
+|  - Gating: alert = (CQ >= 0.50) and (index >= 10%)        |
 |  - Recovery model: exponential decay regression (tau_s)     |
 +-------------------------------------------------------------+
                               |
@@ -93,14 +93,18 @@ The team divided development into decoupled lanes operating against a strict sch
 ## Mathematical Formulation
 
 ### 1. Stress Index and Contact Quality Gate
-For timestamp $t$, current blood flow metric $x(t)$, resting baseline $x_{\text{base}}$, and contact quality $\text{CQ}(t)$:
+For timestamp $t$, camera $i$, its 1 second median $x_i(t)$, its own resting baseline median $b_i$, and contact quality $\text{CQ}(t)$:
 
-$$\Delta_{\text{rel}}(t) = \frac{x(t) - x_{\text{base}}}{x_{\text{base}}}$$
+$$\Delta_i(t) = \frac{x_i(t) - b_i}{b_i}$$
 
-$$\text{index}(t) = \max\left(0, \Delta_{\text{rel}}(t)\right)$$
+After the first second of the hold, $S$ is the set of up to four cameras with the largest $\Delta_i$, keeping a camera only when $\Delta_i \ge 0.03$ and at least two cameras clear that floor. If fewer than two do, $S$ is every eligible camera. Eligible cameras have a stable positive baseline. Non-positive samples are left out.
+
+$$\text{index}(t) = \max\left(0, \operatorname{median}_{i \in S} \Delta_i(t)\right)$$
+
+The published index is the larger of the BFI index and the BVI index. Nothing is added on top of the measured rise.
 
 $$\text{alert}(t) = \begin{cases} 
-\text{True} & \text{if } \text{CQ}(t) \ge 0.50 \text{ and } \text{index}(t) \ge 0.20 \\
+\text{True} & \text{if } \text{CQ}(t) \ge 0.50 \text{ and } \text{index}(t) \ge 0.10 \\
 \text{False} & \text{otherwise}
 \end{cases}$$
 

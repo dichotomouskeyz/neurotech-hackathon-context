@@ -9,14 +9,15 @@ These procedures and recorded metrics do not constitute medical, diagnostic, scr
 This protocol induces transient, controlled physiological stress via voluntary breath-holding to evaluate:
 1. Optical cerebral blood flow index (BFI) and blood volume index (BVI) measured on the forehead at 40 Hz with the Open-Motion station.
 2. Optical heart rate estimated from pulsatile BFI residuals.
-3. Contact-quality (CQ) gated stress alerting and recovery kinetics (exponential recovery time-constant tau).
+3. Contact-quality (CQ) gated recovery kinetics (exponential recovery time-constant tau).
+4. A recovery gate for the work step after calibration: locked until forehead BFI has returned toward baseline and CQ is at least 0.50. Bad CQ blocks the unlock. BVI and tau can ease the step, ask for a break, or coach a breath. The breath-hold is calibration, not the application. The perfusion readout is secondary telemetry, not a stress classifier.
 
 ## Safety and Scope Constraints
 
-- Openwater approved self-testing of the Open-Motion station by team members for this project. Recordings stay in the local `stress-alert/sessions/` directory and are never committed to git.
+- Openwater approved self-testing of the Open-Motion station by team members for this project. Recordings stay in the local `sessions/` directory and are never committed to git.
 - Never open the Open-Motion console. The console houses a Class 3 laser source and high voltage.
 - No modifications of optical or acoustic safety outputs.
-- Closed loop neuromodulation (e.g. HPA axis regulation, Open-LIFU stimulation) is outside the scope of this hackathon build and is reserved strictly for future research.
+- The dashboard recovery gate is a task-unlock policy in this build. It does not stimulate. Closed loop neuromodulation (e.g. HPA axis regulation, Open-LIFU stimulation) is outside the scope of this hackathon build and is reserved strictly for future research.
 - If a subject experiences dizziness, discomfort, or lightheadedness, the breath-hold must terminate immediately.
 
 ## Hardware Setup and Placement
@@ -30,13 +31,13 @@ This protocol induces transient, controlled physiological stress via voluntary b
 ### 2. Dashboard and Session Logger
 - Launch the stress-alert dashboard:
   ```bash
-  python stress-alert/serve.py
+  uv run python -m dashboard
   ```
 - The dashboard automatically initializes the phase logger, synchronizes to `pylsl.local_clock()`, and emits LSL string markers on the stream `stress-alert-phases`.
 
 ## Protocol Phases and Timing
 
-The protocol runs in three sequential phases totaling 180 seconds (3 minutes), matching the default durations in `stress-alert/session/phase_logger.py`:
+The protocol runs in three sequential phases totaling 180 seconds (3 minutes), matching the default durations in `session/phase_logger.py`:
 
 | Phase | Duration | Subject Action | Dashboard Annotation |
 | :- | :- | :- | :- |
@@ -50,14 +51,14 @@ The protocol runs in three sequential phases totaling 180 seconds (3 minutes), m
 - Normal, unforced tidal breathing through the nose.
 - Eyes open, fixated on a static cross or the dashboard display.
 - No talking, head movements, or swallowing during the final 15 seconds.
-- The system computes the resting median baseline for BFI and optical heart rate.
+- The system computes a resting median baseline for each camera, for BFI and for BVI, and an optical heart rate for the side panel. Heart rate is not part of the stress index.
 
 ### Phase 2: Breath-Hold (1:00 to 1:30, default 30 seconds; 20 to 40 seconds range)
 - At the audio or visual cue from the operator/dashboard, the subject breathes out normally to functional residual capacity (end-tidal expiration) or takes a gentle normal inhalation, then holds their breath.
 - Avoid forced Valsalva straining (bearing down against a closed glottis). Forced straining creates massive intrathoracic pressure spikes and gross mechanical head motion that artifacts optical signals.
 - Maintain the hold for 30 seconds (or stop earlier between 20 to 40 seconds if breakpoint is reached).
 - Maintain complete head and facial stillness.
-- Arterial carbon dioxide (PaCO2) accumulates, initiating cerebrovascular vasodilation and elevating forehead BFI. If CQ >= 0.50 and BFI elevation exceeds 20%, the dashboard triggers a stress alert.
+- Arterial carbon dioxide (PaCO2) accumulates, initiating cerebrovascular vasodilation and elevating forehead BFI. If CQ >= 0.50 and the stress index stays at least 10% above the selected cameras' baselines, the dashboard raises the stress alert. The index is the median relative rise of the responsive cameras, not an unweighted mean of every camera.
 
 ### Phase 3: Recovery (1:30 to 3:00, 90 seconds)
 - Upon operator cue or timer expiration, the subject gently resumes normal tidal breathing.
@@ -68,7 +69,7 @@ The protocol runs in three sequential phases totaling 180 seconds (3 minutes), m
 ## Phase Logger Integration
 
 Phase markers must match what the dashboard annotates:
-- Every phase transition is recorded in `stress-alert/sessions/<session_id>/events.csv` with fields:
+- Every phase transition is recorded in `sessions/<session_id>/events.csv` with fields:
   `t`, `wall_time`, `session_id`, `phase`, `source`
 - Phase markers are pushed over LSL on stream `stress-alert-phases` with format:
   `<phase>|<session_id>|<source>`
@@ -88,8 +89,17 @@ Phase markers must match what the dashboard annotates:
 
 ## Long session (live default)
 
-For research. The live copy of this section is `stress-alert/protocol/breathhold.md`. The live default is a 20 second baseline sit, then 20 minutes of work (or until End). The breath-hold is optional. During work, forehead BFI off the calibrated baseline with contact quality at least 0.50 starts a breath on its own. The next step unlocks when BFI has returned and contact is still good. Bad contact locks the gate and does not start a breath. BVI and a slow recovery tau can ease the step, ask for a break, or coach a breath. The perfusion tile does not unlock the task. Demo Mode replays the 16-channel sample scan (the same feed as `--dev-feed`) and will not start during a live scan.
+For research. **Run timed** is the live path. **Demo Mode** replays the 16-channel sample scan (the same feed as `--dev-feed`) with the laser off, and it will not start during a live scan. It does not run the phase timer. Run timed reads the duration fields. Defaults are a 20 second baseline, hold 0, and 20 minutes of work (1200 s). A hold above 0 runs that breath-hold and the recovery field as calibration proof. Work runs for the Work field. The full 60 / 30 / 90 sitting is still the manual breath-hold protocol above, not this default. The recovery gate controls the work step. The perfusion tile is secondary and does not unlock a step. It is not a stressed-or-not score.
 
-If the hold ends without a rise, the screen says so and does not unlock the task. Optical heart rate stays on the side panel and is not an input.
+| Step | Duration | What the screen does |
+| :- | :- | :- |
+| Calibration baseline | 20 s | "Breathe normally." Each camera stores its own median while contact quality is at least 0.50. The task stays locked. |
+| Calibration breath-hold | off unless Hold is above 0 | Optional setup. The gate stays locked while forehead BFI is up. After the first second, up to four cameras with at least a 3% rise are kept when at least two clear that floor. The secondary perfusion index is the median of those rises. |
+| Calibration recovery | only after a hold, default field 20 s | "Learning how forehead blood flow returns. The task stays locked." The gate does not open here. A contact drop below 0.50 does not count as returned. |
+| Work | 20 min, or until End | The session. The next step unlocks when BFI is back under 5% and contact is still at least 0.50. While the bout is running, BFI off that baseline with contact still good starts the breath coach, and the coach stops when flow returns. If BVI is still high, the step eases or the banner asks for a break. If recovery tau is 18 s or slower, the breath coach runs and the step eases. Bad contact locks the gate and does not start a breath. |
+
+If the hold ends without that elevation, recovery runs for about 4 seconds (or the typed recovery, whichever is shorter). The cue says there was no sustained elevation, and the work step does not unlock. Optical heart rate stays on the side panel and is not an input.
+
+Camera selection, for research. A camera is eligible when it has at least five positive baseline samples, a baseline of at least 0.2, and a coefficient of variation of at most 0.50. Non-positive samples are dropped, so a camera sitting on zero does not enter the mean. Rank is the relative rise of the hold median versus that camera's own baseline. The kept set is at most four cameras, and only when at least two rise by 3% or more. One spiked camera does not choose the set. The index after that lock is the median of the kept cameras' latest 1 second rises, so recovery can fall and a single spike does not set the alert. The same rule runs separately for BFI and for BVI. The label is the larger of the two.
 
 Laser light still comes only from **Start scan**.

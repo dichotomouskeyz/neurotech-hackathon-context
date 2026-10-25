@@ -11,7 +11,7 @@ import argparse
 import sys
 from pathlib import Path
 
-# `python stress-alert/replay_csv.py` from the repo root, without an install.
+# `python replay_csv.py` from the repo root, without an install.
 _ROOT = Path(__file__).resolve().parent
 if str(_ROOT) not in sys.path:
     sys.path.insert(0, str(_ROOT))

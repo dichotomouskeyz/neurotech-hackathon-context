@@ -51,6 +51,27 @@ class TestStressIndex(unittest.TestCase):
         self.assertAlmostEqual(result.delta, 0.60, places=2)
         self.assertIn("elevated_stress", result.reason)
 
+    def test_default_alert_is_ten_percent(self):
+        from features.stress_index import DEFAULT_ALERT_THRESHOLD
+
+        self.assertAlmostEqual(DEFAULT_ALERT_THRESHOLD, 0.10)
+        above = compute_stress_frame(
+            t=105.0,
+            current_value=2.22,
+            baseline_value=2.00,
+            cq=0.88,
+        )
+        self.assertTrue(above.alert)
+        self.assertAlmostEqual(above.index, 0.11, places=2)
+        under = compute_stress_frame(
+            t=106.0,
+            current_value=2.10,
+            baseline_value=2.00,
+            cq=0.88,
+        )
+        self.assertFalse(under.alert)
+        self.assertIn("nominal", under.reason)
+
     def test_nominal_when_index_below_threshold(self):
         # 5% elevation, under 20% alert threshold
         result = compute_stress_frame(
