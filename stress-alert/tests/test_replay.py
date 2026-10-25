@@ -1,0 +1,96 @@
+"""Session replay: list recordings, seek, and hub frames."""
+
+import json
+from pathlib import Path
+
+import pytest
+from fastapi.testclient import TestClient
+
+from dashboard.app import create_app
+from dashboard.hub import Hub
+from dashboard.live_gate import LiveGate
+from dashboard.replay import ReplayEngine, ensure_session_scan_copy, list_recordings
+
+ROOT = Path(__file__).resolve().parents[1]
+SAMPLE = ROOT / "data" / "sample_scan.csv"
+
+
+def test_list_recordings_includes_bundled_scan(tmp_path):
+    listed = list_recordings(tmp_path, ROOT / "data")
+    paths = {item["path"] for item in listed}
+    assert str(SAMPLE.resolve()) in paths
+    row = next(item for item in listed if item["path"] == str(SAMPLE.resolve()))
+    assert row["duration_s"] > 20
+    assert row["frames"] == 1201
+
+
+def test_seek_publishes_bfi_frames_through_gate():
+    hub = Hub()
+    gate = LiveGate()
+    published: list[dict] = []
+
+    def publish(frames):
+        published.extend(frames)
+        hub.publish(frames)
+
+    engine = ReplayEngine()
+    engine.load(SAMPLE)
+    result = engine.seek(5.0, gate=gate, publish=publish)
+    assert result["position_s"] == 5.0
+    assert result["published_frames"] > 0
+    types = {frame["type"] for frame in published}
+    assert "bfi" in types and "bvi" in types
+    assert any(frame["type"] == "status" and frame["source"] == "replay" for frame in published)
+    bfi_times = [frame["t"] for frame in published if frame["type"] == "bfi"]
+    assert bfi_times == sorted(bfi_times)
+
+
+@pytest.fixture
+def app(tmp_path):
+    data = tmp_path / "data"
+    data.mkdir()
+    scan = data / "sample_scan.csv"
+    scan.write_bytes(SAMPLE.read_bytes())
+    return create_app(sessions_dir=tmp_path / "sessions", lsl_markers=False)
+
+
+def test_replay_api_list_load_seek(app, tmp_path):
+    sessions_dir = tmp_path / "sessions"
+    sessions_dir.mkdir()
+    (sessions_dir / "scan.csv").write_bytes(SAMPLE.read_bytes())
+    client = TestClient(app)
+    listed = client.get("/api/replay/sessions").json()["sessions"]
+    assert any("scan.csv" in item["path"] for item in listed)
+    path = next(item["path"] for item in listed if item["path"].endswith("scan.csv"))
+    with client.websocket_connect("/ws") as browser:
+        loaded = client.post("/api/replay/load", json={"path": path}).json()
+        assert loaded["active"] and loaded["duration_s"] > 0
+        batch = browser.receive_json()
+        assert any(frame["type"] == "bfi" for frame in batch)
+        seek = client.post("/api/replay/seek", json={"t_s": 10.0}).json()
+        assert seek["position_s"] == 10.0
+        assert seek["published_frames"] > 0
+        batch2 = browser.receive_json()
+        assert any(frame["type"] == "bvi" for frame in batch2)
+    assert not client.post("/api/replay/stop").json()["active"]
+
+
+def test_demo_start_writes_session_scan_copy(app):
+    client = TestClient(app)
+    client.post("/api/demo/start", json={})
+    root = app.state.logger.root
+    sessions = list(root.glob("*"))
+    assert sessions
+    session_dir = sessions[0]
+    assert (session_dir / "scan.csv").is_file()
+    meta = json.loads((session_dir / "meta.json").read_text())
+    assert meta.get("scan_csv") == "scan.csv"
+
+
+def test_ensure_session_scan_copy_is_idempotent(tmp_path):
+    session_dir = tmp_path / "20261025_demo"
+    session_dir.mkdir()
+    first = ensure_session_scan_copy(session_dir, SAMPLE)
+    second = ensure_session_scan_copy(session_dir, SAMPLE)
+    assert first == second
+    assert first.stat().st_size == SAMPLE.stat().st_size

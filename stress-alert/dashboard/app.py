@@ -24,6 +24,7 @@ from dashboard.demo_recovery import DEMO_DURATIONS, run_recovery_demo
 from dashboard.device import DeviceError, DeviceManager
 from dashboard.hub import Hub, drain
 from dashboard.live_gate import LiveGate
+from dashboard.replay import ReplayEngine, ensure_session_scan_copy, list_recordings
 from dashboard.schema import PhaseName, frame_adapter
 from features.recovery_gate import (
     BFI_RECOVERED_BELOW,
@@ -45,6 +46,8 @@ log = logging.getLogger(__name__)
 
 STATIC = Path(__file__).resolve().parent / "static"
 SESSIONS = Path(__file__).resolve().parent.parent / "sessions"
+DATA = Path(__file__).resolve().parent.parent / "data"
+DEMO_SCAN = DATA / "sample_scan.csv"
 
 
 class SessionStart(BaseModel):
@@ -90,6 +93,14 @@ class DemoStart(BaseModel):
     )
 
 
+class ReplayLoad(BaseModel):
+    path: str = Field(min_length=1, max_length=4096)
+
+
+class ReplaySeek(BaseModel):
+    t_s: float = Field(ge=0.0)
+
+
 _DEMO_START = Body(default_factory=DemoStart)
 
 
@@ -106,7 +117,9 @@ def create_app(
     """
     hub = Hub()
     gate = LiveGate()
+    replay = ReplayEngine()
     demo_task: asyncio.Task[None] | None = None
+    dev_feed_task: asyncio.Task[None] | None = None
 
     def publish(frames: list[dict[str, Any]], *, heart_rate: bool = True) -> None:
         """Broadcast ``frames`` and any stress or heart-rate frames derived from them."""
@@ -143,15 +156,15 @@ def create_app(
             )
         publish([logger.state(), device.state()])
         device.start_polling(asyncio.get_running_loop())
-        task = asyncio.create_task(dev_feed.run_forever(dev_feed_url)) if dev_feed_url else None
+        nonlocal dev_feed_task
+        if dev_feed_url:
+            dev_feed_task = asyncio.create_task(dev_feed.run_forever(dev_feed_url))
         yield
         await _cancel_demo(stop_protocol=False)
+        replay.stop()
         logger.stop_session()
         await asyncio.to_thread(device.shutdown)
-        if task:
-            task.cancel()
-            with contextlib.suppress(asyncio.CancelledError):
-                await task
+        await _stop_dev_feed()
 
     app = FastAPI(title="stress-alert dashboard", lifespan=lifespan)
     app.state.hub = hub
@@ -266,6 +279,21 @@ def create_app(
     def _demo_running() -> bool:
         return demo_task is not None and not demo_task.done()
 
+    async def _stop_dev_feed() -> None:
+        nonlocal dev_feed_task
+        task = dev_feed_task
+        dev_feed_task = None
+        if task is not None and not task.done():
+            task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await task
+
+    async def _start_dev_feed() -> None:
+        nonlocal dev_feed_task
+        if not dev_feed_url or dev_feed_task is not None:
+            return
+        dev_feed_task = asyncio.create_task(dev_feed.run_forever(dev_feed_url))
+
     async def _cancel_demo(*, stop_protocol: bool) -> None:
         nonlocal demo_task
         running = demo_task
@@ -276,6 +304,54 @@ def create_app(
                 await running
         if stop_protocol:
             logger.cancel_timer()
+
+    async def _begin_replay(path: Path) -> dict[str, Any]:
+        await _cancel_demo(stop_protocol=True)
+        await _stop_dev_feed()
+        try:
+            loaded = replay.load(path)
+        except ValueError as exc:
+            await _start_dev_feed()
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        replay.seek(0.0, gate=gate, publish=publish)
+        return loaded
+
+    @app.get("/api/replay/sessions")
+    async def replay_sessions() -> dict[str, Any]:
+        return {"sessions": list_recordings(sessions_dir, DATA)}
+
+    @app.get("/api/replay")
+    async def replay_state() -> dict[str, Any]:
+        return replay.state()
+
+    @app.post("/api/replay/load")
+    async def replay_load(body: ReplayLoad) -> dict[str, Any]:
+        return await _begin_replay(Path(body.path))
+
+    @app.post("/api/replay/seek")
+    async def replay_seek(body: ReplaySeek) -> dict[str, Any]:
+        if not replay.loaded:
+            raise HTTPException(status_code=409, detail="Load a recording first.")
+        try:
+            return replay.seek(body.t_s, gate=gate, publish=publish)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    @app.post("/api/replay/stop")
+    async def replay_stop() -> dict[str, Any]:
+        replay.stop()
+        publish(
+            [
+                {
+                    "type": "status",
+                    "source": "replay",
+                    "connected": False,
+                    "detail": "",
+                }
+            ]
+        )
+        await _start_dev_feed()
+        return replay.state()
 
     async def _run_demo() -> None:
         publish(
@@ -332,6 +408,8 @@ def create_app(
             logger.start_timer(dict(DEMO_DURATIONS), 1, closed_loop=True, signals=gate)
 
         state = guarded(begin)
+        if logger.session is not None and DEMO_SCAN.is_file():
+            ensure_session_scan_copy(logger.session.directory, DEMO_SCAN)
         demo_task = asyncio.create_task(_run_demo())
         return {"running": True, **state}
 
