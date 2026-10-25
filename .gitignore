@@ -5,9 +5,10 @@ __pycache__/
 venv/
 *.egg-info/
 .DS_Store
-stress-alert/data/side_averages.csv
-stress-alert/sessions/
+data/side_averages.csv
 sessions/
+.pytest_cache/
+.ruff_cache/
 
 # Claude Code worktrees
 .claude/worktrees/

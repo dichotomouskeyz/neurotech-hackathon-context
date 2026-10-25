@@ -53,7 +53,8 @@ def test_replay_page_does_not_stick_on_loading():
     assert "Restart dashboard, then refresh" in html
     assert "No recordings found" in js
     assert "timestamp_s and bfi_l1" in js
-    assert "stress-alert/data/" in js
+    assert "in data/, such as sample_scan.csv" in js
+    assert "stress-alert/data/" not in js
     assert "Could not list recordings" in js
     assert "Restart dashboard, then refresh" in js
     assert "AbortSignal.timeout" not in js

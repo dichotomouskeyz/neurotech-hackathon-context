@@ -8,7 +8,7 @@ a slow wobble and no cardiac pulse. Synthetic fixture only.
 
 Run from anywhere:
 
-    python stress-alert/data/make_synthetic_scan.py
+    python data/make_synthetic_scan.py
 """
 
 from __future__ import annotations
