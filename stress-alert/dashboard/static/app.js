@@ -33,10 +33,11 @@ async function syncClock() {
   clockOffset = t + (performance.now() - sent) / 2000 - performance.now() / 1000;
 }
 
-// Hemodynamic buffers, one per metric (BFI, BVI): per side, the camera mean and
+// Hemodynamic buffers, one per metric (BFI, BVI): per side, the camera median and
 // the spread of the middle 50% of cameras (25th to 75th percentile). Min/max is
 // dominated by one outlier camera in real data, so the interquartile band is the
-// honest spread.
+// honest spread. Both charts draw these raw samples. BFI's y-axis uses a shorter
+// recent window so the pulse stays on screen while the slow level can move.
 
 const SIDES = ["left", "right"];
 const METRICS = ["bfi", "bvi"];
@@ -86,7 +87,7 @@ function scaleOrigin() {
   return Number.isFinite(session.phase_t) ? session.phase_t : null;
 }
 
-function updateYRange(buf) {
+function updateYRange(buf, metric) {
   const yRange = buf.yRange;
   const origin = scaleOrigin();
   // Refit when the phase changes. A hold that sits lower than baseline would
@@ -96,6 +97,19 @@ function updateYRange(buf) {
     yRange.hi = null;
     yRange.shrinkSince = null;
     yRange.origin = origin;
+  }
+  // Blood flow: follow the recent pulse level immediately. A ratchet would
+  // keep the old floor when the band slides from 5-7 up to 6-8. The spread
+  // band widens this axis only while it is drawn.
+  if (metric === "bfi") {
+    const series = [buf.left.mean, buf.right.mean];
+    if (showSpread) series.push(buf.left.lo, buf.left.hi, buf.right.lo, buf.right.hi);
+    const target = liveMath.bfiBounds(buf.t, series, origin);
+    if (!target) return;
+    yRange.lo = target.lo;
+    yRange.hi = target.hi;
+    yRange.shrinkSince = null;
+    return;
   }
   const target = liveMath.traceExtent(buf.t, buf.left.mean, buf.right.mean, origin);
   if (!target) return;
@@ -207,6 +221,7 @@ const chartHeight = () => (document.body.dataset.view === "present" ? 300 : 240)
 
 function makeChart(metric) {
   const buf = bufs[metric];
+  updateYRange(buf, metric);
   const el = $(`chart-${metric}`);
   el.replaceChildren();
   const axis = {
@@ -292,7 +307,7 @@ function draw() {
   animateBreath();
   if (dirty && !paused) {
     for (const metric of METRICS) {
-      updateYRange(bufs[metric]);
+      updateYRange(bufs[metric], metric);
       charts[metric].setData(chartData(bufs[metric]));
     }
     if (hoverIdx === null) renderLegends();
@@ -996,7 +1011,6 @@ $("spread").addEventListener("change", (event) => {
   showSpread = event.currentTarget.checked;
   for (const metric of METRICS) {
     Object.assign(bufs[metric].yRange, { lo: null, hi: null, shrinkSince: null });
-    updateYRange(bufs[metric]);
     makeChart(metric);
   }
 });

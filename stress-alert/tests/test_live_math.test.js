@@ -126,3 +126,62 @@ test("chart scale ignores a minority of zeros and a baseline level shift", () =>
   assert.ok(phase.hi < 4);
   assert.ok(phase.lo < 2.5);
 });
+
+test("BFI bounds keep the raw pulse and follow a slow level shift", () => {
+  const hz = 40;
+  const times = [];
+  const left = [];
+  const right = [];
+  for (let i = 0; i < hz * 24; i += 1) {
+    const time = i / hz;
+    times.push(time);
+    const center = time < 14 ? 6 : 7;
+    const pulse = Math.sin(2 * Math.PI * 1.1 * time);
+    left.push(center + pulse);
+    right.push(center + 0.4 + 0.9 * pulse);
+  }
+  const earlyN = hz * 12;
+  const early = liveMath.bfiBounds(
+    times.slice(0, earlyN),
+    [left.slice(0, earlyN), right.slice(0, earlyN)],
+    null,
+  );
+  // Pulse lives near 5 to 7.4. Bounds hold that, with headroom, and stay
+  // inside a wider stuck span such as 4.5 to 8.
+  assert.ok(early.lo < 5.15 && early.lo > 4.2, `early lo ${early.lo}`);
+  assert.ok(early.hi > 7.2 && early.hi < 8.2, `early hi ${early.hi}`);
+  const recent = [];
+  for (let i = 0; i < earlyN; i += 1) recent.push(left[i], right[i]);
+  assert.ok(Math.min(...recent) >= early.lo);
+  assert.ok(Math.max(...recent) <= early.hi);
+
+  const shifted = liveMath.bfiBounds(times, [left, right], null);
+  // The last 8 s are the 6 to 8 band. The old 5 to 7 stretch has left the window.
+  assert.ok(shifted.lo > 5.4, `shifted lo ${shifted.lo}`);
+  assert.ok(shifted.hi > 7.9 && shifted.hi < 9, `shifted hi ${shifted.hi}`);
+  assert.ok(shifted.hi - shifted.lo < 3.2);
+  const tail = [];
+  for (let i = 0; i < times.length; i += 1) {
+    if (times[i] >= times[times.length - 1] - liveMath.BFI_BOUND_WINDOW_S) {
+      tail.push(left[i], right[i]);
+    }
+  }
+  assert.ok(Math.min(...tail) >= shifted.lo);
+  assert.ok(Math.max(...tail) <= shifted.hi);
+
+  const spiked = left.slice();
+  spiked[spiked.length - 10] = 40;
+  const withSpike = liveMath.bfiBounds(times, [spiked, right], null);
+  assert.ok(withSpike.hi < 12, `spike hi ${withSpike.hi}`);
+
+  const band = liveMath.bfiBounds(times, [left, right, left.map((v) => v - 1.5), right.map((v) => v + 1.5)], null);
+  assert.ok(band.hi - band.lo > shifted.hi - shifted.lo);
+});
+
+test("BVI scale still snaps to the half-unit grid", () => {
+  const extent = liveMath.yExtent([8, 8.05, 8.02, 8.1, 7.98, 8.04, 8.01, 8.03]);
+  assert.equal(extent.lo * 2, Math.round(extent.lo * 2));
+  assert.equal(extent.hi * 2, Math.round(extent.hi * 2));
+  assert.ok(extent.hi - extent.lo >= 0.5);
+  assert.ok(extent.hi - extent.lo <= 1.5);
+});
