@@ -119,6 +119,42 @@ def test_optical_pulse_fills_hr_and_does_not_set_the_stress_label():
     assert not any(frame["alert"] for frame in alerts)
 
 
+def test_half_rate_wave_does_not_halve_optical_hr_or_raise_stress():
+    """A stronger ~50 bpm tone on BFI must not replace a 100 bpm pulse.
+
+    Heart rate stays on the side panel. Baseline still does not alert.
+    """
+    import numpy as np
+
+    gate = LiveGate()
+    _session(gate)
+    _phase(gate, "baseline", 0.0)
+    sample_rate = 40.0
+    count = int(14 * sample_rate)
+    timestamps = np.arange(count) / sample_rate
+    phase = (timestamps * (100.0 / 60.0)) % 1.0
+    width = np.minimum(phase, 1.0 - phase)
+    pulse = np.exp(-0.5 * (width / 0.07) ** 2)
+    pulse = pulse / float(np.std(pulse))
+    slow = np.sin(2 * np.pi * (50.0 / 60.0) * timestamps)
+    hr = None
+    alerts = []
+    for i in range(count):
+        bfi = float(2.2 + 0.35 * pulse[i] + 0.5 * slow[i])
+        for frame in gate.observe(_batch(float(timestamps[i]), bfi, 5.0, 0.95)):
+            if frame["type"] == "hr":
+                hr = frame
+            if frame["type"] == "stress":
+                alerts.append(frame)
+    assert hr is not None
+    frame_adapter.validate_python(hr)
+    assert hr["source"] == "optical"
+    assert hr["bpm"] == pytest.approx(100, abs=3)
+    assert alerts
+    assert not any(frame["alert"] for frame in alerts)
+    assert all("bpm" not in frame["reason"] for frame in alerts)
+
+
 def test_recovery_tau_is_attached_when_perfusion_decays():
     gate = LiveGate()
     _session(gate)

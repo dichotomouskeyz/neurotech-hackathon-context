@@ -88,7 +88,7 @@ python stress-alert/replay_csv.py \
 
 `bad_coupling` is true when `cq` is strictly below 0.5. The CLI counts those frames. Gate pulse features on that flag. The live `cq` frame in SCHEMA.md is per side (`left`, `right`), each 0 to 1. The live `bfi` and `bvi` frames are 8 cameras per side, not these side means.
 
-`features/pulse_hr.py` detrends BFI and reports the strongest frequency between 0.7 and 3.0 Hz (42 to 180 bpm).
+`features/pulse_hr.py` detrends BFI and reports the pulse rate between 0.7 and 3.0 Hz (42 to 180 bpm). A stronger half-rate tone does not replace the pulse when the faster peak has its own harmonic. A pulse that really sits near 50 bpm stays near 50 bpm.
 
 - One rate for the whole clip. No beat-to-beat intervals or HRV.
 - Not checked against a reference heart rate. Report it as an optical estimate.
