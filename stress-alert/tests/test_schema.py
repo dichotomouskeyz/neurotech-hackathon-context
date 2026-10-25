@@ -47,3 +47,10 @@ def test_valid_frames_round_trip(frame):
 def test_invalid_frames_rejected(frame):
     with pytest.raises(ValidationError):
         frame_adapter.validate_python(frame)
+
+
+def test_cq_null_side_is_missing_not_filled():
+    frame = {"type": "cq", "t": 1.0, "left": None, "right": 0.25}
+    dumped = frame_adapter.validate_python(frame).model_dump(mode="json")
+    assert dumped["left"] is None
+    assert dumped["right"] == 0.25

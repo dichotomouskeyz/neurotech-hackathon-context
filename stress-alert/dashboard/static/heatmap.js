@@ -104,10 +104,23 @@
 
   // Hardware sensor specs from Openwater Open-Motion
   // 8 cameras per module. Analog gain: [16, 4, 2, 1, 1, 2, 4, 16]
+  // Layout on each module (cam number):
+  //   1 lateral-superior | 8 medial-superior
+  //   2                  | 7
+  //   3                  | 6
+  //   4 lateral-inferior | 5 medial-inferior
+  // Each camera gets its own placement. Sharing one region name across a
+  // column made two different optodes read as the same site.
   const CAMERA_GAINS = [16, 4, 2, 1, 1, 2, 4, 16];
-  const CAMERA_ROLES = [
-    "Outer Superior", "Inner Superior-mid", "Inner Inferior-mid", "Inner Inferior",
-    "Inner Inferior", "Inner Inferior-mid", "Inner Superior-mid", "Outer Superior"
+  const CAMERA_PLACEMENT = [
+    "lateral superior",
+    "lateral upper-mid",
+    "lateral lower-mid",
+    "lateral inferior",
+    "medial inferior",
+    "medial lower-mid",
+    "medial upper-mid",
+    "medial superior"
   ];
 
   // Normalized 2D coordinates for the two projection styles:
@@ -173,13 +186,20 @@
         { id: "R4", cam: 4, x: 0.76, y: 0.72, gain: 1,  col: "outer", row: 3 }
       ],
       landmarks: [
-        { label: "Superior DLPFC", x: 0.24, y: 0.22 },
-        { label: "Medial Frontopolar", x: 0.40, y: 0.80 },
-        { label: "Medial Frontopolar", x: 0.60, y: 0.80 },
-        { label: "Superior DLPFC", x: 0.76, y: 0.22 }
+        { label: "L superior", x: 0.24, y: 0.22 },
+        { label: "L frontopolar", x: 0.32, y: 0.80 },
+        { label: "R frontopolar", x: 0.68, y: 0.80 },
+        { label: "R superior", x: 0.76, y: 0.22 }
       ]
     }
   };
+
+  function finiteUnit(value) {
+    if (typeof value !== "number" || !Number.isFinite(value) || value < 0 || value > 1) {
+      return null;
+    }
+    return value;
+  }
 
   class BrainHeatmap {
     constructor(canvas, options = {}) {
@@ -206,7 +226,9 @@
       this.latestData = {
         bfi: { left: Array(8).fill(null), right: Array(8).fill(null) },
         bvi: { left: Array(8).fill(null), right: Array(8).fill(null) },
-        cq: { left: 1.0, right: 1.0 }
+        // null until a cq frame arrives. 1.0 here used to paint every optode
+        // as 100% contact before any measurement.
+        cq: { left: null, right: null }
       };
 
       // Offscreen low-resolution interpolation grid
@@ -245,19 +267,29 @@
     }
 
     resize() {
-      const rect = this.container.getBoundingClientRect();
-      const dpr = window.devicePixelRatio || 1;
-      const width = Math.max(320, Math.floor(rect.width));
-      const height = Math.max(260, Math.floor(rect.height || (width * 0.70)));
+      // The canvas is taken out of flow (see styles.css). Size the bitmap
+      // from the container's content box and do not write canvas style
+      // width/height. getBoundingClientRect() includes the border, and
+      // copying that onto an in-flow canvas grew the card by a few pixels
+      // on every ResizeObserver callback.
+      const el = this.container || this.canvas;
+      const width = Math.floor(el.clientWidth);
+      const height = Math.floor(el.clientHeight);
+      if (width < 2 || height < 2) return;
 
-      if (this.canvas.width !== width * dpr || this.canvas.height !== height * dpr) {
-        this.canvas.width = width * dpr;
-        this.canvas.height = height * dpr;
-        this.canvas.style.width = `${width}px`;
-        this.canvas.style.height = `${height}px`;
-        this.ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-        this.render();
+      const dpr = window.devicePixelRatio || 1;
+      const bw = Math.max(1, Math.floor(width * dpr));
+      const bh = Math.max(1, Math.floor(height * dpr));
+      if (this.canvas.width === bw && this.canvas.height === bh &&
+          this.viewWidth === width && this.viewHeight === height) {
+        return;
       }
+      this.viewWidth = width;
+      this.viewHeight = height;
+      this.canvas.width = bw;
+      this.canvas.height = bh;
+      this.ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      this.render();
     }
 
     setProjection(projection) {
@@ -310,8 +342,10 @@
         this.updateStats();
         this.render();
       } else if (frame.type === "cq") {
-        if (frame.left !== undefined) this.latestData.cq.left = frame.left;
-        if (frame.right !== undefined) this.latestData.cq.right = frame.right;
+        // null is a real "no measurement" value. Only a finite 0..1 score
+        // is contact. Anything else stays unknown rather than becoming 1.
+        if ("left" in frame) this.latestData.cq.left = finiteUnit(frame.left);
+        if ("right" in frame) this.latestData.cq.right = finiteUnit(frame.right);
         this.render();
       }
     }
@@ -498,15 +532,18 @@
               const distWeightNorm = Math.min(1.0, sumWeight * 12.0);
               finalVal = interpolated * distWeightNorm + meanVal * (1.0 - distWeightNorm);
 
-              // In axial top-down view, gently attenuate alpha towards occipital/back of head
+              // Keep the field opaque inside the head. Tying alpha to
+              // distWeightNorm left a white card with a faint halo on each
+              // optode whenever the color scale was not stretched (autoscale
+              // off), so Viridis and Turbo both read as blank.
+              let cover = 0.94;
               if (this.projection === "axial") {
-                const occipitalAtten = Math.max(0.2, 1.0 - (ny - 0.35) * 1.1);
-                alpha = Math.round(250 * Math.min(1.0, distWeightNorm * 1.5) * occipitalAtten);
-              } else {
-                alpha = Math.round(245 * Math.min(1.0, distWeightNorm * 1.3));
+                const occipitalAtten = Math.max(0.78, 1.0 - Math.max(0, ny - 0.42) * 0.55);
+                cover *= occipitalAtten;
               }
+              alpha = Math.round(255 * cover);
             } else {
-              alpha = 30;
+              alpha = 48;
             }
 
             // Normalize through colormap
@@ -543,8 +580,9 @@
     }
 
     render() {
-      const w = this.canvas.width / (window.devicePixelRatio || 1);
-      const h = this.canvas.height / (window.devicePixelRatio || 1);
+      const dpr = window.devicePixelRatio || 1;
+      const w = this.viewWidth || (this.canvas.width / dpr);
+      const h = this.viewHeight || (this.canvas.height / dpr);
       const ctx = this.ctx;
 
       ctx.clearRect(0, 0, w, h);
@@ -699,22 +737,16 @@
         ctx.stroke();
         ctx.setLineDash([]);
 
-        // 4. Lobe Headers
+        // Hemisphere headers sit above the outline, clear of the optodes.
+        // Per-column captions ("Superior DLPFC", "Ventral / Frontopolar")
+        // used to span both columns, so two different dots shared one label.
         ctx.fillStyle = isDark ? "#82b4f5" : "#2a78d6";
         ctx.font = "600 12px Geist, system-ui, sans-serif";
         ctx.textAlign = "center";
-        ctx.fillText("LEFT PFC (Fp1 / F3)", cx - rx * 0.52, cy - ry - 14);
+        ctx.fillText("LEFT PFC", cx - rx * 0.48, cy - ry - 16);
 
         ctx.fillStyle = isDark ? "#f28b61" : "#eb6834";
-        ctx.fillText("RIGHT PFC (Fp2 / F4)", cx + rx * 0.52, cy - ry - 14);
-
-        // Anatomical labels
-        ctx.fillStyle = textFill;
-        ctx.font = "10px Geist, system-ui, sans-serif";
-        ctx.fillText("Superior DLPFC", cx - rx * 0.55, cy - ry * 0.68);
-        ctx.fillText("Superior DLPFC", cx + rx * 0.55, cy - ry * 0.68);
-        ctx.fillText("Ventral / Frontopolar", cx - rx * 0.55, cy + ry * 0.84);
-        ctx.fillText("Ventral / Frontopolar", cx + rx * 0.55, cy + ry * 0.84);
+        ctx.fillText("RIGHT PFC", cx + rx * 0.48, cy - ry - 16);
       }
 
       ctx.restore();
@@ -747,21 +779,22 @@
         ctx.fillStyle = hasVal ? (s.side === "left" ? "#2a78d6" : "#eb6834") : "#999999";
         ctx.fill();
 
-        // Optode Channel Label (e.g. L1, R8)
+        // Channel id sits off the dot, toward the outside of its column,
+        // so a neighbor's id is not drawn on top of this optode.
         ctx.fillStyle = isDark ? "#f0f0ee" : "#141413";
         ctx.font = "bold 9px Geist Mono, monospace";
-        ctx.textAlign = "center";
         ctx.textBaseline = "middle";
+        const outward = s.side === "left"
+          ? (s.col === "outer" ? -1 : 1)
+          : (s.col === "outer" ? 1 : -1);
+        ctx.textAlign = outward < 0 ? "right" : "left";
+        ctx.fillText(s.id, px + outward * 14, py);
 
-        const labelY = py + (s.row === 3 ? 15 : -14);
-        ctx.fillText(s.id, px, labelY);
-
-        // In Frontal view, also show value under sensor
         if (this.projection === "frontal" && hasVal) {
           ctx.font = "8px Geist Mono, monospace";
           ctx.fillStyle = isDark ? "rgba(255, 255, 255, 0.70)" : "rgba(20, 20, 19, 0.70)";
-          const valY = py + (s.row === 3 ? 24 : 14);
-          ctx.fillText(s.value.toFixed(1), px, valY);
+          ctx.textAlign = "center";
+          ctx.fillText(s.value.toFixed(1), px, py + 16);
         }
       });
 
@@ -829,16 +862,20 @@
       const el = this.tooltipEl;
       if (!el) return;
 
-      const sideName = sensor.side === "left" ? "Left Prefrontal" : "Right Prefrontal";
+      const sideName = sensor.side === "left" ? "Left" : "Right";
+      const place = CAMERA_PLACEMENT[sensor.cam - 1] || `camera ${sensor.cam}`;
       const valStr = sensor.value !== null && !isNaN(sensor.value)
         ? (this.metric === "asym" ? `${sensor.value > 0 ? "+" : ""}${sensor.value.toFixed(1)}%` : sensor.value.toFixed(2))
         : "No signal";
       const unitStr = this.metric === "asym" ? "Asymmetry" : (this.metric === "bfi" ? "BFI" : "BVI");
-      const cqStr = (sensor.cq * 100).toFixed(0);
+      const cqKnown = typeof sensor.cq === "number" && Number.isFinite(sensor.cq);
+      const cqHtml = cqKnown
+        ? `<span style="color: ${sensor.cq >= 0.7 ? "#0ca30c" : "#fab219"}">${(sensor.cq * 100).toFixed(0)}%</span>`
+        : `<span>unknown</span>`;
 
       el.innerHTML = `
         <div class="tip-head">
-          <strong>${sensor.id}</strong> (${sideName})
+          <strong>${sensor.id}</strong> ${sideName} ${place}
         </div>
         <div class="tip-row">
           <span>${unitStr}:</span>
@@ -849,12 +886,8 @@
           <span>${sensor.gain}x</span>
         </div>
         <div class="tip-row">
-          <span>Role:</span>
-          <span>${CAMERA_ROLES[sensor.cam - 1]}</span>
-        </div>
-        <div class="tip-row">
           <span>Contact Quality:</span>
-          <span style="color: ${sensor.cq >= 0.7 ? '#0ca30c' : '#fab219'}">${cqStr}%</span>
+          ${cqHtml}
         </div>
       `;
 
