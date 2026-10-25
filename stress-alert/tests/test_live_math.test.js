@@ -102,63 +102,61 @@ test("chart scale ignores a minority of zeros and a baseline level shift", () =>
   assert.ok(phase.lo < 2.5);
 });
 
-test("BFI chart scale follows the slow left/right offset, not the heartbeat", () => {
+test("BFI bounds keep the raw pulse and follow a slow level shift", () => {
   const hz = 40;
-  const dur = 12;
   const times = [];
   const left = [];
   const right = [];
-  const lo = [];
-  const hi = [];
-  for (let i = 0; i < hz * dur; i += 1) {
+  for (let i = 0; i < hz * 24; i += 1) {
     const time = i / hz;
     times.push(time);
-    const pulse = Math.sin((2 * Math.PI * 1.1 * time));
-    left.push(5.2 + pulse);
-    right.push(5.9 + 0.9 * pulse);
-    lo.push(4.0 + 0.2 * pulse);
-    hi.push(7.2 + 0.2 * pulse);
+    const center = time < 14 ? 6 : 7;
+    const pulse = Math.sin(2 * Math.PI * 1.1 * time);
+    left.push(center + pulse);
+    right.push(center + 0.4 + 0.9 * pulse);
   }
-  const raw = liveMath.traceExtent(times, left, right, null);
-  const view = liveMath.chartView("bfi", times, {
-    left: { mean: left, lo, hi },
-    right: { mean: right, lo, hi },
-  }, 30);
-  assert.ok(view.t.length > 0);
-  assert.ok(view.t[0] >= liveMath.BFI_DISPLAY_WINDOW_S - 1e-9);
-  const fit = liveMath.traceExtent(view.t, view.left.mean, view.right.mean, null);
-  assert.ok(raw.hi - raw.lo >= 2.5);
-  assert.ok(fit.hi - fit.lo < raw.hi - raw.lo);
-  assert.ok(fit.hi - fit.lo <= 2);
-  const leftNow = view.left.mean[view.left.mean.length - 1];
-  const rightNow = view.right.mean[view.right.mean.length - 1];
-  assert.ok(rightNow - leftNow > 0.5);
-  assert.ok(leftNow > fit.lo && leftNow < fit.hi);
-  assert.ok(rightNow > fit.lo && rightNow < fit.hi);
-  assert.ok((rightNow - leftNow) / (fit.hi - fit.lo) > 0.25);
-  // Every drawn sample has a full window, so the pulse is gone.
-  for (const value of view.left.mean) assert.ok(Math.abs(value - 5.2) < 0.2);
-  // The camera band widens the axis only when it is included.
-  const withBand = liveMath.traceExtent(
-    view.t, view.left.mean, view.right.mean, null,
-    [view.left.lo, view.left.hi, view.right.lo, view.right.hi],
+  const earlyN = hz * 12;
+  const early = liveMath.bfiBounds(
+    times.slice(0, earlyN),
+    [left.slice(0, earlyN), right.slice(0, earlyN)],
+    null,
   );
-  assert.ok(withBand.hi - withBand.lo > fit.hi - fit.lo);
-  assert.ok(withBand.lo <= 4.5);
-  assert.ok(withBand.hi >= 6.5);
+  // Pulse lives near 5 to 7.4. Bounds hold that, with headroom, and stay
+  // inside a wider stuck span such as 4.5 to 8.
+  assert.ok(early.lo < 5.15 && early.lo > 4.2, `early lo ${early.lo}`);
+  assert.ok(early.hi > 7.2 && early.hi < 8.2, `early hi ${early.hi}`);
+  const recent = [];
+  for (let i = 0; i < earlyN; i += 1) recent.push(left[i], right[i]);
+  assert.ok(Math.min(...recent) >= early.lo);
+  assert.ok(Math.max(...recent) <= early.hi);
+
+  const shifted = liveMath.bfiBounds(times, [left, right], null);
+  // The last 8 s are the 6 to 8 band. The old 5 to 7 stretch has left the window.
+  assert.ok(shifted.lo > 5.4, `shifted lo ${shifted.lo}`);
+  assert.ok(shifted.hi > 7.9 && shifted.hi < 9, `shifted hi ${shifted.hi}`);
+  assert.ok(shifted.hi - shifted.lo < 3.2);
+  const tail = [];
+  for (let i = 0; i < times.length; i += 1) {
+    if (times[i] >= times[times.length - 1] - liveMath.BFI_BOUND_WINDOW_S) {
+      tail.push(left[i], right[i]);
+    }
+  }
+  assert.ok(Math.min(...tail) >= shifted.lo);
+  assert.ok(Math.max(...tail) <= shifted.hi);
+
+  const spiked = left.slice();
+  spiked[spiked.length - 10] = 40;
+  const withSpike = liveMath.bfiBounds(times, [spiked, right], null);
+  assert.ok(withSpike.hi < 12, `spike hi ${withSpike.hi}`);
+
+  const band = liveMath.bfiBounds(times, [left, right, left.map((v) => v - 1.5), right.map((v) => v + 1.5)], null);
+  assert.ok(band.hi - band.lo > shifted.hi - shifted.lo);
 });
 
-test("BVI chart series stay on the raw samples", () => {
-  const times = [0, 0.5, 1, 1.5, 2];
-  const mean = [8, 8.4, 7.7, 8.1, 8.05];
-  const view = liveMath.chartView("bvi", times, {
-    left: { mean, lo: mean, hi: mean },
-    right: { mean, lo: mean, hi: mean },
-  }, 30);
-  assert.deepEqual(view.t, times);
-  assert.deepEqual(view.left.mean, mean);
-  assert.deepEqual(view.right.mean, mean);
-  const extent = liveMath.traceExtent(view.t, view.left.mean, view.right.mean, null);
-  assert.equal(extent.lo, liveMath.yExtent(mean.concat(mean)).lo);
-  assert.equal(extent.hi, liveMath.yExtent(mean.concat(mean)).hi);
+test("BVI scale still snaps to the half-unit grid", () => {
+  const extent = liveMath.yExtent([8, 8.05, 8.02, 8.1, 7.98, 8.04, 8.01, 8.03]);
+  assert.equal(extent.lo * 2, Math.round(extent.lo * 2));
+  assert.equal(extent.hi * 2, Math.round(extent.hi * 2));
+  assert.ok(extent.hi - extent.lo >= 0.5);
+  assert.ok(extent.hi - extent.lo <= 1.5);
 });

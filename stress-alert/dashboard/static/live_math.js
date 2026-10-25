@@ -52,81 +52,61 @@ function yExtent(values) {
   };
 }
 
-// Blood flow pulses about once a second. That swing was setting the BFI axis,
-// so a small left/right offset sat inside the heartbeat. A 1 s trailing mean
-// is what the chart draws and scales. Blood volume does not get this window.
-const BFI_DISPLAY_WINDOW_S = 1;
+// BFI keeps the raw pulse on the trace. The axis follows the slow level of
+// the last few seconds, plus the pulse amplitude and a little room, so a band
+// that sits near 5 to 7 can move to 6 to 8. It does not lock to one heartbeat
+// peak, and it does not keep the whole 30 s of history (that is what left the
+// axis wide after the level had already moved). BVI does not use this.
+const BFI_BOUND_WINDOW_S = 8;
 
-function trailingMean(times, values, windowSec) {
-  const n = (times || []).length;
-  const out = new Array(n);
-  let start = 0;
-  let sum = 0;
-  let count = 0;
-  for (let i = 0; i < n; i += 1) {
-    const value = values ? values[i] : undefined;
-    if (Number.isFinite(value)) {
-      sum += value;
-      count += 1;
-    }
-    const cutoff = times[i] - windowSec;
-    while (start < i && times[start] < cutoff) {
-      const old = values ? values[start] : undefined;
-      if (Number.isFinite(old)) {
-        sum -= old;
-        count -= 1;
-      }
-      start += 1;
-    }
-    out[i] = count ? sum / count : null;
+function levelBounds(values) {
+  const sorted = (values || []).filter((value) => Number.isFinite(value)).sort((a, b) => a - b);
+  if (!sorted.length) return null;
+  const mid = quantile(sorted, 0.5);
+  let lo = quantile(sorted, 0.02);
+  let hi = quantile(sorted, 0.98);
+  // A flat stretch still needs a readable span. The pulse path is wider than this.
+  if (hi - lo < 0.5) {
+    lo = mid - 0.25;
+    hi = mid + 0.25;
   }
-  return out;
+  const half = Math.max(mid - lo, hi - mid);
+  const pad = Math.max(half * 0.15, 0.1);
+  return { lo: mid - half - pad, hi: mid + half + pad };
 }
 
-// Series the chart draws. BFI is the trailing mean, and the first second of
-// each side is held back until that mean has a full window, so the left edge
-// cannot reopen the axis around one heartbeat. BVI is the raw trace.
-function chartView(metric, times, channels, viewSec) {
+function bfiBounds(times, seriesList, origin) {
   const t = times || [];
-  const lookback = metric === "bfi" ? BFI_DISPLAY_WINDOW_S : 0;
-  const smooth = (values) => {
-    const src = values || [];
-    return lookback > 0 ? trailingMean(t, src, lookback) : src.slice();
-  };
-  const sided = {};
-  for (const side of ["left", "right"]) {
-    const channel = (channels && channels[side]) || {};
-    sided[side] = { mean: smooth(channel.mean), lo: smooth(channel.lo), hi: smooth(channel.hi) };
-  }
-  if (!t.length) return { t: [], left: sided.left, right: sided.right };
+  if (!t.length) return null;
   const last = t[t.length - 1];
-  const displayStart = Math.max(t[0] + lookback, last - viewSec);
-  let i0 = 0;
-  while (i0 < t.length && t[i0] < displayStart) i0 += 1;
-  const cut = (arr) => arr.slice(i0);
-  return {
-    t: t.slice(i0),
-    left: { mean: cut(sided.left.mean), lo: cut(sided.left.lo), hi: cut(sided.left.hi) },
-    right: { mean: cut(sided.right.mean), lo: cut(sided.right.lo), hi: cut(sided.right.hi) },
-  };
+  const start = last - BFI_BOUND_WINDOW_S;
+  const picked = [];
+  const fallback = [];
+  for (const values of seriesList || []) {
+    for (let i = 0; i < t.length; i += 1) {
+      const value = values ? values[i] : undefined;
+      if (!Number.isFinite(value)) continue;
+      if (origin != null && t[i] < origin) continue;
+      fallback.push(value);
+      if (t[i] >= start) picked.push(value);
+    }
+  }
+  return levelBounds(picked.length >= 8 ? picked : fallback);
 }
 
 // Scale from the current phase once it has a handful of samples, so a level
 // shift at hold does not leave the trace flattened on the baseline axis.
-// `extras` are optional series, used for the camera-spread band when it is on.
-function traceExtent(times, left, right, origin, extras) {
-  const series = [left || [], right || []];
-  for (const extra of extras || []) series.push(extra || []);
+function traceExtent(times, left, right, origin) {
   const picked = [];
-  const fallback = [];
-  for (const values of series) {
+  const take = (series) => {
     for (let i = 0; i < times.length; i += 1) {
-      const value = values[i];
-      if (!Number.isFinite(value)) continue;
-      fallback.push(value);
-      if (origin == null || times[i] >= origin) picked.push(value);
+      const value = series[i];
+      if ((origin == null || times[i] >= origin) && Number.isFinite(value)) picked.push(value);
     }
-  }
+  };
+  take(left || []);
+  take(right || []);
+  const fallback = [...(left || []), ...(right || [])].filter((value) => Number.isFinite(value));
   return yExtent(picked.length >= 8 ? picked : fallback);
 }
 
@@ -252,11 +232,11 @@ function stressState(stress, phase) {
 
 const liveMath = {
   LOOP_DEFAULTS,
-  BFI_DISPLAY_WINDOW_S,
+  BFI_BOUND_WINDOW_S,
   cameraStats,
   yExtent,
-  trailingMean,
-  chartView,
+  levelBounds,
+  bfiBounds,
   traceExtent,
   phaseFraction,
   safeClock,
