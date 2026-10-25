@@ -2,7 +2,7 @@
 
 A closed-loop recovery gate for research. Open-Motion on the forehead reads blood flow and blood volume. A short calibration learns resting flow, and the next task unlocks when that flow has returned and contact is still good.
 
-Raymond Mak (UC Berkeley EECS) and Liam Lenh. Neurotech@Berkeley × Openwater, October 24 to 25, 2026. For research. Not a diagnosis, a screening result, or a treatment signal.
+Neurotech@Berkeley × Openwater, October 24 to 25, 2026. For research. Not a diagnosis, a screening result, or a treatment signal.
 
 ## Problem
 
