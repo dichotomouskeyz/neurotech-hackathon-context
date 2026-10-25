@@ -441,7 +441,11 @@ function renderHrTile() {
   if (!optical) return;
   $("hr-optical").textContent = Math.round(optical.bpm);
   const stale = now !== null && now - optical.t >= STALE_S;
-  $("hr-note").textContent = stale ? `last value ${Math.round(now - optical.t)} s ago` : "";
+  const detail = [
+    optical.confidence != null ? `confidence ${fmt(optical.confidence)}` : null,
+    optical.window_s != null ? `${Math.round(optical.window_s)} s window` : null,
+  ].filter(Boolean).join(" · ");
+  $("hr-note").textContent = stale ? `last value ${Math.round(now - optical.t)} s ago` : detail;
 }
 
 function finiteCq(value) {

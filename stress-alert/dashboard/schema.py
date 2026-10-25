@@ -31,6 +31,8 @@ class HeartRate(_Frame):
     t: float
     source: Literal["optical"]
     bpm: Annotated[float, Field(gt=0, lt=300)]
+    confidence: Unit | None = None
+    window_s: Annotated[float, Field(gt=0)] | None = None
 
 
 class ContactQuality(_Frame):

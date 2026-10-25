@@ -76,11 +76,15 @@ async def run(url: str, path: Path = DEFAULT_CSV) -> None:
     async with connect(f"{url}?source=replay") as ws:
         index = 0
         next_send = time.monotonic()
+        # Stamp frames on the recording's even 40 Hz cadence, not at send time:
+        # frames go out in bursts of BATCH, and send-time stamps would bunch them
+        # microseconds apart, which breaks anything that reads the sample rate
+        # (the optical heart rate estimator rejects such a window outright).
+        t0 = clock.now()
         while True:
             batch = []
             for _ in range(BATCH):
-                t = clock.now()
-                batch.extend(frames_for(rows[index % len(rows)], t))
+                batch.extend(frames_for(rows[index % len(rows)], t0 + index * period))
                 index += 1
             await ws.send(json.dumps(batch))
             next_send += period * BATCH
