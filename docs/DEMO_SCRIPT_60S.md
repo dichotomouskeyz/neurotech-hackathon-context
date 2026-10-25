@@ -1,42 +1,58 @@
-# 60-Second Demo Script: CQ-Gated Stress and Recovery Alert
+# Demo script: calibrate, then a long work bout
 
 For research use only. Research engineering demonstration for the UC Berkeley Neurotech Hackathon (October 24 to 25, 2026, sponsored by Openwater).
 
 No diagnostic, screening, clinical, treatment, or therapeutic claims.
 
+The file name is historical. Speak for about three minutes. The Work phase itself runs 20 minutes, or until you press End.
+
+Three beats. Calibrate is a short baseline sit: learn resting forehead blood flow. The breath-hold is optional proof, off by default. The task stays locked. Work is the session: wear it and do something. When forehead BFI leaves that baseline and contact quality is still good, a breath starts on its own. When flow is back and contact is still good, the step unlocks. Bad contact keeps the gate shut and does not start a breath. Blood volume and recovery tau can ease the step, ask for a break, or coach a breath after an optional hold. The chart during work is the proof. The perfusion tile is secondary telemetry. It does not unlock the task, and it is not a stress classifier.
+
+The same script lives at `stress-alert/docs/DEMO_SCRIPT_60S.md`.
+
 ---
 
 ## Overview
 
-- **Format**: Live 60-second pitch and demonstration for judges (Sunday 3:00 to 5:00 pm).
-- **Dry-run target**: Sunday 2:30 pm.
-- **Hardware on screen**:
-  - Open-Motion optical headband on forehead (40 Hz BFI/BVI).
-  - Live stress-alert dashboard (status strip, phase bands, live BFI and BVI charts, CQ gauges, alert banner).
-- **Backup**: If the live stream is not connected, start the dashboard with `--replay` to stream a recorded scan (Openwater's `sample_scan.csv`, or a team recording of a breath hold). The `replay` chip makes clear it isn't live.
+- **Format**: Live long session for judges (Sunday 3:00 to 5:00 pm). Demo Mode is only the offline fallback.
+- **On screen**: Present view. The line under the title says calibrate, then work, then an automatic breath. Phase reads Calibrate, then Work. Recovery gate tile, contact quality, BFI and BVI charts with the gate line, and the coach banner. Perfusion percent and optical heart rate stay secondary.
+- **Live contact**: light and dark digital numbers on the Open-Motion `live` batch, the same thresholds as `features/cq_score.py`. A bad score blocks the gate.
+- **Demo contact**, if you must fall back: graded scores such as 0.82, 0.78, 0.76, and 0.32. Demo Mode never publishes 1.00, and it will not start while a live scan is running.
+- **Replay**: `uv run python -m dashboard --replay` streams a recorded scan, Openwater's `sample_scan.csv` by default or a team recording passed as a path. The `replay` chip shows it is not live. No synthetic data ships.
 
----
+## What to say
 
-## Timeline (0:00 to 1:00)
+Speak to the tiles. Do not quote a fixed percent or tau unless that is what the screen shows. Do not say the person is stressed or not stressed.
 
-| Elapsed | Speaker Cue (What to Say) | Screen / Visual Cue (What to Show) | Status & System State |
-| :- | :- | :- | :- |
-| **0:00 - 0:12** (12 s) | "We built an optical stress and recovery alert on Open-Motion, gated by contact quality. On our subject, Open-Motion records forehead blood flow and blood volume at 40 Hz, and we estimate heart rate from the optical pulse. We begin in a resting baseline phase: contact quality is green at 0.92, baseline BFI is steady at 2.0, and heart rate is nominal." | Point to subject wearing headband. Direct judge attention to dashboard status strip (green chips) and steady baseline trace across the 60-second baseline band. | Phase: `baseline`<br>CQ: `0.92`<br>BFI: `2.0`<br>Alert: `False` (nominal) |
-| **0:12 - 0:28** (16 s) | "Now our subject begins a controlled 30-second breath-hold. As arterial carbon dioxide rises, cerebral autoregulation drives vasodilation. Watch the forehead BFI trace climb by 35%. Because contact quality remains above 0.50, our pipeline verifies this as physiological elevation, and the stress alert turns red." | Subject holds breath. Timer marks `hold`. Blood flow curve rises visibly above the baseline dotted line. Dashboard displays red alert banner: `elevated_stress: index 0.35 >= 0.20`. | Phase: `hold`<br>CQ: `0.89`<br>BFI: `2.70`<br>Alert: `True` (elevated) |
-| **0:28 - 0:42** (14 s) | "Here is the critical engineering feature: the contact-quality gate. In real-world neurotech, motion artifacts and probe slippage mimic vascular surges. Watch what happens when the subject shifts the sensor. BFI spikes wildly, but contact quality plummets to 0.35. Instead of triggering a false alarm, our gate immediately suppresses the alert and labels it 'poor coupling'." | Subject gently shifts probe/frowns. CQ bar drops into amber/red (< 0.50). Dashboard alert banner instantly clears from red stress to amber status: `poor_coupling: CQ 0.35 < 0.50`. | Phase: `hold`<br>CQ: `0.35`<br>Alert: `False` (gated off) |
-| **0:42 - 0:54** (12 s) | "The subject resumes normal breathing into the recovery phase. Forehead hemodynamics decay back toward baseline. Our pipeline fits an exponential decay model in real time, calculating a recovery time-constant tau of 22 seconds, showing healthy cerebrovascular return." | Subject breathes normally. Phase logger marks `recovery`. BFI decay curve flattens toward baseline. Recovery panel displays fitted exponential curve, `tau = 22.4 s`, and `R^2 = 0.98`. | Phase: `recovery`<br>CQ: `0.91`<br>Tau: `22.4 s`<br>Alert: `False` |
-| **0:54 - 1:00** (6 s) | "In summary: an artifact-robust hemodynamic stress alert on Open-Motion for research, demonstrating how optical neurotech can reliably monitor cognitive and autonomic state." | Show full 3-phase dashboard summary. Hand over for questions. | Phase: `end`<br>Session saved to `sessions/` |
+| When | What to say | What to point at |
+| :- | :- | :- |
+| 0:00, phase says Calibrate | "This is setup, not the product. Twenty seconds of quiet sitting learns resting forehead blood flow. The task stays locked." | Phase tile Calibrate. Gate locked. |
+| Optional hold, if you turned it on | "The breath-hold is only calibration proof. Flow is up, and we still do not unlock a task. Recovery tau is how fast flow came back. It is not the countdown." | BFI chart during the hold. Recovery τ, unit s, once it leaves --. |
+| Phase flips to Work | "Now the session. This work bout runs twenty minutes. Wear it and keep going. The step unlocks only when forehead flow is back and contact is good." | Phase tile Work. Countdown near 20:00, or "until End" if that box is checked. |
+| Flow leaves the baseline, coach appears | "Forehead flow left the calibrated baseline, and contact is still good, so a breath starts on its own. This is a readiness cue. It is not a stress score." | Coach banner: Breath coach, Inhale and Exhale. Gate stays locked. |
+| Gate opens | "Perfusion-ready. Flow is back and contact is still good, so the step unlocks and the breath stops." | Gate tile shows a step. Banner: Task unlocked. |
+| Contact dips under 0.50 | "Contact failed. The gate locks, and we do not coach a breath on a bad signal." | Contact tile. Gate locked, contact. |
+| Last line | "For research. Not a diagnosis. The control signal is forehead BFI and BVI from Open-Motion." | Session under `stress-alert/sessions/`. |
 
----
+## Live scan
 
-## Contingency Checklist (For Sunday 2:30 Dry Run)
+Use this when the console is connected. Demo Mode refuses to run during a scan.
 
-1. **Hardware Ingest Green**:
-   - Open-Motion live station scanning.
-2. **Hardware Ingest Blocked or Station In Use**:
-   - Restart the dashboard in replay mode with a recorded scan:
-     ```bash
-     uv run python -m dashboard --replay                                # Openwater sample_scan.csv
-     uv run python -m dashboard --replay sessions/device-scans/<scan>.csv  # a team breath-hold recording
-     ```
-   - Openwater's sample is 30 s of resting data with no breath hold, so record a team breath-hold run during the dry run if the replay needs to show the hold.
+1. **Connect device.** Console and at least one sensor should read connected.
+2. **Start scan (laser on).** This is the only control that turns the laser on. BFI, BVI, and contact quality should leave their waiting states.
+3. **Long session.** Subject id can stay blank. Press **Long session (20 min work)**. Defaults: baseline 20 s, hold 0 (skip the breath-hold and recovery), work 1200 s. To show the calibration hold, set Hold above 0 (for example 12) and Recovery to 20 before you press the button. Check **Until End** to keep work going with no countdown until you press End.
+4. Switch to **Present**. Use the table. You do not advance the phases by hand. The breath coach follows the gate during Work.
+
+A hold that never rises does not fake an unlock. Calibration says there was no sustained elevation, and the work step stays locked until flow moves and returns.
+
+## Demo Mode (no laser)
+
+Short fallback only. Leave this path if the console is up.
+
+```bash
+cd stress-alert
+uv sync --locked
+uv run python -m dashboard
+```
+
+Open http://127.0.0.1:8765. Leave the laser off. Press **Demo Mode**. Switch to **Present**. The script is a short calibrate, then a short work loop, about 28 seconds in all. The heart rate tile stays empty because the script has no pulse. While flow is up at the start of that work window, the same breath coach runs, then the step unlocks, blood volume can ask for a break, and a contact dip locks the gate. Say it is the offline stand-in for the long session, then use the same three sentences: calibrate, work, automatic breath.

@@ -2,7 +2,6 @@
 
 import asyncio
 from collections import deque
-from collections.abc import Callable
 from typing import Any
 
 
@@ -22,15 +21,8 @@ class Hub:
         self._phases: deque[dict[str, Any]] = deque(maxlen=phases)
         self._queue_size = queue_size
         self._subscribers: set[asyncio.Queue[dict[str, Any]]] = set()
-        self._listeners: list[Callable[[list[dict[str, Any]]], None]] = []
-
-    def add_listener(self, listener: Callable[[list[dict[str, Any]]], None]) -> None:
-        """Call ``listener`` with every published batch, in-process (e.g. derived vitals)."""
-        self._listeners.append(listener)
 
     def publish(self, frames: list[dict[str, Any]]) -> None:
-        for listener in self._listeners:
-            listener(frames)
         for frame in frames:
             kind = frame.get("type")
             if kind == "status":

@@ -9,21 +9,39 @@ the Open-Motion device through ``/api/device``.
 import asyncio
 import contextlib
 import json
+import logging
 from collections.abc import AsyncIterator
 from pathlib import Path
 from typing import Any
 
-from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi import Body, FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field, ValidationError
 
 from dashboard import clock, dev_feed
+from dashboard.demo_recovery import DEMO_DURATIONS, run_recovery_demo
 from dashboard.device import DeviceError, DeviceManager
 from dashboard.hub import Hub, drain
+from dashboard.live_gate import LiveGate
 from dashboard.schema import PhaseName, frame_adapter
-from dashboard.vitals import HeartRateEstimator
-from session.phase_logger import MarkerOutlet, PhaseError, PhaseLogger
+from features.recovery_gate import (
+    BFI_RECOVERED_BELOW,
+    RECOVERED_WITHIN_PCT_MAX,
+    RECOVERED_WITHIN_PCT_MIN,
+)
+from session.phase_logger import (
+    LONG_BASELINE_S,
+    LONG_HOLD_S,
+    LONG_RECOVERY_S,
+    LONG_WORK_MAX_S,
+    LONG_WORK_S,
+    MarkerOutlet,
+    PhaseError,
+    PhaseLogger,
+)
+
+log = logging.getLogger(__name__)
 
 STATIC = Path(__file__).resolve().parent / "static"
 SESSIONS = Path(__file__).resolve().parent.parent / "sessions"
@@ -39,10 +57,40 @@ class PhaseMark(BaseModel):
 
 
 class ProtocolStart(BaseModel):
-    baseline: float = Field(default=60, gt=0, le=600)
-    hold: float = Field(default=30, gt=0, le=120)
-    recovery: float = Field(default=90, gt=0, le=600)
+    """Long session defaults: 20 s baseline, no breath-hold, 20 min of work.
+
+    Hold at 0 skips the breath-hold and its recovery. ``work_until_end`` keeps
+    Work running until the operator presses End. Demo Mode does not use this
+    body; it keeps the short offline durations.
+    """
+
+    baseline: float = Field(default=LONG_BASELINE_S, gt=0, le=600)
+    hold: float = Field(default=LONG_HOLD_S, ge=0, le=120)
+    recovery: float = Field(default=LONG_RECOVERY_S, gt=0, le=600)
+    continue_s: float = Field(default=LONG_WORK_S, gt=0, le=LONG_WORK_MAX_S)
     cycles: int = Field(default=1, ge=1, le=10)
+    closed_loop: bool = False
+    work_until_end: bool = False
+    # Percent of baseline. 5 means the gate opens when the BFI rise is under 5%.
+    recovered_within_pct: float = Field(
+        default=BFI_RECOVERED_BELOW * 100.0,
+        ge=RECOVERED_WITHIN_PCT_MIN,
+        le=RECOVERED_WITHIN_PCT_MAX,
+    )
+    subject_id: str = Field(default="", max_length=64)
+
+
+class DemoStart(BaseModel):
+    """Optional body. An empty post keeps the gate's current recovery boundary."""
+
+    recovered_within_pct: float | None = Field(
+        default=None,
+        ge=RECOVERED_WITHIN_PCT_MIN,
+        le=RECOVERED_WITHIN_PCT_MAX,
+    )
+
+
+_DEMO_START = Body(default_factory=DemoStart)
 
 
 def create_app(
@@ -59,22 +107,33 @@ def create_app(
     openmotion-sdk constructor (tests use a fake).
     """
     hub = Hub()
-    markers = MarkerOutlet() if lsl_markers else None
-    logger = PhaseLogger(sessions_dir, emit=hub.publish, markers=markers)
-    device_kwargs = {"factory": device_factory} if device_factory else {}
-    device = DeviceManager(hub.publish, sessions_dir / "device-scans", **device_kwargs)
-    heart_rate = HeartRateEstimator(hub.publish)
-    hub.add_listener(heart_rate.feed)
+    gate = LiveGate()
+    demo_task: asyncio.Task[None] | None = None
 
-    async def estimate_heart_rate() -> None:
-        while True:
-            await asyncio.sleep(1.0)
-            heart_rate.tick()
+    def publish(frames: list[dict[str, Any]], *, heart_rate: bool = True) -> None:
+        """Broadcast ``frames`` and any stress or heart-rate frames derived from them."""
+        extra: list[dict[str, Any]] = []
+        try:
+            extra = gate.observe(frames)
+        except Exception:
+            log.exception("hemodynamic gate failed")
+        if not heart_rate:
+            extra = [frame for frame in extra if frame.get("type") != "hr"]
+        hub.publish([*frames, *extra])
+
+    def publish_demo(frames: list[dict[str, Any]]) -> None:
+        # The demo script has no pulse, so any optical heart rate from it is noise.
+        publish(frames, heart_rate=False)
+
+    markers = MarkerOutlet() if lsl_markers else None
+    logger = PhaseLogger(sessions_dir, emit=publish, markers=markers)
+    device_kwargs = {"factory": device_factory} if device_factory else {}
+    device = DeviceManager(publish, sessions_dir / "device-scans", **device_kwargs)
 
     @contextlib.asynccontextmanager
     async def lifespan(_: FastAPI) -> AsyncIterator[None]:
         if markers is not None:
-            hub.publish(
+            publish(
                 [
                     {
                         "type": "status",
@@ -84,16 +143,17 @@ def create_app(
                     }
                 ]
             )
-        hub.publish([logger.state(), device.state()])
+        publish([logger.state(), device.state()])
         device.start_polling(asyncio.get_running_loop())
-        tasks = [asyncio.create_task(estimate_heart_rate())]
+        task = None
         if replay_url:
             path = replay_csv or dev_feed.DEFAULT_CSV
-            tasks.append(asyncio.create_task(dev_feed.run_forever(replay_url, path)))
+            task = asyncio.create_task(dev_feed.run_forever(replay_url, path))
         yield
+        await _cancel_demo(stop_protocol=False)
         logger.stop_session()
         await asyncio.to_thread(device.shutdown)
-        for task in tasks:
+        if task:
             task.cancel()
             with contextlib.suppress(asyncio.CancelledError):
                 await task
@@ -102,7 +162,7 @@ def create_app(
     app.state.hub = hub
     app.state.logger = logger
     app.state.device = device
-    app.state.heart_rate = heart_rate
+    app.state.gate = gate
     app.mount("/static", StaticFiles(directory=STATIC), name="static")
 
     def guarded(action: Any) -> dict[str, Any]:
@@ -133,6 +193,11 @@ def create_app(
 
     @app.post("/api/device/scan/start")
     async def device_scan_start() -> dict[str, Any]:
+        # A live scan owns contact quality. Stop Demo Mode before the laser path
+        # so the script cannot publish a stand-in CQ over the headset.
+        await _cancel_demo(stop_protocol=True)
+        if logger.session is not None and logger.session.subject_id == "demo":
+            logger.stop_session()
         subject = logger.session.subject_id if logger.session else ""
         return await device_call(device.start_scan, subject)
 
@@ -166,12 +231,121 @@ def create_app(
 
     @app.post("/api/protocol/start")
     async def protocol_start(body: ProtocolStart) -> dict[str, Any]:
-        durations = {"baseline": body.baseline, "hold": body.hold, "recovery": body.recovery}
-        return guarded(lambda: logger.start_timer(durations, body.cycles))
+        if body.closed_loop and logger.session is not None and logger.session.phase == "end":
+            guarded(logger.stop_session)
+        if logger.session is None and body.closed_loop:
+            guarded(lambda: logger.start_session(body.subject_id.strip() or "demo"))
+        work = None if body.work_until_end else body.continue_s
+        durations = {
+            "baseline": body.baseline,
+            "hold": body.hold,
+            "recovery": body.recovery,
+            "work": work,
+            "continue": work,
+        }
+        previous = gate.recovered_below
+
+        def begin() -> None:
+            # Apply the line first so the timer's samples use it, and put the
+            # old line back if the protocol cannot start.
+            gate.set_recovered_within_pct(body.recovered_within_pct)
+            try:
+                logger.start_timer(
+                    durations,
+                    body.cycles,
+                    closed_loop=body.closed_loop,
+                    signals=gate if body.closed_loop else None,
+                )
+            except Exception:
+                gate.recovered_below = previous
+                gate.settle_index = previous
+                raise
+
+        return guarded(begin)
 
     @app.post("/api/protocol/stop")
     async def protocol_stop() -> dict[str, Any]:
+        await _cancel_demo(stop_protocol=False)
         return guarded(logger.cancel_timer)
+
+    def _demo_running() -> bool:
+        return demo_task is not None and not demo_task.done()
+
+    async def _cancel_demo(*, stop_protocol: bool) -> None:
+        nonlocal demo_task
+        running = demo_task
+        demo_task = None
+        if running is not None and not running.done():
+            running.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await running
+        if stop_protocol:
+            logger.cancel_timer()
+
+    async def _run_demo() -> None:
+        publish(
+            [
+                {
+                    "type": "status",
+                    "source": "demo",
+                    "connected": True,
+                    "detail": "Simulated calibration, then work. Contact quality stays below 1.00.",
+                }
+            ]
+        )
+        try:
+            reason = await run_recovery_demo(
+                publish_demo,
+                lambda: logger.session.phase if logger.session else None,
+                lambda: bool(device.state().get("scanning")),
+            )
+            if reason == "scan":
+                logger.cancel_timer()
+        finally:
+            publish(
+                [
+                    {
+                        "type": "status",
+                        "source": "demo",
+                        "connected": False,
+                        "detail": "",
+                    }
+                ]
+            )
+
+    @app.get("/api/demo")
+    async def demo_state() -> dict[str, Any]:
+        return {"running": _demo_running()}
+
+    @app.post("/api/demo/start")
+    async def demo_start(body: DemoStart = _DEMO_START) -> dict[str, Any]:
+        nonlocal demo_task
+        if device.state().get("scanning"):
+            raise HTTPException(
+                status_code=409,
+                detail="A live scan is running. Demo mode does not replace contact quality.",
+            )
+        if _demo_running():
+            raise HTTPException(status_code=409, detail="Demo mode is already running.")
+
+        def begin() -> None:
+            if logger.session is not None:
+                logger.stop_session()
+            logger.start_session("demo")
+            if body.recovered_within_pct is not None:
+                gate.set_recovered_within_pct(body.recovered_within_pct)
+            logger.start_timer(dict(DEMO_DURATIONS), 1, closed_loop=True, signals=gate)
+
+        state = guarded(begin)
+        demo_task = asyncio.create_task(_run_demo())
+        return {"running": True, **state}
+
+    @app.post("/api/demo/stop")
+    async def demo_stop() -> dict[str, Any]:
+        await _cancel_demo(stop_protocol=True)
+        if logger.session is not None:
+            guarded(logger.stop_session)
+        return {"running": False, **logger.state()}
 
     @app.websocket("/ws")
     async def browser(ws: WebSocket) -> None:
@@ -202,7 +376,7 @@ def create_app(
             while True:
                 accepted, errors = _validate(await ws.receive_text())
                 if accepted:
-                    hub.publish(accepted)
+                    publish(accepted)
                 if errors:
                     await ws.send_text(json.dumps({"type": "error", "errors": errors}))
         except WebSocketDisconnect:

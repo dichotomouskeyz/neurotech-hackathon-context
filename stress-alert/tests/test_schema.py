@@ -47,3 +47,73 @@ def test_valid_frames_round_trip(frame):
 def test_invalid_frames_rejected(frame):
     with pytest.raises(ValidationError):
         frame_adapter.validate_python(frame)
+
+
+def test_cq_null_side_is_missing_not_filled():
+    frame = {"type": "cq", "t": 1.0, "left": None, "right": 0.25}
+    dumped = frame_adapter.validate_python(frame).model_dump(mode="json")
+    assert dumped["left"] is None
+    assert dumped["right"] == 0.25
+
+
+def test_stress_tau_and_closed_loop_session_are_in_the_contract():
+    stress = frame_adapter.validate_python(
+        {
+            "type": "stress",
+            "t": 1.0,
+            "index": 0.35,
+            "alert": True,
+            "reason": "elevated_stress: BFI 35% >= 20% vs baseline",
+            "tau_s": 22.4,
+            "recovery_score": 0.8,
+            "alert_at": 0.10,
+            "channels": "BFI L3, L4, R2",
+        }
+    )
+    assert stress.tau_s == pytest.approx(22.4)
+    assert stress.alert_at == pytest.approx(0.10)
+    assert stress.channels == "BFI L3, L4, R2"
+    gated = frame_adapter.validate_python(
+        {
+            "type": "stress",
+            "t": 2.0,
+            "index": 0.02,
+            "alert": False,
+            "gate": "open",
+            "gate_reason": "open",
+            "task": "advance",
+            "difficulty": 2,
+        }
+    )
+    assert gated.gate == "open"
+    assert gated.task == "advance"
+    assert gated.difficulty == 2
+    session = frame_adapter.validate_python(
+        {
+            "type": "session",
+            "t": 1.0,
+            "active": True,
+            "phase": "recovery",
+            "loop": "coach",
+            "loop_cue": "Pause the hold and breathe with the circle.",
+        }
+    )
+    assert session.loop == "coach"
+    unlocked = frame_adapter.validate_python(
+        {
+            "type": "session",
+            "t": 2.0,
+            "active": True,
+            "phase": "work",
+            "loop": "task",
+            "gate": "open",
+            "difficulty": 2,
+            "loop_cue": "Perfusion-ready. Task step 2 unlocked.",
+        }
+    )
+    assert unlocked.gate == "open"
+    assert unlocked.difficulty == 2
+    with pytest.raises(ValidationError):
+        frame_adapter.validate_python(
+            {"type": "session", "t": 1.0, "active": True, "loop": "stressed"}
+        )
