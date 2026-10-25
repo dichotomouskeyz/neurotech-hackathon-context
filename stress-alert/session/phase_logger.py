@@ -23,13 +23,21 @@ from dashboard import clock
 PHASES = ("baseline", "hold", "recovery", "work", "end")
 NEXT: dict[str | None, set[str]] = {
     None: {"baseline", "end"},
-    "baseline": {"hold", "end"},
+    "baseline": {"hold", "work", "end"},
     "hold": {"recovery", "end"},
     "recovery": {"work", "baseline", "end"},
     "work": {"baseline", "end"},
     "end": set(),
 }
 DEFAULT_DURATIONS = {"baseline": 60.0, "hold": 30.0, "recovery": 90.0}
+# Long session, the live default. A short baseline sit, no breath-hold unless
+# the operator types one, then 20 minutes of work. Demo Mode keeps its own
+# short durations. Work can also run with no deadline until the operator ends it.
+LONG_BASELINE_S = 20.0
+LONG_HOLD_S = 0.0
+LONG_RECOVERY_S = 20.0
+LONG_WORK_S = 20.0 * 60.0
+LONG_WORK_MAX_S = 4.0 * 60.0 * 60.0
 # A hold that never clears the alert does not run the full recovery window.
 # The countdown uses this same dwell, and the cue says why it is short.
 NO_ELEVATION_DWELL_S = 4.0
@@ -186,7 +194,7 @@ class PhaseLogger:
 
     def start_timer(
         self,
-        durations: dict[str, float] | None = None,
+        durations: dict[str, float | None] | None = None,
         cycles: int = 1,
         *,
         closed_loop: bool = False,
@@ -227,8 +235,11 @@ class PhaseLogger:
         if self.session is not None and (cancelled or pending):
             self._emit_state()
 
-    async def _run(self, plan: dict[str, float], cycles: int) -> None:
-        steps = [p for _ in range(cycles) for p in ("baseline", "hold", "recovery")]
+    async def _run(self, plan: dict[str, float | None], cycles: int) -> None:
+        phases = [p for p in ("baseline", "hold", "recovery") if float(plan.get(p) or 0) > 0]
+        steps = [p for _ in range(cycles) for p in phases]
+        if not steps:
+            return
         for i, phase in enumerate(steps):
             self.timer_next = steps[i + 1] if i + 1 < len(steps) else "end"
             self.timer_ends_t = self.now() + plan[phase]
@@ -239,16 +250,18 @@ class PhaseLogger:
         self.mark("end", "timer")
 
     async def _run_closed_loop(
-        self, plan: dict[str, float], cycles: int, signals: LoopSignals
+        self, plan: dict[str, float | None], cycles: int, signals: LoopSignals
     ) -> None:
         """Calibrate, then run the work loop on the recovery gate.
 
-        Baseline, breath-hold, and recovery learn resting forehead BFI and how
-        flow returns. The task stays locked the whole time. Work is the
-        application: the next step follows BFI, BVI, and tau. The hold ends
-        early when elevation has lasted and contact is good enough to score.
-        A hold that never rises still reaches work, and without a task snapshot
-        that work stays locked.
+        A baseline sit learns resting forehead BFI. The breath-hold and its
+        recovery run only when hold is above zero. The task stays locked
+        through calibration. Work is the application and can run for many
+        minutes, or until the operator ends it. During work the breath coach
+        follows the gate on each sample: off baseline with good contact, or a
+        slow recovery tau. The hold ends early when elevation has lasted and
+        contact is good enough to score. A hold that never rises still reaches
+        work, and without a task snapshot that work stays locked.
         """
         try:
             # Let a stop that arrived before this task ran cancel it cleanly,
@@ -268,78 +281,54 @@ class PhaseLogger:
                     "Calibration. Breathe normally. This learns resting forehead "
                     "blood flow. The task stays locked."
                 )
-                self.timer_next = "hold"
-                self.timer_ends_t = self.now() + plan["baseline"]
+                hold_s = float(plan.get("hold") or 0.0)
+                self.timer_next = "hold" if hold_s > 0 else "work"
+                self.timer_ends_t = self.now() + float(plan["baseline"])
                 self.mark("baseline", "timer")
-                await self._wait(plan["baseline"])
-
-                self.loop = "challenge"
-                self.gate = "locked"
-                self.loop_cue = "Calibration breath-hold. Setup only. The task stays locked."
-                self.timer_next = "recovery"
-                self.timer_ends_t = self.now() + plan["hold"]
-                self.mark("hold", "timer")
-                elevated = await self._wait_until(
-                    plan["hold"], lambda: signals.challenge_done(self.now())
-                )
-
+                await self._wait(float(plan["baseline"]))
+                elevated = False
                 returned = False
-                if elevated:
-                    # The countdown is the longest calibration recovery can run.
-                    # It ends sooner once flow is back, contact is good, and a
-                    # decay fit has produced tau. Tau is never taken from this
-                    # countdown. If the fit never lands, the window still ends.
-                    recovery_s = plan["recovery"]
-                    self.loop = "locked"
-                    self.gate = "locked"
+                if hold_s <= 0:
+                    # Baseline sit only. The breath-hold is optional proof, not
+                    # the session. Work is next, and recovery is skipped because
+                    # there is no hold to come back from.
                     self.loop_cue = (
-                        "Calibration. Learning how forehead blood flow returns. "
-                        "The task stays locked."
-                    )
-                    self.timer_next = "work"
-                    self.timer_ends_t = self.now() + recovery_s
-                    self.mark("recovery", "timer")
-                    await self._wait_until(recovery_s, lambda: self._calibration_ready(signals))
-                    returned = self._perfusion_returned(signals)
-                    if not returned:
-                        self.loop = "locked"
-                        self.gate = "locked"
-                        self.loop_cue = (
-                            "Calibration ended before BFI returned with good contact. "
-                            "The task stays locked."
-                        )
-                        self._emit_state()
-                else:
-                    dwell = min(NO_ELEVATION_DWELL_S, plan["recovery"])
-                    self.loop = "locked"
-                    self.gate = "locked"
-                    self.loop_cue = (
-                        "No sustained elevation versus baseline. "
-                        "The task stays locked. Recovery is short so the timer matches."
-                    )
-                    self.timer_next = "work"
-                    self.timer_ends_t = self.now() + dwell
-                    self.mark("recovery", "timer")
-                    await self._wait(dwell)
-                    self.loop_cue = (
-                        "Calibration complete. Flow never rose, so the work step "
-                        "stays locked until BFI moves and returns."
+                        "Calibration complete. Resting forehead blood flow is set. "
+                        "Work is next. The task stays locked until flow is back "
+                        "and contact is good."
                     )
                     self._emit_state()
+                else:
+                    elevated, returned = await self._run_calibration_hold(
+                        plan, signals, hold_s
+                    )
 
-                work_s = float(plan.get("work", plan.get("continue", 12.0)))
-                self.timer_next = nxt
-                self.timer_ends_t = self.now() + work_s
+                work_raw = plan.get("work", plan.get("continue", 12.0))
+                open_ended = work_raw is None
+                work_s = None if open_ended else float(work_raw)
+                self.timer_next = None if open_ended else nxt
+                self.timer_ends_t = None if open_ended else self.now() + work_s
                 self.loop = "locked"
                 self.gate = "locked"
-                self.loop_cue = (
-                    "Work. The next step stays locked until forehead BFI is back "
-                    "and contact is good."
-                )
+                if open_ended:
+                    self.loop_cue = (
+                        "Work. This bout runs until you press End. "
+                        "If forehead blood flow leaves the calibrated baseline "
+                        "and contact is good, a breath starts on its own. "
+                        "The step unlocks when flow is back."
+                    )
+                else:
+                    self.loop_cue = (
+                        "Work. Stay with the task. "
+                        "If forehead blood flow leaves the calibrated baseline "
+                        "and contact is good, a breath starts on its own. "
+                        "The step unlocks when flow is back."
+                    )
                 self.mark("work", "timer")
-                # The application follows the gate. A fake with no snapshot
-                # opens only when calibration actually saw a return, so a flat
-                # hold cannot invent an unlock.
+                # The application follows the gate on every sample, not at the
+                # end of the bout. A fake with no snapshot opens only when
+                # calibration actually saw a return, so a flat hold cannot
+                # invent an unlock.
                 opened = elevated and returned
                 if self._task_view(signals) is not None:
                     await self._wait_until(work_s, lambda: False, signals, follow=True)
@@ -370,24 +359,95 @@ class PhaseLogger:
                 if self.session is not None:
                     self._emit_state()
 
-    async def _wait(self, seconds: float) -> None:
+    async def _run_calibration_hold(
+        self,
+        plan: dict[str, float | None],
+        signals: LoopSignals,
+        hold_s: float,
+    ) -> tuple[bool, bool]:
+        """Optional breath-hold and recovery. Returns (elevated, returned)."""
+        self.loop = "challenge"
+        self.gate = "locked"
+        self.loop_cue = "Calibration breath-hold. Setup only. The task stays locked."
+        self.timer_next = "recovery"
+        self.timer_ends_t = self.now() + hold_s
+        self.mark("hold", "timer")
+        elevated = await self._wait_until(hold_s, lambda: signals.challenge_done(self.now()))
+
+        returned = False
+        recovery_cap = float(plan.get("recovery") or 0.0)
+        if elevated:
+            # The countdown is the longest calibration recovery can run.
+            # It ends sooner once flow is back, contact is good, and a
+            # decay fit has produced tau. Tau is never taken from this
+            # countdown. If the fit never lands, the window still ends.
+            self.loop = "locked"
+            self.gate = "locked"
+            self.loop_cue = (
+                "Calibration. Learning how forehead blood flow returns. "
+                "The task stays locked."
+            )
+            self.timer_next = "work"
+            self.timer_ends_t = self.now() + recovery_cap
+            self.mark("recovery", "timer")
+            await self._wait_until(recovery_cap, lambda: self._calibration_ready(signals))
+            returned = self._perfusion_returned(signals)
+            if not returned:
+                self.loop = "locked"
+                self.gate = "locked"
+                self.loop_cue = (
+                    "Calibration ended before BFI returned with good contact. "
+                    "The task stays locked."
+                )
+                self._emit_state()
+        else:
+            dwell = min(NO_ELEVATION_DWELL_S, recovery_cap)
+            self.loop = "locked"
+            self.gate = "locked"
+            self.loop_cue = (
+                "No sustained elevation versus baseline. "
+                "The task stays locked. Recovery is short so the timer matches."
+            )
+            self.timer_next = "work"
+            self.timer_ends_t = self.now() + dwell
+            self.mark("recovery", "timer")
+            await self._wait(dwell)
+            self.loop_cue = (
+                "Calibration complete. Flow never rose, so the work step "
+                "stays locked until BFI moves and returns."
+            )
+            self._emit_state()
+        return elevated, returned
+
+    async def _wait(self, seconds: float | None) -> None:
         await self._wait_until(seconds, lambda: False)
 
     async def _wait_until(
         self,
-        seconds: float,
+        seconds: float | None,
         done: Callable[[], bool],
         signals: LoopSignals | None = None,
         *,
         follow: bool = False,
     ) -> bool:
-        deadline = asyncio.get_running_loop().time() + max(0.0, seconds)
+        """Wait up to ``seconds``, or until cancel when ``seconds`` is None.
+
+        ``follow`` copies the gate's task view onto the session while waiting,
+        so a breath can start in the middle of a long work bout.
+        """
+        if seconds is None:
+            deadline = None
+        else:
+            deadline = asyncio.get_running_loop().time() + max(0.0, seconds)
         last: tuple[Any, ...] | None = None
         while True:
             if follow and signals is not None:
                 last = self._maybe_follow(signals, last)
             if done():
                 return True
+            if deadline is None:
+                await asyncio.sleep(0.05)
+                continue
             remaining = deadline - asyncio.get_running_loop().time()
             if remaining <= 0:
                 return False

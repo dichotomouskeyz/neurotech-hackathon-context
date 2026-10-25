@@ -25,7 +25,16 @@ from dashboard.device import DeviceError, DeviceManager
 from dashboard.hub import Hub, drain
 from dashboard.live_gate import LiveGate
 from dashboard.schema import PhaseName, frame_adapter
-from session.phase_logger import MarkerOutlet, PhaseError, PhaseLogger
+from session.phase_logger import (
+    LONG_BASELINE_S,
+    LONG_HOLD_S,
+    LONG_RECOVERY_S,
+    LONG_WORK_MAX_S,
+    LONG_WORK_S,
+    MarkerOutlet,
+    PhaseError,
+    PhaseLogger,
+)
 
 log = logging.getLogger(__name__)
 
@@ -43,12 +52,20 @@ class PhaseMark(BaseModel):
 
 
 class ProtocolStart(BaseModel):
-    baseline: float = Field(default=60, gt=0, le=600)
-    hold: float = Field(default=30, gt=0, le=120)
-    recovery: float = Field(default=90, gt=0, le=600)
-    continue_s: float = Field(default=32, gt=0, le=120)
+    """Long session defaults: 20 s baseline, no breath-hold, 20 min of work.
+
+    Hold at 0 skips the breath-hold and its recovery. ``work_until_end`` keeps
+    Work running until the operator presses End. Demo Mode does not use this
+    body; it keeps the short offline durations.
+    """
+
+    baseline: float = Field(default=LONG_BASELINE_S, gt=0, le=600)
+    hold: float = Field(default=LONG_HOLD_S, ge=0, le=120)
+    recovery: float = Field(default=LONG_RECOVERY_S, gt=0, le=600)
+    continue_s: float = Field(default=LONG_WORK_S, gt=0, le=LONG_WORK_MAX_S)
     cycles: int = Field(default=1, ge=1, le=10)
     closed_loop: bool = False
+    work_until_end: bool = False
     subject_id: str = Field(default="", max_length=64)
 
 
@@ -183,12 +200,13 @@ def create_app(
             guarded(logger.stop_session)
         if logger.session is None and body.closed_loop:
             guarded(lambda: logger.start_session(body.subject_id.strip() or "demo"))
+        work = None if body.work_until_end else body.continue_s
         durations = {
             "baseline": body.baseline,
             "hold": body.hold,
             "recovery": body.recovery,
-            "work": body.continue_s,
-            "continue": body.continue_s,
+            "work": work,
+            "continue": work,
         }
         return guarded(
             lambda: logger.start_timer(

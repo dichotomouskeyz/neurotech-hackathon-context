@@ -1,4 +1,4 @@
-"""The operator page and the pure helpers agree on the one-minute closed loop."""
+"""The operator page and the pure helpers agree on the long session."""
 
 import subprocess
 from pathlib import Path
@@ -6,13 +6,17 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 
 
-def test_page_defaults_sum_to_one_minute_and_name_the_method():
+def test_page_defaults_are_a_long_work_bout_after_a_short_baseline():
     html = (ROOT / "dashboard/static/index.html").read_text()
     js = (ROOT / "dashboard/static/app.js").read_text()
-    assert 'id="dur-baseline" value="8"' in html
-    assert 'id="dur-hold" value="8"' in html
-    assert 'id="dur-recovery" value="12"' in html
-    assert 'id="dur-continue" value="32"' in html
+    assert 'id="dur-baseline" value="20"' in html
+    assert 'id="dur-hold" value="0"' in html
+    assert 'id="dur-recovery" value="20"' in html
+    assert 'id="dur-continue" value="1200"' in html
+    assert 'id="work-until-end"' in html
+    assert 'id="present-hint"' in html
+    assert "Long session (20 min work)" in html
+    assert "Hold at 0 skips" in html
     assert "Work (s)" in html
     assert 'id="gate-tau"' in html
     assert "Recovery τ" in html

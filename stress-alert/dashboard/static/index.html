@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="description" content="For research. A short calibration learns resting forehead blood flow. During work, the next step unlocks when BFI returns and contact is good.">
+  <meta name="description" content="For research. Calibrate resting forehead blood flow, then work. A breath starts when flow leaves that baseline and contact is good.">
   <link rel="icon" href="data:,">
   <title>stress-alert</title>
   <link rel="preload" href="/static/vendor/geist-latin-wght-normal.woff2" as="font" type="font/woff2" crossorigin>
@@ -31,6 +31,7 @@
   </header>
 
   <main id="main">
+    <p class="present-hint present-only" id="present-hint">Calibrate, then work. A breath starts when forehead flow leaves the calibrated baseline and contact is good. For research. Not a diagnosis.</p>
     <section class="strip" aria-label="Live status">
       <article class="card tile tile-phase" id="tile-phase" data-phase="" data-live="true">
         <h2 class="card-title">Phase</h2>
@@ -142,14 +143,15 @@
         <h2 class="card-title">Timed protocol</h2>
         <div class="row loop-row">
           <button type="button" class="primary" id="demo-start" aria-pressed="false">Demo Mode</button>
-          <button type="button" class="primary" id="loop-start">Closed loop (~60s)</button>
-          <p class="hint">Demo Mode runs a short calibration (baseline, breath-hold, recovery), then a work loop. The task stays locked during calibration. During work it unlocks only when forehead BFI is back and contact is good. Contact quality in the demo stays below 1.00, and Demo Mode will not start during a live scan. Closed loop is the same two parts on a live scan. Defaults are one minute: calibrate 8 + 8 + 12, then work 32.</p>
+          <button type="button" class="primary" id="loop-start">Long session (20 min work)</button>
+          <p class="hint" id="loop-hint">Long session is the live path. Calibrate is a 20 second baseline sit. Hold at 0 skips the breath-hold and recovery. Work then runs 20 minutes, and a breath starts on its own when forehead flow leaves that baseline and contact is good. Check Until End to keep Work going until you press End. Demo Mode is the short offline fallback: it will not start during a live scan, and its contact scores stay below 1.00.</p>
         </div>
         <form class="row" id="protocol-form">
-          <label class="field">Baseline (s) <input type="number" id="dur-baseline" value="8" min="1" max="600"></label>
-          <label class="field">Hold (s) <input type="number" id="dur-hold" value="8" min="1" max="120"></label>
-          <label class="field">Recovery (s) <input type="number" id="dur-recovery" value="12" min="1" max="600"></label>
-          <label class="field">Work (s) <input type="number" id="dur-continue" value="32" min="1" max="120"></label>
+          <label class="field">Baseline (s) <input type="number" id="dur-baseline" value="20" min="1" max="600"></label>
+          <label class="field">Hold (s, 0 skips) <input type="number" id="dur-hold" value="0" min="0" max="120"></label>
+          <label class="field">Recovery (s) <input type="number" id="dur-recovery" value="20" min="1" max="600"></label>
+          <label class="field">Work (s) <input type="number" id="dur-continue" value="1200" min="1" max="14400"></label>
+          <label class="toggle"><input type="checkbox" id="work-until-end"> Until End</label>
           <label class="field">Cycles <input type="number" id="cycles" value="1" min="1" max="10"></label>
           <button type="submit" class="primary" id="protocol-start">Run timed</button>
           <button type="button" id="protocol-stop">Stop protocol</button>

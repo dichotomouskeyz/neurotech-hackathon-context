@@ -56,10 +56,13 @@ class Stress(_Frame):
     frame and does not set ``alert``. ``channels`` names the cameras in use.
     ``tau_s`` is the recovery time constant, in seconds, once a decay fit succeeds.
     ``gate`` is the work-phase policy: ``open`` only when forehead BFI has
-    returned and contact quality passed. Calibration (baseline, hold, recovery)
-    stays locked. ``task`` is what that policy does to the step (locked,
-    advance, ease, break, coach, or hold). ``difficulty`` is the step.
-    ``alert`` stays secondary telemetry and does not unlock the task.
+    returned and contact quality passed. Calibration (baseline, optional hold,
+    recovery) stays locked. ``task`` is what that policy does to the step
+    (locked, advance, ease, break, coach, or hold). During work, ``coach``
+    starts when BFI is off that baseline and contact is still good, and also
+    when recovery tau is 18 s or slower. Bad contact stays ``locked`` and does
+    not start a breath. ``difficulty`` is the step. ``alert`` stays secondary
+    telemetry and does not unlock the task. It is not a stressed-or-not score.
     """
 
     type: Literal["stress"]

@@ -1,12 +1,14 @@
 """Recovery gate and the task policy it controls.
 
-Calibration (baseline, breath-hold, recovery) learns resting forehead blood
-flow and how it returns. The gate stays shut there. The work phase is the
-application: the next task step unlocks only when forehead blood flow has
-returned toward that baseline and contact quality is high enough to trust the
-return. A bad contact score keeps the gate shut. Blood volume and the recovery
-time constant change difficulty, ask for a break, or coach a breath. They do
-not invent an EEG-style focus score.
+Calibration (baseline, optional breath-hold, recovery) learns resting forehead
+blood flow and, when a hold is run, how it returns. The gate stays shut there.
+The work phase is the application: a longer bout where the next task step
+unlocks only when forehead blood flow has returned toward that baseline and
+contact quality is high enough to trust the return. While work is underway and
+contact is good, blood flow leaving that baseline starts the breath coach on
+its own. A bad contact score keeps the gate shut and does not start a breath.
+Blood volume and the recovery time constant can still ease the step, ask for a
+break, or coach a breath. None of this is a stressed-or-not score.
 
 The stress label remains secondary telemetry. For research. Not a diagnosis.
 """
@@ -122,6 +124,11 @@ def _cue(action: str, reason: str, difficulty: int, gate_open: bool) -> str:
     if action == "coach":
         if gate_open:
             return "Recovery is slow. Ease the task and breathe with the circle."
+        if reason == "locked_bfi":
+            return (
+                "Forehead blood flow is off the calibrated baseline and contact is good. "
+                "Breathe with the circle. The task stays locked until flow returns."
+            )
         return "Recovery is slow. Task stays locked. Breathe with the circle."
     if action == "break":
         return "Blood volume is still up. Take a short break. Difficulty eased."
@@ -148,8 +155,9 @@ class TaskController:
 
     The gate has to be open before difficulty can rise. It rises once per open
     episode. A contact failure, a BFI rise, a high BVI, or a slow tau eases it
-    once, until the gate opens again. Calling ``update`` on every frame does
-    not walk the ladder by itself.
+    once, until the gate opens again. During work, a BFI rise with good contact
+    starts the breath coach immediately, and the coach stops when flow returns.
+    Calling ``update`` on every frame does not walk the ladder by itself.
     """
 
     def __init__(self) -> None:
@@ -182,9 +190,14 @@ class TaskController:
         bvi = _number(bvi_index)
         if not gate.open:
             self._advanced_this_open = False
-            if gate.reason == "locked_bfi" and phase == "work" and _tau_poor(tau_s):
+            # Off baseline during work, with contact already good enough to
+            # score, is the breath trigger. It can happen any time in a long
+            # bout. A slow tau uses the same coach. Bad contact does not.
+            if gate.reason == "locked_bfi" and phase == "work":
                 self._ease_once()
-                self._view = _view("coach", self.difficulty, gate, "tau_poor")
+                # Keep gate_reason as locked_bfi. The coach is the task, not a
+                # new stress label. A slow tau uses the same locked cue here.
+                self._view = _view("coach", self.difficulty, gate, "locked_bfi")
             elif gate.reason in {"locked_cq", "locked_bfi"}:
                 self._ease_once()
                 self._view = _view("locked", self.difficulty, gate)

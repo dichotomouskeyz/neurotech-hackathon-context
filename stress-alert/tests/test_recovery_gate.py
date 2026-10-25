@@ -84,7 +84,10 @@ def test_bad_contact_or_a_new_bfi_rise_locks_and_eases():
     task.update(bfi_index=0.01, bvi_index=0.01, cq=0.8, tau_s=None, phase="work")
     risen = task.update(bfi_index=0.2, bvi_index=0.01, cq=0.8, tau_s=None, phase="work")
     assert risen.gate_open is False
+    assert risen.action == "coach"
     assert risen.reason == "locked_bfi"
+    assert "stays locked" in risen.cue
+    assert "breathe" in risen.cue.lower()
     assert risen.difficulty == 1
 
 
@@ -133,6 +136,22 @@ def test_blood_volume_dynamics_ease_or_break_while_bfi_stays_recovered():
     assert paused.action == "break"
     assert paused.gate_open is True
     assert "break" in paused.cue.lower()
+
+
+def test_off_baseline_with_good_contact_coaches_without_a_slow_tau():
+    """A long work bout offers a breath as soon as flow leaves baseline."""
+    task = TaskController()
+    view = task.update(bfi_index=0.22, bvi_index=0.02, cq=0.81, tau_s=None, phase="work")
+    assert view.gate_open is False
+    assert view.action == "coach"
+    assert view.reason == "locked_bfi"
+    assert "calibrated baseline" in view.cue
+    back = task.update(bfi_index=0.02, bvi_index=0.01, cq=0.81, tau_s=4.0, phase="work")
+    assert back.gate_open is True
+    assert back.action == "advance"
+    poor = task.update(bfi_index=0.02, bvi_index=0.01, cq=0.22, tau_s=None, phase="work")
+    assert poor.action == "locked"
+    assert poor.reason == "locked_cq"
 
 
 def test_a_slow_tau_while_bfi_is_still_up_coaches_without_unlocking():

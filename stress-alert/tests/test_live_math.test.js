@@ -3,27 +3,36 @@ const test = require("node:test");
 
 const liveMath = require("../dashboard/static/live_math.js");
 
-test("protocol defaults sum to one minute and closed loop sends the flag", () => {
+test("long session defaults skip the hold and run 20 minutes of work", () => {
   const body = liveMath.protocolBody({});
   assert.deepEqual(body, {
-    baseline: 8,
-    hold: 8,
-    recovery: 12,
-    continue_s: 32,
+    baseline: 20,
+    hold: 0,
+    recovery: 20,
+    continue_s: 1200,
     cycles: 1,
   });
-  assert.equal(liveMath.loopTotalSeconds(body), 60);
+  // Hold 0 skips the breath-hold and the recovery window.
+  assert.equal(liveMath.loopTotalSeconds(body), 1220);
+  assert.equal(liveMath.loopButtonLabel(body), "Long session (20 min work)");
+  assert.equal(
+    liveMath.loopButtonLabel(body, { workUntilEnd: true }),
+    "Long session (until End)",
+  );
   const empty = liveMath.protocolBody({ baseline: "", hold: "0", recovery: "nope" });
-  assert.equal(empty.baseline, 8);
-  assert.equal(empty.hold, 8);
-  assert.equal(empty.recovery, 12);
-  const loop = liveMath.protocolBody({ baseline: "15", hold: "20" }, {
+  assert.equal(empty.baseline, 20);
+  assert.equal(empty.hold, 0);
+  assert.equal(empty.recovery, 20);
+  const loop = liveMath.protocolBody({ baseline: "15", hold: "12", recovery: "20", continue_s: "30" }, {
     closedLoop: true,
     subjectId: "jb",
+    workUntilEnd: true,
   });
   assert.equal(loop.closed_loop, true);
   assert.equal(loop.subject_id, "jb");
-  assert.equal(liveMath.loopTotalSeconds(loop), 79);
+  assert.equal(loop.work_until_end, true);
+  assert.equal(liveMath.loopTotalSeconds(loop), 77);
+  assert.equal(liveMath.loopButtonLabel({ continue_s: 32, baseline: 8, hold: 8, recovery: 12 }), "Closed loop (~60s)");
 });
 
 test("phase progress and clocks stay finite when the timer is missing", () => {
@@ -57,6 +66,9 @@ test("recovery gate stays locked until the server opens it", () => {
   assert.equal(contact.headline, "Locked");
   const flow = liveMath.gateState({ gate: "locked", gate_reason: "locked_bfi" });
   assert.equal(flow.text, "Locked, BFI");
+  const breath = liveMath.gateState({ gate: "locked", gate_reason: "locked_bfi", task: "coach" });
+  assert.equal(breath.text, "Locked, breath");
+  assert.equal(breath.headline, "Locked");
   const open = liveMath.gateState({ gate: "open", difficulty: 2, task: "advance" });
   assert.equal(open.status, "good");
   assert.equal(open.headline, "Step 2");
