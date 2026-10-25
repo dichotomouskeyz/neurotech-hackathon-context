@@ -650,14 +650,7 @@ function setDemoRunning(on) {
 
 async function toggleDemo() {
   const running = document.body.dataset.demo === "on";
-  const payload = running ? {} : {
-    recovered_within_pct: liveMath.protocolBody(readProtocolFields()).recovered_within_pct,
-  };
-  const res = await fetch(running ? "/api/demo/stop" : "/api/demo/start", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(payload),
-  });
+  const res = await fetch(running ? "/api/demo/stop" : "/api/demo/start", { method: "POST" });
   const data = await res.json().catch(() => ({}));
   if (!res.ok) {
     const detail = Array.isArray(data.detail) ? data.detail[0].msg : data.detail;
@@ -795,7 +788,6 @@ function handle(frame) {
       // Keep the last session's bands after it stops; clear them when a new one starts.
       if (frame.session_id && frame.session_id !== session.session_id) phases = [];
       session = frame;
-      if (frame.loop === "off" && frame.phase === "end") setDemoRunning(false);
       renderControls();
       renderPhaseTile();
       renderStressTile();
@@ -814,6 +806,7 @@ function handle(frame) {
       break;
     case "status":
       setChip(`chip-src-${frame.source.replace(/\W+/g, "-")}`, frame.source, frame.connected, frame.detail);
+      if (frame.source === "dev_feed") setDemoRunning(Boolean(frame.connected));
       break;
     default:
       break;

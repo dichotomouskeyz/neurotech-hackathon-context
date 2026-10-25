@@ -31,8 +31,8 @@ NEXT: dict[str | None, set[str]] = {
 }
 DEFAULT_DURATIONS = {"baseline": 60.0, "hold": 30.0, "recovery": 90.0}
 # Long session, the live default. A short baseline sit, no breath-hold unless
-# the operator types one, then 20 minutes of work. Demo Mode keeps its own
-# short durations. Work can also run with no deadline until the operator ends it.
+# the operator types one, then 20 minutes of work. Work can also run with no
+# deadline until the operator ends it.
 LONG_BASELINE_S = 20.0
 LONG_HOLD_S = 0.0
 LONG_RECOVERY_S = 20.0

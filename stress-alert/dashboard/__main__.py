@@ -1,4 +1,7 @@
-"""Run the dashboard: ``uv run python -m dashboard [--port 8765] [--dev-feed]``."""
+"""Run the dashboard: ``uv run python -m dashboard [--port 8765] [--dev-feed]``.
+
+``--dev-feed`` turns Demo Mode on at startup. The button does the same replay.
+"""
 
 import argparse
 
@@ -10,9 +13,10 @@ parser = argparse.ArgumentParser(prog="python -m dashboard")
 parser.add_argument("--host", default="127.0.0.1")
 parser.add_argument("--port", type=int, default=8765)
 parser.add_argument(
-    "--dev-feed", action="store_true", help="replay data/sample_scan.csv into /ws/ingest"
+    "--dev-feed",
+    action="store_true",
+    help="start Demo Mode on launch (replay data/sample_scan.csv, 16-channel BFI/BVI)",
 )
 args = parser.parse_args()
 
-feed_url = f"ws://127.0.0.1:{args.port}/ws/ingest" if args.dev_feed else None
-uvicorn.run(create_app(dev_feed_url=feed_url), host=args.host, port=args.port)
+uvicorn.run(create_app(dev_feed=args.dev_feed), host=args.host, port=args.port)

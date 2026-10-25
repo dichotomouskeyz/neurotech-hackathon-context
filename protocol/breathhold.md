@@ -88,7 +88,7 @@ Phase markers must match what the dashboard annotates:
 
 ## Long session (live default)
 
-For research. The live copy of this section is `stress-alert/protocol/breathhold.md`. The live default is a 20 second baseline sit, then 20 minutes of work (or until End). The breath-hold is optional. During work, forehead BFI off the calibrated baseline with contact quality at least 0.50 starts a breath on its own. The next step unlocks when BFI has returned and contact is still good. Bad contact locks the gate and does not start a breath. BVI and a slow recovery tau can ease the step, ask for a break, or coach a breath. The perfusion tile does not unlock the task. Demo Mode is the short offline fallback: contact quality stays below 1.00, and it will not start during a live scan.
+For research. The live copy of this section is `stress-alert/protocol/breathhold.md`. The live default is a 20 second baseline sit, then 20 minutes of work (or until End). The breath-hold is optional. During work, forehead BFI off the calibrated baseline with contact quality at least 0.50 starts a breath on its own. The next step unlocks when BFI has returned and contact is still good. Bad contact locks the gate and does not start a breath. BVI and a slow recovery tau can ease the step, ask for a break, or coach a breath. The perfusion tile does not unlock the task. Demo Mode replays the 16-channel sample scan (the same feed as `--dev-feed`) and will not start during a live scan.
 
 If the hold ends without a rise, the screen says so and does not unlock the task. Optical heart rate stays on the side panel and is not an input.
 
