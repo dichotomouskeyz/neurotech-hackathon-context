@@ -692,16 +692,38 @@ function renderDevice() {
   setPart("dev-right", "Right sensor", d.connected && d.console, d.right);
   $("device-sdk").textContent = d.sdk_version ? `SDK ${d.sdk_version}` : "";
   $("device-error").textContent = d.error || "";
+  const statusEl = $("device-status");
+  if (statusEl) statusEl.textContent = d.status || "";
   setModeButton($("device-connect"), Boolean(d.connected), d.connected ? "Disconnect" : "Search");
   const scan = $("scan-start");
   const scanning = Boolean(d.scanning);
+  const bringingUp = Boolean(d.status);
+  const statusText = typeof d.status === "string" ? d.status : "";
+  const writingLaser = statusText.startsWith("Writing laser");
+  const waitingFrame = statusText.startsWith("Waiting for");
   setModeButton(scan, scanning, scanning ? "Stop scan" : "Start scan");
+  if (scan && scan.dataset.busy === "true" && bringingUp) {
+    scan.textContent = writingLaser
+      ? "Writing laser…"
+      : waitingFrame
+        ? "Waiting for frames…"
+        : "Configuring…";
+  }
   if (scan && scan.dataset.busy !== "true") {
     const canScan = d.connected && d.console && (d.left || d.right);
-    scan.disabled = scanning ? false : !canScan;
+    scan.disabled = scanning ? false : !canScan || bringingUp;
   }
   const ready = d.connected && d.console && (d.left || d.right);
-  setChip("chip-device", d.scanning ? "open-motion scanning" : "open-motion", ready, d.error);
+  const chip = scanning
+    ? "open-motion scanning"
+    : writingLaser
+      ? "writing laser registers"
+      : waitingFrame
+        ? "waiting for frames"
+        : bringingUp
+          ? "configuring cameras"
+          : "open-motion";
+  setChip("chip-device", chip, ready, d.error || d.status);
 }
 
 async function deviceAction(path, button) {
@@ -709,6 +731,7 @@ async function deviceAction(path, button) {
   button.dataset.busy = "true";
   const label = button.textContent;
   if (path === "connect") button.textContent = "Searching…";
+  if (path === "scan/start") button.textContent = "Writing laser…";
   try {
     await post(`/api/device/${path}`, {}, "device-error");
   } finally {
