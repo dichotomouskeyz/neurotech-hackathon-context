@@ -28,23 +28,24 @@ RAMP_S = 0.8
 # the work-loop load.
 CALIB_DECAY_TAU_S = 1.4
 # Work starts already above baseline (the person has been at the task), then
-# decays. The 1 s smoother needs a little time after this before BFI counts
-# as returned.
+# decays. Flow stays up for 3 s so the breath coach, which needs about 4 s of
+# trailing mean, starts before BFI returns.
 WORK_PEAK = 2.50
-WORK_DECAY_TAU_S = 1.4
-WORK_DECAY_START_S = 0.5
-WORK_BVI_START_S = 5.0
-WORK_CQ_DIP_START_S = 6.8
-WORK_CQ_DIP_END_S = 8.2
+WORK_DECAY_TAU_S = 1.2
+WORK_DECAY_START_S = 3.0
+WORK_BVI_START_S = 9.4
+WORK_CQ_DIP_START_S = 10.8
+WORK_CQ_DIP_END_S = 12.2
 DEMO_HZ = 20.0
-# About 25 s end to end. The hold ends about 1.5 s in, once the rise has held.
-# Recovery ends at about 10 s, the shortest window the tau fit accepts.
+# About 28 s end to end. The hold ends about 1.5 s in, once the rise has held.
+# Recovery ends at about 10 s, the shortest window the tau fit accepts. Work
+# shows the coach, the unlock, the volume break, the contact lock, the re-open.
 DEMO_DURATIONS = {
-    "baseline": 3.0,
+    "baseline": 2.5,
     "hold": 6.0,
     "recovery": 14.0,
-    "work": 10.5,
-    "continue": 10.5,
+    "work": 13.6,
+    "continue": 13.6,
 }
 
 

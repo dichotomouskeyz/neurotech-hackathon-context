@@ -142,3 +142,62 @@ def test_closed_loop_starts_a_session_and_can_run_again_after_end(app):
     assert again.json()["session_id"] != old_id
     assert again.json()["subject_id"] == "judge-2"
     client.post("/api/protocol/stop")
+
+
+def _protocol(recovered_within_pct=None):
+    body = {"baseline": 20, "hold": 0, "recovery": 20, "continue_s": 30, "closed_loop": True}
+    if recovered_within_pct is not None:
+        body["recovered_within_pct"] = recovered_within_pct
+    return body
+
+
+def test_protocol_start_applies_the_operator_recovery_boundary(app):
+    """The timed-protocol percent is the line LiveGate compares. Bad values do not stick."""
+    client = TestClient(app)
+    assert app.state.gate.recovered_below == pytest.approx(0.05)
+
+    for bad in (0, 26, 100):
+        rejected = client.post("/api/protocol/start", json=_protocol(bad))
+        assert rejected.status_code == 422
+        assert app.state.gate.recovered_below == pytest.approx(0.05)
+
+    # A start that cannot run must not leave a new line behind.
+    refused = client.post("/api/protocol/start", json={**_protocol(12), "closed_loop": False})
+    assert refused.status_code == 409
+    assert app.state.gate.recovered_below == pytest.approx(0.05)
+
+    started = client.post("/api/protocol/start", json=_protocol(12))
+    assert started.status_code == 200
+    assert app.state.gate.recovered_below == pytest.approx(0.12)
+    assert app.state.gate.settle_index == pytest.approx(0.12)
+    assert client.post("/api/protocol/stop").status_code == 200
+    assert client.post("/api/session/stop").status_code == 200
+
+
+def test_protocol_start_without_a_boundary_keeps_five_percent(app):
+    client = TestClient(app)
+    started = client.post("/api/protocol/start", json=_protocol())
+    assert started.status_code == 200
+    assert app.state.gate.recovered_below == pytest.approx(0.05)
+    client.post("/api/protocol/stop")
+    client.post("/api/session/stop")
+
+
+def test_demo_empty_post_starts_and_keeps_the_default_boundary(app):
+    with TestClient(app) as client:
+        empty = client.post("/api/demo/start")
+        assert empty.status_code == 200
+        assert app.state.gate.recovered_below == pytest.approx(0.05)
+        assert client.post("/api/demo/stop").status_code == 200
+
+
+def test_demo_start_applies_the_operator_recovery_boundary(app):
+    with TestClient(app) as client:
+        rejected = client.post("/api/demo/start", json={"recovered_within_pct": 0})
+        assert rejected.status_code == 422
+        assert app.state.gate.recovered_below == pytest.approx(0.05)
+
+        started = client.post("/api/demo/start", json={"recovered_within_pct": 8})
+        assert started.status_code == 200
+        assert app.state.gate.recovered_below == pytest.approx(0.08)
+        assert client.post("/api/demo/stop").status_code == 200

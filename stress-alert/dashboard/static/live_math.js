@@ -3,12 +3,14 @@
 // Pure helpers for the live dashboard. app.js calls these as liveMath.*.
 // Node tests require this file. Keep the rules in sync with dashboard/live_gate.py.
 
+// Long session. Keep these next to session/phase_logger.py LONG_* constants.
 const LOOP_DEFAULTS = {
-  baseline: 8,
-  hold: 8,
-  recovery: 12,
-  continue_s: 32,
+  baseline: 20,
+  hold: 0,
+  recovery: 20,
+  continue_s: 1200,
   cycles: 1,
+  recovered_within_pct: 5,
 };
 
 function quantile(sorted, q) {
@@ -88,24 +90,54 @@ function positiveNumber(value, fallback) {
   return Number.isFinite(number) && number > 0 ? number : fallback;
 }
 
+function nonNegativeNumber(value, fallback) {
+  const number = typeof value === "number" ? value : Number(value);
+  return Number.isFinite(number) && number >= 0 ? number : fallback;
+}
+
+function recoveredWithinPct(value, fallback) {
+  if (value === "" || value == null) return fallback;
+  const number = typeof value === "number" ? value : Number(value);
+  if (!Number.isFinite(number)) return fallback;
+  return number;
+}
+
 function protocolBody(fields, options = {}) {
   const src = fields || {};
   const body = {
     baseline: positiveNumber(src.baseline, LOOP_DEFAULTS.baseline),
-    hold: positiveNumber(src.hold, LOOP_DEFAULTS.hold),
+    // 0 skips the breath-hold. A blank field is 0, which is that skip.
+    hold: nonNegativeNumber(src.hold, LOOP_DEFAULTS.hold),
     recovery: positiveNumber(src.recovery, LOOP_DEFAULTS.recovery),
     continue_s: positiveNumber(src.continue_s, LOOP_DEFAULTS.continue_s),
     cycles: Math.min(10, Math.max(1, Math.round(positiveNumber(src.cycles, LOOP_DEFAULTS.cycles)))),
+    recovered_within_pct: recoveredWithinPct(
+      src.recovered_within_pct,
+      LOOP_DEFAULTS.recovered_within_pct,
+    ),
   };
   if (options.closedLoop) {
     body.closed_loop = true;
     body.subject_id = options.subjectId || "";
   }
+  if (options.workUntilEnd) body.work_until_end = true;
   return body;
 }
 
 function loopTotalSeconds(body) {
-  return body.baseline + body.hold + body.recovery + body.continue_s;
+  const hold = body.hold > 0 ? body.hold : 0;
+  const recovery = body.hold > 0 ? body.recovery : 0;
+  return body.baseline + hold + recovery + body.continue_s;
+}
+
+function loopButtonLabel(body, options = {}) {
+  if (options && options.workUntilEnd) return "Long session (until End)";
+  const work = body.continue_s;
+  if (work >= 60) {
+    const minutes = Math.max(1, Math.round(work / 60));
+    return `Long session (${minutes} min work)`;
+  }
+  return `Closed loop (~${Math.round(loopTotalSeconds(body))}s)`;
 }
 
 // Hold and recovery never keep the baseline subtitle. Poor contact and a real
@@ -144,12 +176,22 @@ function gateState(stress, cq) {
   if (gate === "open") {
     const step = stress.difficulty || 1;
     const task = stress.task || "hold";
-    if (task === "coach") return { status: "warning", text: "Open, slow recovery", headline: `Step ${step}` };
+    if (task === "coach") {
+      const why = (stress && stress.gate_reason) || "";
+      if (why.includes("bfi") || why === "coach_mean") {
+        return { status: "warning", text: "Open, breath", headline: `Step ${step}` };
+      }
+      return { status: "warning", text: "Open, slow recovery", headline: `Step ${step}` };
+    }
     if (task === "break") return { status: "warning", text: "Open, take a break", headline: `Step ${step}` };
     if (task === "ease") return { status: "warning", text: "Open, easing", headline: `Step ${step}` };
     return { status: "good", text: "Perfusion-ready", headline: `Step ${step}` };
   }
+  const task = stress && stress.task;
   const reason = (stress && stress.gate_reason) || "";
+  if (task === "coach" && reason.includes("bfi")) {
+    return { status: "warning", text: "Locked, breath", headline: "Locked" };
+  }
   if (reason.includes("cq") || ((stress && stress.reason) || "").includes("poor_coupling")) {
     return { status: "critical", text: "Locked, contact", headline: "Locked" };
   }
@@ -197,6 +239,7 @@ const liveMath = {
   safeClock,
   protocolBody,
   loopTotalSeconds,
+  loopButtonLabel,
   stressState,
   gateState,
   gateReadout,

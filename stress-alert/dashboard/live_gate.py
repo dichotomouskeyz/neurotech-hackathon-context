@@ -37,14 +37,20 @@ from dataclasses import dataclass, field, replace
 from typing import Any
 
 from features.pulse_hr import estimate_optical_hr
-from features.recovery_gate import BFI_RECOVERED_BELOW, TaskController, TaskView
+from features.recovery_gate import (
+    BFI_RECOVERED_BELOW,
+    TaskController,
+    TaskView,
+    parse_recovered_below,
+    parse_recovered_within_pct,
+)
 from features.stress_index import StressResult, StressTracker
 
 STRESS_HOLD_S = 0.8
 SETTLE_HOLD_S = 2.0
 # Below the 10% alert so a hold that comes back near baseline can continue,
 # while a rise that is still almost at the alert line does not count as settled.
-SETTLE_INDEX = 0.05
+SETTLE_INDEX = BFI_RECOVERED_BELOW
 SMOOTH_S = 1.0
 STRESS_EVERY_S = 0.25
 HR_EVERY_S = 1.0
@@ -328,7 +334,10 @@ class LiveGate:
     ) -> None:
         self.stress_hold_s = stress_hold_s
         self.settle_hold_s = settle_hold_s
-        self.settle_index = settle_index
+        # Same line the recovery gate and the breath coach use. ``settle_index``
+        # stays as the constructor name tests already pass.
+        self.settle_index = parse_recovered_below(settle_index)
+        self.recovered_below = self.settle_index
         self.smooth_s = smooth_s
         self.select_after_s = select_after_s
         self.bfi_tracker = StressTracker()
@@ -417,6 +426,16 @@ class LiveGate:
     def task_snapshot(self) -> TaskView:
         """Latest recovery-gate decision for the phase logger."""
         return self.task.view
+
+    def set_recovered_within_pct(self, percent: float) -> float:
+        """Set the BFI-within-baseline line from the operator percent.
+
+        Applied on the next sample. Contact quality is not changed.
+        Returns the relative rise the gate will compare.
+        """
+        self.recovered_below = parse_recovered_within_pct(percent)
+        self.settle_index = self.recovered_below
+        return self.recovered_below
 
     # Incoming frames
 
@@ -546,6 +565,8 @@ class LiveGate:
                 cq=self._cq,
                 tau_s=None,
                 phase=self.phase or "",
+                recovered_below=self.recovered_below,
+                t=t,
             )
             frame = {
                 "type": "stress",
@@ -569,6 +590,8 @@ class LiveGate:
             cq=self._cq,
             tau_s=tau,
             phase=self.phase or "",
+            recovered_below=self.recovered_below,
+            t=t,
         )
         self._latch(t, shown, view.gate_open, _metric_index(bfi))
         frame = shown.to_frame()
@@ -665,7 +688,7 @@ class LiveGate:
         bfi_back = (
             self.phase == "recovery"
             and bfi_index is not None
-            and bfi_index < BFI_RECOVERED_BELOW
+            and bfi_index < self.recovered_below
             and self._contact_ok()
         )
         if bfi_back:
