@@ -101,3 +101,64 @@ test("chart scale ignores a minority of zeros and a baseline level shift", () =>
   assert.ok(phase.hi < 4);
   assert.ok(phase.lo < 2.5);
 });
+
+test("BFI chart scale follows the slow left/right offset, not the heartbeat", () => {
+  const hz = 40;
+  const dur = 12;
+  const times = [];
+  const left = [];
+  const right = [];
+  const lo = [];
+  const hi = [];
+  for (let i = 0; i < hz * dur; i += 1) {
+    const time = i / hz;
+    times.push(time);
+    const pulse = Math.sin((2 * Math.PI * 1.1 * time));
+    left.push(5.2 + pulse);
+    right.push(5.9 + 0.9 * pulse);
+    lo.push(4.0 + 0.2 * pulse);
+    hi.push(7.2 + 0.2 * pulse);
+  }
+  const raw = liveMath.traceExtent(times, left, right, null);
+  const view = liveMath.chartView("bfi", times, {
+    left: { mean: left, lo, hi },
+    right: { mean: right, lo, hi },
+  }, 30);
+  assert.ok(view.t.length > 0);
+  assert.ok(view.t[0] >= liveMath.BFI_DISPLAY_WINDOW_S - 1e-9);
+  const fit = liveMath.traceExtent(view.t, view.left.mean, view.right.mean, null);
+  assert.ok(raw.hi - raw.lo >= 2.5);
+  assert.ok(fit.hi - fit.lo < raw.hi - raw.lo);
+  assert.ok(fit.hi - fit.lo <= 2);
+  const leftNow = view.left.mean[view.left.mean.length - 1];
+  const rightNow = view.right.mean[view.right.mean.length - 1];
+  assert.ok(rightNow - leftNow > 0.5);
+  assert.ok(leftNow > fit.lo && leftNow < fit.hi);
+  assert.ok(rightNow > fit.lo && rightNow < fit.hi);
+  assert.ok((rightNow - leftNow) / (fit.hi - fit.lo) > 0.25);
+  // Every drawn sample has a full window, so the pulse is gone.
+  for (const value of view.left.mean) assert.ok(Math.abs(value - 5.2) < 0.2);
+  // The camera band widens the axis only when it is included.
+  const withBand = liveMath.traceExtent(
+    view.t, view.left.mean, view.right.mean, null,
+    [view.left.lo, view.left.hi, view.right.lo, view.right.hi],
+  );
+  assert.ok(withBand.hi - withBand.lo > fit.hi - fit.lo);
+  assert.ok(withBand.lo <= 4.5);
+  assert.ok(withBand.hi >= 6.5);
+});
+
+test("BVI chart series stay on the raw samples", () => {
+  const times = [0, 0.5, 1, 1.5, 2];
+  const mean = [8, 8.4, 7.7, 8.1, 8.05];
+  const view = liveMath.chartView("bvi", times, {
+    left: { mean, lo: mean, hi: mean },
+    right: { mean, lo: mean, hi: mean },
+  }, 30);
+  assert.deepEqual(view.t, times);
+  assert.deepEqual(view.left.mean, mean);
+  assert.deepEqual(view.right.mean, mean);
+  const extent = liveMath.traceExtent(view.t, view.left.mean, view.right.mean, null);
+  assert.equal(extent.lo, liveMath.yExtent(mean.concat(mean)).lo);
+  assert.equal(extent.hi, liveMath.yExtent(mean.concat(mean)).hi);
+});

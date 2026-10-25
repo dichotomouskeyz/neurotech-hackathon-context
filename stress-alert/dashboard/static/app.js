@@ -33,10 +33,11 @@ async function syncClock() {
   clockOffset = t + (performance.now() - sent) / 2000 - performance.now() / 1000;
 }
 
-// Hemodynamic buffers, one per metric (BFI, BVI): per side, the camera mean and
+// Hemodynamic buffers, one per metric (BFI, BVI): per side, the camera median and
 // the spread of the middle 50% of cameras (25th to 75th percentile). Min/max is
 // dominated by one outlier camera in real data, so the interquartile band is the
-// honest spread.
+// honest spread. BFI keeps one extra second so the chart can draw a trailing
+// mean without a raw heartbeat at the left edge. BVI is stored and drawn raw.
 
 const SIDES = ["left", "right"];
 const METRICS = ["bfi", "bvi"];
@@ -62,7 +63,7 @@ function summarize(values) {
   return liveMath.cameraStats(values);
 }
 
-function pushHemo(buf, frame) {
+function pushHemo(buf, frame, metric) {
   buf.t.push(frame.t);
   for (const side of SIDES) {
     const [mean, lo, hi] = summarize(frame[side]);
@@ -70,8 +71,9 @@ function pushHemo(buf, frame) {
     buf[side].lo.push(lo);
     buf[side].hi.push(hi);
   }
+  const keep = WINDOW_S + (metric === "bfi" ? liveMath.BFI_DISPLAY_WINDOW_S : 0);
   let drop = 0;
-  while (drop < buf.t.length && buf.t[drop] < frame.t - WINDOW_S) drop += 1;
+  while (drop < buf.t.length && buf.t[drop] < frame.t - keep) drop += 1;
   if (drop) {
     buf.t.splice(0, drop);
     for (const side of SIDES) for (const k of ["mean", "lo", "hi"]) buf[side][k].splice(0, drop);
@@ -86,7 +88,7 @@ function scaleOrigin() {
   return Number.isFinite(session.phase_t) ? session.phase_t : null;
 }
 
-function updateYRange(buf) {
+function updateYRange(buf, view) {
   const yRange = buf.yRange;
   const origin = scaleOrigin();
   // Refit when the phase changes. A hold that sits lower than baseline would
@@ -97,7 +99,12 @@ function updateYRange(buf) {
     yRange.shrinkSince = null;
     yRange.origin = origin;
   }
-  const target = liveMath.traceExtent(buf.t, buf.left.mean, buf.right.mean, origin);
+  // The spread band is an operator view. It widens the axis only while it is
+  // drawn, so the default chart stays on the left and right traces.
+  const extras = showSpread
+    ? [view.left.lo, view.left.hi, view.right.lo, view.right.hi]
+    : undefined;
+  const target = liveMath.traceExtent(view.t, view.left.mean, view.right.mean, origin, extras);
   if (!target) return;
   if (yRange.lo === null || target.lo < yRange.lo || target.hi > yRange.hi) {
     yRange.lo = Math.min(target.lo, yRange.lo ?? target.lo);
@@ -198,15 +205,27 @@ function directLabels(u) {
 // Chart --------------------------------------------------------------------
 
 const charts = {};
-let hoverIdx = null;
+const views = { bfi: null, bvi: null };
+// Crosshair x in seconds before the newest sample. The two charts can differ
+// by the one second BFI holds back, so a shared point index would miss.
+let hoverX = null;
 // The camera spread is mostly the cameras' different analog gains, so it is an
 // operator view, off by default.
 let showSpread = false;
 
 const chartHeight = () => (document.body.dataset.view === "present" ? 300 : 240);
 
+function publishView(metric) {
+  const buf = bufs[metric];
+  const view = liveMath.chartView(metric, buf.t, buf, WINDOW_S);
+  views[metric] = view;
+  updateYRange(buf, view);
+  return view;
+}
+
 function makeChart(metric) {
   const buf = bufs[metric];
+  const view = publishView(metric);
   const el = $(`chart-${metric}`);
   el.replaceChildren();
   const axis = {
@@ -254,31 +273,49 @@ function makeChart(metric) {
       hooks: {
         drawClear: [(u) => phaseBands(u, buf)],
         draw: [directLabels],
-        setCursor: [(u) => { hoverIdx = u.cursor.idx ?? null; renderLegends(); }],
+        setCursor: [(u) => {
+          const idx = u.cursor.idx;
+          hoverX = idx == null ? null : u.data[0][idx];
+          renderLegends();
+        }],
       },
     },
-    chartData(buf),
+    chartData(view),
     el,
   );
 }
 
-function chartData(buf) {
-  const last = buf.t.length ? buf.t[buf.t.length - 1] : 0;
+function chartData(view) {
+  const last = view.t.length ? view.t[view.t.length - 1] : 0;
   return [
-    buf.t.map((t) => t - last),
-    buf.left.mean, buf.left.hi, buf.left.lo,
-    buf.right.mean, buf.right.hi, buf.right.lo,
+    view.t.map((t) => t - last),
+    view.left.mean, view.left.hi, view.left.lo,
+    view.right.mean, view.right.hi, view.right.lo,
   ];
 }
 
 // Legend readouts follow the synced crosshair, or show the latest sample.
+function indexAt(view, x) {
+  const n = view.t.length;
+  const target = view.t[n - 1] + x;
+  let lo = 0;
+  let hi = n - 1;
+  while (lo < hi) {
+    const mid = (lo + hi) >> 1;
+    if (view.t[mid] < target) lo = mid + 1;
+    else hi = mid;
+  }
+  if (lo > 0 && Math.abs(view.t[lo - 1] - target) < Math.abs(view.t[lo] - target)) lo -= 1;
+  return lo;
+}
+
 function renderLegends() {
   for (const metric of METRICS) {
-    const buf = bufs[metric];
-    const n = buf.t.length;
-    const i = hoverIdx ?? n - 1;
-    $(`val-left-${metric}`).textContent = n ? fmt(buf.left.mean[i]) : "--";
-    $(`val-right-${metric}`).textContent = n ? fmt(buf.right.mean[i]) : "--";
+    const view = views[metric];
+    const n = view ? view.t.length : 0;
+    const i = !n || hoverX == null ? n - 1 : indexAt(view, hoverX);
+    $(`val-left-${metric}`).textContent = n ? fmt(view.left.mean[i]) : "--";
+    $(`val-right-${metric}`).textContent = n ? fmt(view.right.mean[i]) : "--";
   }
 }
 
@@ -292,10 +329,9 @@ function draw() {
   animateBreath();
   if (dirty && !paused) {
     for (const metric of METRICS) {
-      updateYRange(bufs[metric]);
-      charts[metric].setData(chartData(bufs[metric]));
+      charts[metric].setData(chartData(publishView(metric)));
     }
-    if (hoverIdx === null) renderLegends();
+    if (hoverX === null) renderLegends();
     dirty = false;
   }
   requestAnimationFrame(draw);
@@ -756,7 +792,7 @@ function handle(frame) {
   switch (frame.type) {
     case "bfi":
     case "bvi":
-      pushHemo(bufs[frame.type], frame);
+      pushHemo(bufs[frame.type], frame, frame.type);
       if (frame.type === "bfi") framesThisSecond += 1;
       $(`card-${frame.type}`).dataset.live = "true";
       dirty = true;
@@ -979,7 +1015,6 @@ $("spread").addEventListener("change", (event) => {
   showSpread = event.currentTarget.checked;
   for (const metric of METRICS) {
     Object.assign(bufs[metric].yRange, { lo: null, hi: null, shrinkSince: null });
-    updateYRange(bufs[metric]);
     makeChart(metric);
   }
 });

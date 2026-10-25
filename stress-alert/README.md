@@ -21,7 +21,7 @@ Every frame field `t` is seconds on `pylsl.local_clock()` of the machine running
 
 Two views, switched in the top bar or with `?view=present`:
 
-- **Operator**: status strip, session and timed-protocol controls, and two charts, blood flow index (BFI) and blood volume index (BVI). Each has its own scale, and they share the time axis, phase bands, and a synced crosshair. An optional camera-spread band shows the middle 50% of cameras.
+- **Operator**: status strip, session and timed-protocol controls, and two charts, blood flow index (BFI) and blood volume index (BVI). Each has its own scale, and they share the time axis, phase bands, and a synced crosshair. The BFI line is a 1 second trailing mean so the heartbeat does not set the vertical scale and the left/right offset stays readable. BVI stays on the raw samples. Optical heart rate still uses the raw flow pulse. An optional camera-spread band shows the middle 50% of cameras, and while that band is on it is included in the scale.
 - **Present**: for the demo screen. Controls are hidden. The phase tile reads Calibrate during the breath-hold setup and Work during the application. The circle holds full during the calibration breath-hold and, while the work step is locked or the breath coach is on, guides a 4 second inhale and a 6 second exhale. The recovery gate, contact quality, and the BFI/BVI charts lead. Heart rate and the perfusion percent sit beside them as secondary telemetry.
 
 The look is a light, clinical base: flat surfaces, hairline borders, mono numerals. Dark tokens remain in `styles.css` but are off (`data-theme="light"` on `<html>`).
