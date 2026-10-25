@@ -18,6 +18,7 @@ The same script lives at `stress-alert/docs/DEMO_SCRIPT_60S.md`.
 - **On screen**: Present view. The line under the title says calibrate, then work, then an automatic breath. Phase reads Calibrate, then Work. Recovery gate tile, contact quality, BFI and BVI charts with the gate line, and the coach banner. Perfusion percent and optical heart rate stay secondary.
 - **Live contact**: light and dark digital numbers on the Open-Motion `live` batch, the same thresholds as `features/cq_score.py`. A bad score blocks the gate.
 - **Demo contact**, if you must fall back: graded scores such as 0.82, 0.78, 0.76, and 0.32. Demo Mode never publishes 1.00, and it will not start while a live scan is running.
+- **Replay**: `uv run python -m dashboard --replay` streams a recorded scan, Openwater's `sample_scan.csv` by default or a team recording passed as a path. The `replay` chip shows it is not live. No synthetic data ships.
 
 ## What to say
 
