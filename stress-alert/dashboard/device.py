@@ -20,6 +20,7 @@ from pathlib import Path
 from typing import Any
 
 from dashboard import clock
+from features.cq_score import DEFAULT_DARK_MAX_DN, DEFAULT_LIGHT_MIN_DN, cq_score
 
 SCAN_SECONDS = 3600  # upper bound; the operator stops the scan from the dashboard
 SIDES = ("left", "right")
@@ -52,14 +53,75 @@ def _value(x: float) -> float | None:
     return float(x) if math.isfinite(x) else None
 
 
+def _cell(batch: Any, name: str, index: int, side: int, cam: int) -> float | None:
+    arr = getattr(batch, name, None)
+    if arr is None:
+        return None
+    try:
+        return _value(float(arr[index, side, cam]))
+    except (IndexError, TypeError, ValueError):
+        return None
+
+
+def _flag(batch: Any, name: str, index: int, side: int, cam: int) -> bool:
+    arr = getattr(batch, name, None)
+    if arr is None:
+        return False
+    try:
+        return bool(arr[index, side, cam])
+    except (IndexError, TypeError, ValueError):
+        return False
+
+
+def _light_term(light: float) -> float:
+    """Same light term as ``cq_score``'s graded contact, without inventing a dark pass."""
+    if light >= DEFAULT_LIGHT_MIN_DN:
+        return 1.0
+    return max(0.0, light / DEFAULT_LIGHT_MIN_DN)
+
+
+def _dark_term(dark: float) -> float:
+    if dark <= DEFAULT_DARK_MAX_DN:
+        return 1.0
+    return max(0.0, 1.0 - (dark - DEFAULT_DARK_MAX_DN) / DEFAULT_DARK_MAX_DN)
+
+
+def _camera_contact(
+    light: float | None, dark: float | None, unlit: bool
+) -> float | dict[str, float] | None:
+    """One camera's contact input for ``cq_score``, or None when nothing was measured.
+
+    The pipeline ``quality`` string is not contact. ``ok`` only means the
+    timestamp was left alone, so it must not become a score of 1.
+    """
+    if unlit:
+        return 0.0
+    if light is not None and dark is not None:
+        return {"light_avg_dn": light, "dark_max_dn": dark}
+    if light is not None:
+        return _light_term(light)
+    # A dark frame inside the ambient threshold is not evidence of coupling.
+    if dark is not None and dark > DEFAULT_DARK_MAX_DN:
+        return _dark_term(dark)
+    return None
+
+
 class LiveSink:
-    """SDK pipeline sink: turns ``live`` FrameBatches into ``bfi`` and ``bvi`` frames.
+    """SDK pipeline sink: ``live`` FrameBatches become ``bfi``, ``bvi``, and ``cq``.
 
     Live batches are row-addressed: each row is one camera on one side
     (``side_ids[i]``, ``cam_ids[i]``) for one capture (``abs_frame_ids[i]``). The
     sink keeps the latest value per camera and emits one 16-camera frame per
     capture when the next capture begins. Batch timestamps start at 0 when the
     scan starts; ``t0`` maps them onto the shared clock.
+
+    Contact quality uses the same DN path as ``features.cq_score``: light frames
+    contribute ``mean_dc_rt``, dark frames contribute ``subtracted_mean``, and
+    ``low_light_rt`` (a frame that arrived with no light) scores 0. A side with
+    no such samples is null. The timestamp-repair ``quality`` flag is ignored.
+    Dark, warmup, and stale rows are not written into BFI or BVI. Dark rows
+    still contribute their dark DN. This sink does not estimate heart rate or
+    stress. The live gate does that from these frames.
     """
 
     channels = {"live"}
@@ -72,10 +134,16 @@ class LiveSink:
         self._t: float = 0.0
         self._bfi = [[None] * 8, [None] * 8]
         self._bvi = [[None] * 8, [None] * 8]
+        self._light = [[None] * 8, [None] * 8]
+        self._dark = [[None] * 8, [None] * 8]
+        self._unlit = [[False] * 8, [False] * 8]
 
     def on_scan_start(self, meta: Any) -> None:
         self._t0 = self._now()
         self._current = None
+        self._light = [[None] * 8, [None] * 8]
+        self._dark = [[None] * 8, [None] * 8]
+        self._unlit = [[False] * 8, [False] * 8]
 
     def consume(self, channel: str, batch: Any) -> None:
         if channel != "live" or getattr(batch, "bfi_live", None) is None:
@@ -87,21 +155,31 @@ class LiveSink:
         abs_ids = getattr(batch, "abs_frame_ids", None)
         types = getattr(batch, "frame_type", None)
         for i in range(n):
-            if types is not None and str(types[i]) == "stale":
+            frame_type = str(types[i]).lower() if types is not None else ""
+            # Warmup and stale rows are not measurements.
+            if frame_type in {"stale", "warmup"}:
+                continue
+            if side_ids is not None and cam_ids is not None:
+                cells = [(int(side_ids[i]), int(cam_ids[i]))]
+            else:
+                cells = [(s, c) for s in range(2) for c in range(8)]
+            # Dark frames are laser-off. Their BFI/BVI would spike the trace and
+            # the heatmap, but the dark DN is the contact measurement.
+            if frame_type == "dark":
+                for side, cam in cells:
+                    if 0 <= side < 2 and 0 <= cam < 8:
+                        self._note_contact(batch, i, side, cam, frame_type)
                 continue
             capture = int(abs_ids[i]) if abs_ids is not None else i
             if self._current is not None and capture != self._current:
                 frames.extend(self._snapshot())
             self._current = capture
             self._t = self._t0 + float(batch.timestamp_s[i])
-            if side_ids is not None and cam_ids is not None:
-                cells = [(int(side_ids[i]), int(cam_ids[i]))]
-            else:
-                cells = [(s, c) for s in range(2) for c in range(8)]
             for side, cam in cells:
                 if 0 <= side < 2 and 0 <= cam < 8:
                     self._bfi[side][cam] = _value(float(batch.bfi_live[i, side, cam]))
                     self._bvi[side][cam] = _value(float(batch.bvi_live[i, side, cam]))
+                    self._note_contact(batch, i, side, cam, frame_type)
         if frames:
             self._publish(frames)
 
@@ -110,11 +188,47 @@ class LiveSink:
             self._publish(self._snapshot())
         self._current = None
 
+    def _note_contact(self, batch: Any, index: int, side: int, cam: int, frame_type: str) -> None:
+        if frame_type == "dark":
+            dark = _cell(batch, "subtracted_mean", index, side, cam)
+            if dark is not None:
+                self._dark[side][cam] = dark
+            return
+        if _flag(batch, "low_light_rt", index, side, cam):
+            self._unlit[side][cam] = True
+            return
+        light = _cell(batch, "mean_dc_rt", index, side, cam)
+        if light is not None:
+            self._light[side][cam] = light
+            self._unlit[side][cam] = False
+
+    def _side_cq(self, side: int) -> float | None:
+        values: list[float | dict[str, float]] = []
+        for cam in range(8):
+            scored = _camera_contact(
+                self._light[side][cam], self._dark[side][cam], self._unlit[side][cam]
+            )
+            if scored is not None:
+                values.append(scored)
+        if not values:
+            return None
+        try:
+            return cq_score(values).score
+        except (TypeError, ValueError):
+            return None
+
     def _snapshot(self) -> list[dict[str, Any]]:
-        return [
+        frames: list[dict[str, Any]] = [
             {"type": metric, "t": self._t, "left": list(values[0]), "right": list(values[1])}
             for metric, values in (("bfi", self._bfi), ("bvi", self._bvi))
         ]
+        left = self._side_cq(0)
+        right = self._side_cq(1)
+        # A side with no samples stays null. The live gate ignores that side
+        # instead of treating a missing sensor as perfect or as poor contact.
+        if left is not None or right is not None:
+            frames.append({"type": "cq", "t": self._t, "left": left, "right": right})
+        return frames
 
 
 class DeviceManager:

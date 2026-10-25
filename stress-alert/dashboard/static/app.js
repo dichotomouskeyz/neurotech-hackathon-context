@@ -3,12 +3,16 @@
 const WINDOW_S = 30;
 const STALE_S = 5;
 const CQ_GOOD = 0.7;
+const CQ_GATE = 0.5;
 const CQ_WEAK = 0.4;
+const BREATH_IN_S = 4;
+const BREATH_OUT_S = 6;
 const NEXT = {
   null: ["baseline", "end"],
-  baseline: ["hold", "end"],
+  baseline: ["hold", "work", "end"],
   hold: ["recovery", "end"],
-  recovery: ["baseline", "end"],
+  recovery: ["work", "baseline", "end"],
+  work: ["baseline", "end"],
   end: [],
 };
 
@@ -29,10 +33,11 @@ async function syncClock() {
   clockOffset = t + (performance.now() - sent) / 2000 - performance.now() / 1000;
 }
 
-// Hemodynamic buffers, one per metric (BFI, BVI): per side, the camera mean and
+// Hemodynamic buffers, one per metric (BFI, BVI): per side, the camera median and
 // the spread of the middle 50% of cameras (25th to 75th percentile). Min/max is
 // dominated by one outlier camera in real data, so the interquartile band is the
-// honest spread.
+// honest spread. Both charts draw these raw samples. BFI's y-axis uses a shorter
+// recent window so the pulse stays on screen while the slow level can move.
 
 const SIDES = ["left", "right"];
 const METRICS = ["bfi", "bvi"];
@@ -55,10 +60,7 @@ function quantile(sorted, q) {
 }
 
 function summarize(values) {
-  const v = values.filter((x) => x !== null).sort((a, b) => a - b);
-  if (!v.length) return [null, null, null];
-  const mean = v.reduce((a, b) => a + b, 0) / v.length;
-  return [mean, quantile(v, 0.25), quantile(v, 0.75)];
+  return liveMath.cameraStats(values);
 }
 
 function pushHemo(buf, frame) {
@@ -79,18 +81,38 @@ function pushHemo(buf, frame) {
 
 // Y range that grows at once but only shrinks after it has been too wide for a while,
 // so the traces do not jump on every frame.
-function updateYRange(buf) {
+function scaleOrigin() {
+  if (!session.active) return null;
+  if (!["baseline", "hold", "recovery", "work"].includes(session.phase)) return null;
+  return Number.isFinite(session.phase_t) ? session.phase_t : null;
+}
+
+function updateYRange(buf, metric) {
   const yRange = buf.yRange;
-  let lo = Infinity;
-  let hi = -Infinity;
-  const [loKey, hiKey] = showSpread ? ["lo", "hi"] : ["mean", "mean"];
-  for (const side of SIDES) {
-    for (const v of buf[side][loKey]) if (v !== null && v < lo) lo = v;
-    for (const v of buf[side][hiKey]) if (v !== null && v > hi) hi = v;
+  const origin = scaleOrigin();
+  // Refit when the phase changes. A hold that sits lower than baseline would
+  // otherwise stay squashed on the baseline scale for the whole window.
+  if (yRange.origin !== origin) {
+    yRange.lo = null;
+    yRange.hi = null;
+    yRange.shrinkSince = null;
+    yRange.origin = origin;
   }
-  if (!Number.isFinite(lo)) return;
-  const pad = Math.max((hi - lo) * 0.08, 0.1);
-  const target = { lo: Math.floor((lo - pad) * 2) / 2, hi: Math.ceil((hi + pad) * 2) / 2 };
+  // Blood flow: follow the recent pulse level immediately. A ratchet would
+  // keep the old floor when the band slides from 5-7 up to 6-8. The spread
+  // band widens this axis only while it is drawn.
+  if (metric === "bfi") {
+    const series = [buf.left.mean, buf.right.mean];
+    if (showSpread) series.push(buf.left.lo, buf.left.hi, buf.right.lo, buf.right.hi);
+    const target = liveMath.bfiBounds(buf.t, series, origin);
+    if (!target) return;
+    yRange.lo = target.lo;
+    yRange.hi = target.hi;
+    yRange.shrinkSince = null;
+    return;
+  }
+  const target = liveMath.traceExtent(buf.t, buf.left.mean, buf.right.mean, origin);
+  if (!target) return;
   if (yRange.lo === null || target.lo < yRange.lo || target.hi > yRange.hi) {
     yRange.lo = Math.min(target.lo, yRange.lo ?? target.lo);
     yRange.hi = Math.max(target.hi, yRange.hi ?? target.hi);
@@ -107,7 +129,7 @@ function updateYRange(buf) {
 
 // Session and phase state ------------------------------------------------
 
-let session = { active: false, phase: null };
+let session = { active: false, phase: null, loop: "off", loop_cue: "", gate: "off", difficulty: 1 };
 let phases = [];
 
 function phaseBands(u, buf) {
@@ -116,7 +138,12 @@ function phaseBands(u, buf) {
   const { ctx } = u;
   const { top, height } = u.bbox;
   const dpr = devicePixelRatio;
-  const fills = { hold: css("--phase-hold"), recovery: css("--phase-recovery") };
+  const fills = {
+    hold: css("--phase-hold"),
+    recovery: css("--phase-recovery"),
+    work: css("--phase-work"),
+  };
+  const bandName = { baseline: "calib", hold: "calib", recovery: "calib", work: "work" };
   ctx.save();
   ctx.font = `500 ${11 * dpr}px ${css("--font-sans")}`;
   ctx.textAlign = "left";
@@ -137,9 +164,10 @@ function phaseBands(u, buf) {
       ctx.fillRect(Math.round(x0), top, dpr, height);
     }
     const pad = 6 * dpr;
-    if (ctx.measureText(p.phase).width + 2 * pad <= x1 - x0) {
+    const label = bandName[p.phase] || p.phase;
+    if (ctx.measureText(label).width + 2 * pad <= x1 - x0) {
       ctx.fillStyle = css("--ink-muted");
-      ctx.fillText(p.phase, x0 + pad, top + 14 * dpr);
+      ctx.fillText(label, x0 + pad, top + 14 * dpr);
     }
   });
   ctx.restore();
@@ -193,6 +221,7 @@ const chartHeight = () => (document.body.dataset.view === "present" ? 300 : 240)
 
 function makeChart(metric) {
   const buf = bufs[metric];
+  updateYRange(buf, metric);
   const el = $(`chart-${metric}`);
   el.replaceChildren();
   const axis = {
@@ -220,7 +249,7 @@ function makeChart(metric) {
       },
       axes: [
         { ...axis, values: (u, ticks) => ticks.map((v) => (v === 0 ? "now" : `${v}s`)) },
-        { ...axis, size: 44, values: (u, ticks) => ticks.map((v) => v.toFixed(1)) },
+        { ...axis, size: 44, values: (u, ticks) => ticks.map((v) => (Number.isFinite(v) ? v.toFixed(1) : "")) },
       ],
       series: [
         {},
@@ -278,7 +307,7 @@ function draw() {
   animateBreath();
   if (dirty && !paused) {
     for (const metric of METRICS) {
-      updateYRange(bufs[metric]);
+      updateYRange(bufs[metric], metric);
       charts[metric].setData(chartData(bufs[metric]));
     }
     if (hoverIdx === null) renderLegends();
@@ -301,25 +330,50 @@ function setState(el, status, text) {
   el.textContent = text;
 }
 
+function breathCycle(seconds) {
+  const period = BREATH_IN_S + BREATH_OUT_S;
+  const x = ((seconds % period) + period) % period;
+  if (x < BREATH_IN_S) {
+    return { word: "Inhale", scale: 0.7 + 0.3 * (x / BREATH_IN_S), progress: x / period };
+  }
+  const y = (x - BREATH_IN_S) / BREATH_OUT_S;
+  return { word: "Exhale", scale: 1 - 0.3 * y, progress: x / period };
+}
+
 function renderPhaseTile() {
   const now = sharedNow();
   const tile = $("tile-phase");
   const phase = session.active ? session.phase : null;
+  const loop = session.loop || "off";
   tile.dataset.phase = phase || "";
-  $("phase-name").textContent = session.active ? phase || "Ready" : "Idle";
-  const running = phase && phase !== "end" && now !== null;
-  $("phase-elapsed").textContent = running ? fmtClock(now - session.phase_t) : "";
-  const timed = session.timer_next && session.timer_ends_t && now !== null;
-  $("phase-next").textContent = timed ? `${session.timer_next} in ${fmtClock(session.timer_ends_t - now)}` : "";
-  const progress = timed
-    ? Math.min(1, (now - session.phase_t) / (session.timer_ends_t - session.phase_t))
+  document.body.dataset.loop = loop;
+  $("phase-name").textContent = session.active ? phaseTitle(phase) : "Idle";
+  const running = phase && phase !== "end" && now !== null && Number.isFinite(session.phase_t);
+  const elapsed = running ? now - session.phase_t : null;
+  $("phase-elapsed").textContent = elapsed !== null && Number.isFinite(elapsed) ? liveMath.safeClock(elapsed) : "";
+  const timed = Boolean(session.timer_next) && Number.isFinite(session.timer_ends_t) && Number.isFinite(now);
+  const remaining = timed ? session.timer_ends_t - now : null;
+  let nextText = "";
+  if (timed && Number.isFinite(remaining)) {
+    nextText = `${session.timer_next} in ${liveMath.safeClock(remaining)}`;
+  } else if (phase === "work" && loop !== "off") {
+    nextText = "until End";
+  }
+  $("phase-next").textContent = nextText;
+  let progress = timed
+    ? liveMath.phaseFraction(now, session.phase_t, session.timer_ends_t)
     : 0;
+  // The inhale/exhale guide is the breath coach only. A locked gate (bad
+  // contact, or still calibrating) keeps the phase clock.
+  const guided = loop === "coach" ? breathCycle(performance.now() / 1000) : null;
+  if (guided) progress = guided.progress;
   $("phase-progress").style.width = `${(progress * 100).toFixed(1)}%`;
-  $("breath-phase").textContent = $("phase-name").textContent;
-  $("breath-clock").textContent = $("phase-elapsed").textContent;
-  $("breath-next").textContent = $("phase-next").textContent;
+  $("breath-phase").textContent = phaseTitle(phase);
+  $("breath-clock").textContent = guided ? guided.word : $("phase-elapsed").textContent;
+  $("breath-next").textContent = guided ? "Follow the circle" : $("phase-next").textContent;
   $("breath-progress").style.strokeDasharray = `${(progress * 100).toFixed(1)} 100`;
   $("breath-progress").style.opacity = progress > 0 ? "1" : "0";
+  renderCoach(guided);
 }
 
 // Breathing circle: a slow ambient rise and fall at baseline, held full during the
@@ -328,12 +382,50 @@ const reduceMotion = matchMedia("(prefers-reduced-motion: reduce)");
 let breathScale = 0.72;
 function breathTarget(seconds) {
   const phase = session.active ? session.phase : null;
+  const loop = session.loop || "off";
   const wave = (period, amp) =>
     reduceMotion.matches ? 0 : amp * Math.sin((2 * Math.PI * seconds) / period);
-  if (phase === "baseline") return 0.84 + wave(5, 0.05);
-  if (phase === "hold") return 1;
-  if (phase === "recovery") return 0.88 + wave(3.5, 0.07);
+  if (loop === "coach") return breathCycle(seconds).scale;
+  if (loop === "challenge" || phase === "hold") return 1;
+  if (loop === "baseline" || phase === "baseline") return 0.84 + wave(5, 0.05);
+  if (loop === "continue" || phase === "recovery") return 0.88 + wave(3.5, 0.07);
+  if (phase === "work") return 0.84 + wave(5, 0.04);
   return 0.72;
+}
+
+function phaseTitle(phase) {
+  if (!phase) return "Ready";
+  if (phase === "work") return "Work";
+  if (phase === "baseline" || phase === "hold" || phase === "recovery") return "Calibrate";
+  if (phase === "end") return "End";
+  return phase;
+}
+
+function renderCoach(guided) {
+  const loop = session.loop || "off";
+  const el = $("coach");
+  el.dataset.mode = loop;
+  el.hidden = loop === "off";
+  $("coach-cue").textContent = session.loop_cue || "";
+  const stepLabel = `Step ${session.difficulty || 1}`;
+  if (loop === "task" || loop === "ease") $("coach-step").textContent = stepLabel;
+  else if (loop === "break") $("coach-step").textContent = "Break";
+  else if (loop === "coach" || loop === "locked") $("coach-step").textContent = guided ? guided.word : "";
+  else $("coach-step").textContent = "";
+  const phase = session.active ? session.phase : null;
+  const calibrating = phase === "baseline" || phase === "hold" || phase === "recovery";
+  const kicker = {
+    baseline: "Calibration",
+    challenge: "Calibration",
+    coach: "Breath coach",
+    continue: "Work",
+    locked: calibrating ? "Calibration" : "Task locked",
+    task: "Task unlocked",
+    ease: "Easing",
+    break: "Break",
+  };
+  const title = calibrating && loop !== "off" ? "Calibration" : kicker[loop];
+  $("coach-kicker").textContent = title || "Recovery gate";
 }
 function animateBreath() {
   if (document.body.dataset.view !== "present") return;
@@ -352,22 +444,49 @@ function renderHrTile() {
   $("hr-note").textContent = stale ? `last value ${Math.round(now - optical.t)} s ago` : "";
 }
 
+function finiteCq(value) {
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
 function cqStatus() {
   if (!latest.cq) return null;
-  const worst = Math.min(latest.cq.left, latest.cq.right);
-  if (worst >= CQ_GOOD) return ["good", "Good contact"];
+  const scores = SIDES.map((side) => finiteCq(latest.cq[side]));
+  const known = scores.filter((v) => v !== null);
+  if (!known.length) return ["unknown", "Contact unknown"];
+  const worst = Math.min(...known);
+  const missing = scores.some((v) => v === null);
+  if (worst >= CQ_GOOD) {
+    return missing ? ["warning", "One side has no contact score"] : ["good", "Good contact"];
+  }
+  // 0.50 is the live-gate threshold. The weaker band is display only.
+  if (worst >= CQ_GATE) return ["warning", "Contact ok to score"];
   if (worst >= CQ_WEAK) return ["warning", "Weak contact"];
   return ["critical", "Fix sensor coupling"];
 }
 
 function renderCqTile() {
   if (!latest.cq) return;
-  $("tile-cq").dataset.live = "true";
-  for (const side of SIDES) {
-    const v = latest.cq[side];
-    $(`cq-${side}`).textContent = fmt(v);
-    $(`cq-${side}-fill`).style.width = `${Math.round(v * 100)}%`;
+  const scores = SIDES.map((side) => finiteCq(latest.cq[side]));
+  if (scores.every((v) => v === null)) {
+    $("tile-cq").dataset.live = "false";
+    for (const side of SIDES) {
+      $(`cq-${side}`).textContent = "--";
+      $(`cq-${side}-fill`).style.width = "0%";
+    }
+    setState($("cq-state"), "unknown", "Contact unknown");
+    return;
   }
+  $("tile-cq").dataset.live = "true";
+  SIDES.forEach((side, i) => {
+    const v = scores[i];
+    if (v === null) {
+      $(`cq-${side}`).textContent = "--";
+      $(`cq-${side}-fill`).style.width = "0%";
+    } else {
+      $(`cq-${side}`).textContent = fmt(v);
+      $(`cq-${side}-fill`).style.width = `${Math.round(v * 100)}%`;
+    }
+  });
   const [status, text] = cqStatus();
   setState($("cq-state"), status, text);
 }
@@ -375,17 +494,83 @@ function renderCqTile() {
 function renderStressTile() {
   const s = latest.stress;
   if (!s) return;
+  const reason = s.reason || "";
+  const uncalibrated = reason.includes("uncalibrated") || reason.includes("collecting");
   $("tile-stress").dataset.live = "true";
-  $("stress-index").textContent = fmt(s.index);
-  const cq = cqStatus();
-  $("tile-stress").dataset.alert = String(Boolean(s.alert && (!cq || cq[0] === "good")));
-  if (cq && cq[0] !== "good") {
-    setState($("stress-state"), "warning", "Contact too weak to judge");
-  } else if (s.alert) {
-    setState($("stress-state"), "critical", s.reason ? `Alert: ${s.reason}` : "Alert");
-  } else {
-    setState($("stress-state"), "good", "No alert");
+  // The server already gates alert on contact quality. Do not require a
+  // stricter "good" band here, or a real elevation is hidden.
+  $("tile-stress").dataset.alert = String(Boolean(s.alert));
+  const pct = Number.isFinite(s.index) ? `${Math.round(s.index * 100)}%` : "--";
+  $("stress-index").textContent = uncalibrated ? "--" : pct;
+  const phase = session.active ? session.phase : null;
+  const label = liveMath.stressState(s, phase);
+  setState($("stress-state"), label.status, label.text);
+  const parts = [];
+  if (!uncalibrated && reason && !reason.startsWith("resting baseline")) parts.push(reason);
+  if (s.channels) parts.push(`using ${s.channels}`);
+  if (Number.isFinite(s.alert_at)) parts.push(`alert at ${Math.round(s.alert_at * 100)}%`);
+  if (typeof s.recovery_score === "number" && Number.isFinite(s.recovery_score)) {
+    parts.push(`${Math.round(s.recovery_score * 100)}% returned`);
   }
+  $("stress-detail").textContent = parts.join(". ");
+}
+
+function gateSource() {
+  if (latest.stress && (latest.stress.gate === "open" || latest.stress.gate === "locked")) {
+    return latest.stress;
+  }
+  if (session.gate === "open" || session.gate === "locked") {
+    return {
+      gate: session.gate,
+      gate_reason: session.gate === "open" ? "open" : "",
+      difficulty: session.difficulty || 1,
+      task: session.loop === "coach" ? "coach" : session.loop === "task" ? "hold" : "locked",
+      reason: "",
+    };
+  }
+  return null;
+}
+
+function renderGate() {
+  const source = gateSource();
+  const tile = $("tile-gate");
+  const chart = $("gate-chart");
+  if (!source) {
+    tile.dataset.live = "false";
+    tile.dataset.gate = "off";
+    renderTau(tile);
+    if (chart) {
+      chart.dataset.gate = "off";
+      chart.textContent = "Gate waiting for BFI, BVI, and contact quality";
+    }
+    return;
+  }
+  const label = liveMath.gateState(source, latest.cq);
+  const contact = liveMath.worstCq(latest.cq);
+  tile.dataset.live = "true";
+  tile.dataset.gate = contact !== null && contact < 0.5 ? "locked" : source.gate;
+  $("gate-state").textContent = label.headline;
+  renderTau(tile);
+  setState($("gate-status"), label.status, label.text);
+  const detail = [];
+  if (source.gate_reason) detail.push(source.gate_reason.replaceAll("_", " "));
+  if (Number.isFinite(source.difficulty)) detail.push(`step ${source.difficulty}`);
+  $("gate-detail").textContent = detail.join(" · ");
+  if (chart) {
+    chart.dataset.gate = source.gate;
+    chart.textContent = liveMath.gateReadout(source, latest.cq);
+  }
+}
+
+function renderTau(tile) {
+  const text = liveMath.recoveryTauText(latest.stress);
+  const el = $("gate-tau");
+  const unit = $("gate-tau-unit");
+  if (!el) return;
+  el.textContent = text;
+  const ready = text !== "--";
+  if (unit) unit.hidden = !ready;
+  if (tile) tile.dataset.tau = ready ? "ready" : "waiting";
 }
 
 setInterval(() => { renderPhaseTile(); renderHrTile(); }, 250);
@@ -402,11 +587,14 @@ function renderControls() {
   document.querySelectorAll(".phase-buttons button").forEach((b) => {
     b.disabled = !allowed.includes(b.dataset.phase);
   });
-  const timerRunning = Boolean(session.timer_next);
-  const canTime = session.active && (session.phase === null || session.phase === "recovery");
+  const timerRunning = Boolean(session.timer_next) || ["baseline", "challenge", "coach", "continue", "locked", "task", "ease", "break"].includes(session.loop);
+  const idlePhase = !session.active || session.phase === null || session.phase === "recovery" || session.phase === "work" || session.phase === "end";
+  const canTime = session.active && (session.phase === null || session.phase === "recovery" || session.phase === "work");
   $("protocol-start").disabled = !canTime || timerRunning;
+  $("loop-start").disabled = !idlePhase || timerRunning;
   $("protocol-stop").disabled = !timerRunning;
   document.querySelectorAll("#protocol-form input").forEach((i) => { i.disabled = timerRunning; });
+  refreshLoopButton();
 }
 
 function renderEvents() {
@@ -443,16 +631,82 @@ $("session-stop").addEventListener("click", () => post("/api/session/stop"));
 document.querySelectorAll(".phase-buttons button").forEach((b) => {
   b.addEventListener("click", () => post("/api/phase", { phase: b.dataset.phase }));
 });
+function readProtocolFields() {
+  return {
+    baseline: $("dur-baseline").value,
+    hold: $("dur-hold").value,
+    recovery: $("dur-recovery").value,
+    continue_s: $("dur-continue").value,
+    cycles: $("cycles").value,
+    recovered_within_pct: $("recovered-within").value,
+  };
+}
+
+function workUntilEndChecked() {
+  const box = $("work-until-end");
+  return Boolean(box && box.checked);
+}
+
+function refreshLoopButton() {
+  const untilEnd = workUntilEndChecked();
+  const timerRunning = Boolean(session.timer_next) || ["baseline", "challenge", "coach", "continue", "locked", "task", "ease", "break"].includes(session.loop);
+  const workField = $("dur-continue");
+  if (workField && !timerRunning) workField.disabled = untilEnd;
+  const body = liveMath.protocolBody(readProtocolFields());
+  $("loop-start").textContent = liveMath.loopButtonLabel(body, { workUntilEnd: untilEnd });
+}
+
 $("protocol-form").addEventListener("submit", (e) => {
   e.preventDefault();
-  post("/api/protocol/start", {
-    baseline: Number($("dur-baseline").value),
-    hold: Number($("dur-hold").value),
-    recovery: Number($("dur-recovery").value),
-    cycles: Number($("cycles").value),
-  });
+  post("/api/protocol/start", liveMath.protocolBody(readProtocolFields()));
 });
 $("protocol-stop").addEventListener("click", () => post("/api/protocol/stop"));
+$("loop-start").addEventListener("click", () => {
+  post("/api/protocol/start", liveMath.protocolBody(readProtocolFields(), {
+    closedLoop: true,
+    subjectId: $("subject").value,
+    workUntilEnd: workUntilEndChecked(),
+  }));
+});
+
+function setDemoRunning(on) {
+  document.body.dataset.demo = on ? "on" : "off";
+  for (const id of ["demo-start", "btn-heatmap-demo"]) {
+    const btn = $(id);
+    if (!btn) continue;
+    btn.classList.toggle("active", on);
+    btn.textContent = on ? "Stop Demo" : "Demo Mode";
+    btn.setAttribute("aria-pressed", String(on));
+  }
+}
+
+async function toggleDemo() {
+  const running = document.body.dataset.demo === "on";
+  const payload = running ? {} : {
+    recovered_within_pct: liveMath.protocolBody(readProtocolFields()).recovered_within_pct,
+  };
+  const res = await fetch(running ? "/api/demo/stop" : "/api/demo/start", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    const detail = Array.isArray(data.detail) ? data.detail[0].msg : data.detail;
+    const msg = detail || "Demo mode did not start";
+    $("session-error").textContent = msg;
+    const statusText = $("heatmap-status-text");
+    if (statusText) statusText.textContent = msg;
+    return;
+  }
+  $("session-error").textContent = "";
+  setDemoRunning(Boolean(data.running));
+}
+
+$("demo-start").addEventListener("click", () => { toggleDemo(); });
+fetch("/api/demo").then((res) => res.json()).then((data) => setDemoRunning(Boolean(data.running))).catch(() => {});
+$("protocol-form").addEventListener("input", refreshLoopButton);
+refreshLoopButton();
 
 // Open-Motion device -------------------------------------------------------
 
@@ -538,6 +792,20 @@ function handle(frame) {
       if (frame.type === "bfi") framesThisSecond += 1;
       $(`card-${frame.type}`).dataset.live = "true";
       dirty = true;
+      if (brainHeatmap) {
+        brainHeatmap.update(frame);
+        const cardH = $("card-heatmap");
+        if (cardH && cardH.dataset.live !== "true") {
+          cardH.dataset.live = "true";
+          const s = $("heatmap-status-text");
+          if (s) {
+            s.textContent = document.body.dataset.demo === "on" ? "Demo recovery" : "Live Stream (40 Hz)";
+          }
+        } else if (cardH && document.body.dataset.demo === "on") {
+          const s = $("heatmap-status-text");
+          if (s) s.textContent = "Demo recovery";
+        }
+      }
       break;
     case "hr":
       latest.hr[frame.source] = frame;
@@ -547,17 +815,23 @@ function handle(frame) {
       latest.cq = frame;
       renderCqTile();
       renderStressTile();
+      renderGate();
+      if (brainHeatmap) brainHeatmap.update(frame);
       break;
     case "stress":
       latest.stress = frame;
       renderStressTile();
+      renderGate();
       break;
     case "session":
       // Keep the last session's bands after it stops; clear them when a new one starts.
       if (frame.session_id && frame.session_id !== session.session_id) phases = [];
       session = frame;
+      if (frame.loop === "off" && frame.phase === "end") setDemoRunning(false);
       renderControls();
       renderPhaseTile();
+      renderStressTile();
+      renderGate();
       renderEvents();
       dirty = true;
       break;
@@ -607,11 +881,136 @@ renderPhaseTile();
 connect();
 requestAnimationFrame(draw);
 
+// Brain Heatmap Setup
+let brainHeatmap = null;
+const heatmapCanvas = $("heatmap-canvas");
+if (heatmapCanvas && typeof BrainHeatmap !== "undefined") {
+  const COLORBAR_GRADIENTS = {
+    turbo: "linear-gradient(to top, #30123b, #4145ab, #4675ed, #39a2fc, #1bcfd4, #24eca6, #61fc4c, #a4fc3b, #d1e834, #f3c63a, #fe9b2d, #f36315, #d93806, #b11902, #7a0402)",
+    viridis: "linear-gradient(to top, #440154, #482777, #3f4a8a, #31678e, #26838f, #1f9d8a, #6cce5a, #b6de2b, #fee825)",
+    coolwarm: "linear-gradient(to top, #3b4cc0, #8cb2e9, #f2f2f2, #f49a7b, #b40426)",
+  };
+
+  const updateColorbarGradient = (cm) => {
+    const cb = $("heatmap-colorbar");
+    if (cb && COLORBAR_GRADIENTS[cm]) {
+      cb.style.background = COLORBAR_GRADIENTS[cm];
+    }
+  };
+
+  brainHeatmap = new BrainHeatmap(heatmapCanvas, {
+    container: $("heatmap-container"),
+    tooltipEl: $("heatmap-tooltip"),
+    onStatsUpdate: (stats) => {
+      const elLeft = $("heatmap-stat-left");
+      const elRight = $("heatmap-stat-right");
+      const elAsym = $("heatmap-stat-asym");
+      const elAsymDesc = $("heatmap-stat-asym-desc");
+      const cbMax = $("cb-max");
+      const cbMid = $("cb-mid");
+      const cbMin = $("cb-min");
+      const cbUnit = $("cb-unit");
+
+      if (elLeft) elLeft.textContent = fmt(stats.meanL);
+      if (elRight) elRight.textContent = fmt(stats.meanR);
+      if (elAsym) {
+        elAsym.textContent = stats.asym !== null ? `${stats.asym > 0 ? "+" : ""}${stats.asym.toFixed(1)}%` : "--";
+      }
+      if (elAsymDesc) {
+        elAsymDesc.textContent = stats.asym !== null
+          ? (stats.asym > 2.5 ? "Right Dominant" : (stats.asym < -2.5 ? "Left Dominant" : "Symmetric (Balanced)"))
+          : "R vs L asymmetry";
+      }
+      if (cbMax) cbMax.textContent = fmt(stats.scaleMax, 1);
+      if (cbMid) cbMid.textContent = fmt((stats.scaleMin + stats.scaleMax) / 2, 1);
+      if (cbMin) cbMin.textContent = fmt(stats.scaleMin, 1);
+      if (cbUnit) {
+        cbUnit.textContent = stats.metric === "asym" ? "% Asym" : (stats.metric === "bfi" ? "BFI Index" : "BVI Index");
+      }
+    },
+  });
+
+  updateColorbarGradient(brainHeatmap.colormap);
+
+  // Projection buttons
+  const viewAxial = $("btn-view-axial");
+  const viewFrontal = $("btn-view-frontal");
+  if (viewAxial && viewFrontal) {
+    viewAxial.addEventListener("click", () => {
+      viewAxial.classList.add("active");
+      viewAxial.setAttribute("aria-pressed", "true");
+      viewFrontal.classList.remove("active");
+      viewFrontal.setAttribute("aria-pressed", "false");
+      brainHeatmap.setProjection("axial");
+    });
+    viewFrontal.addEventListener("click", () => {
+      viewFrontal.classList.add("active");
+      viewFrontal.setAttribute("aria-pressed", "true");
+      viewAxial.classList.remove("active");
+      viewAxial.setAttribute("aria-pressed", "false");
+      brainHeatmap.setProjection("frontal");
+    });
+  }
+
+  // Metric buttons
+  const metricBtns = [
+    { id: "btn-metric-bfi", metric: "bfi" },
+    { id: "btn-metric-bvi", metric: "bvi" },
+    { id: "btn-metric-asym", metric: "asym" },
+  ];
+  metricBtns.forEach(({ id, metric }) => {
+    const btn = $(id);
+    if (!btn) return;
+    btn.addEventListener("click", () => {
+      metricBtns.forEach((m) => {
+        const b = $(m.id);
+        if (b) {
+          b.classList.toggle("active", m.metric === metric);
+          b.setAttribute("aria-pressed", String(m.metric === metric));
+        }
+      });
+      brainHeatmap.setMetric(metric);
+      const sel = $("heatmap-colormap");
+      if (sel) {
+        sel.value = brainHeatmap.colormap;
+        updateColorbarGradient(brainHeatmap.colormap);
+      }
+    });
+  });
+
+  // Colormap select
+  const colormapSelect = $("heatmap-colormap");
+  if (colormapSelect) {
+    colormapSelect.value = brainHeatmap.colormap;
+    colormapSelect.addEventListener("change", (e) => {
+      brainHeatmap.setColormap(e.target.value);
+      updateColorbarGradient(e.target.value);
+    });
+  }
+
+  // Toggles
+  const showOptodesToggle = $("heatmap-show-optodes");
+  if (showOptodesToggle) {
+    showOptodesToggle.addEventListener("change", (e) => {
+      brainHeatmap.setShowOptodes(e.target.checked);
+    });
+  }
+
+  const autoscaleToggle = $("heatmap-autoscale");
+  if (autoscaleToggle) {
+    autoscaleToggle.addEventListener("change", (e) => {
+      brainHeatmap.setAutoscale(e.target.checked);
+    });
+  }
+
+  const demoBtn = $("btn-heatmap-demo");
+  if (demoBtn) demoBtn.addEventListener("click", () => { toggleDemo(); });
+}
+
 $("spread").addEventListener("change", (event) => {
   showSpread = event.currentTarget.checked;
   for (const metric of METRICS) {
     Object.assign(bufs[metric].yRange, { lo: null, hi: null, shrinkSince: null });
-    updateYRange(bufs[metric]);
     makeChart(metric);
   }
 });

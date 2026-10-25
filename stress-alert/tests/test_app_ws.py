@@ -49,7 +49,11 @@ def test_dev_feed_frames_match_the_contract():
 
     rows = dev_feed.load_rows()
     assert len(rows) == 1201
-    for frame in dev_feed.frames_for(rows[0], t=0.0):
+    frames = dev_feed.frames_for(rows[0], t=0.0)
+    assert [frame["type"] for frame in frames] == ["bfi", "bvi", "cq"]
+    assert frames[-1]["left"] == 1
+    assert frames[-1]["right"] == 1
+    for frame in frames:
         frame_adapter.validate_python(frame)
 
 
@@ -68,3 +72,132 @@ def test_session_api_drives_logger_and_reaches_browser(app):
         while not any(f["type"] == "session" and not f["active"] for f in seen[1:]):
             seen.extend(browser.receive_json())
         assert [f["phase"] for f in seen if f["type"] == "phase"] == ["baseline", "end"]
+
+
+def _hemo(t, bfi, bvi, cq):
+    return [
+        {"type": "bfi", "t": t, "left": [bfi] * 8, "right": [bfi] * 8},
+        {"type": "bvi", "t": t, "left": [bvi] * 8, "right": [bvi] * 8},
+        {"type": "cq", "t": t, "left": cq, "right": cq},
+    ]
+
+
+def test_ingest_scores_perfusion_and_gates_on_contact(app):
+    """Stress comes from BFI/BVI versus baseline. Poor contact clears the label."""
+    from dashboard.schema import frame_adapter
+
+    client = TestClient(app)
+    with client.websocket_connect("/ws/ingest?source=sim") as prod:
+        assert client.post("/api/session/start", json={"subject_id": "gate"}).status_code == 200
+        assert client.post("/api/phase", json={"phase": "baseline"}).status_code == 200
+        for i in range(6):
+            prod.send_text(json.dumps(_hemo(50 + i * 0.3, 2.0, 5.0, 0.92)))
+        assert client.post("/api/phase", json={"phase": "hold"}).status_code == 200
+        prod.send_text(json.dumps(_hemo(60.0, 2.8, 5.0, 0.92)))
+        prod.send_text(json.dumps(_hemo(61.0, 2.8, 5.0, 0.92)))
+        prod.send_text(json.dumps(_hemo(62.0, 4.0, 8.0, 0.28)))
+    with client.websocket_connect("/ws") as browser:
+        seen = browser.receive_json()
+    stress = [frame for frame in seen if frame["type"] == "stress"]
+    assert stress, "expected derived stress frames"
+    for frame in stress:
+        frame_adapter.validate_python(frame)
+    assert any(frame["alert"] and "BFI" in frame["reason"] for frame in stress)
+    assert any(not frame["alert"] and "poor_coupling" in frame["reason"] for frame in stress)
+    assert all("bpm" not in frame["reason"] for frame in stress)
+
+
+def test_closed_loop_starts_a_session_and_can_run_again_after_end(app):
+    client = TestClient(app)
+    first = client.post(
+        "/api/protocol/start",
+        json={
+            "baseline": 30,
+            "hold": 30,
+            "recovery": 30,
+            "closed_loop": True,
+            "subject_id": "judge",
+        },
+    )
+    assert first.status_code == 200
+    assert first.json()["active"] is True and first.json()["subject_id"] == "judge"
+    assert client.post("/api/protocol/stop").status_code == 200
+    assert client.post("/api/session/stop").status_code == 200
+
+    client.post("/api/session/start", json={"subject_id": "old"})
+    for phase in ("baseline", "hold", "recovery", "end"):
+        assert client.post("/api/phase", json={"phase": phase}).status_code == 200
+    old_id = client.get("/api/session").json()["session_id"]
+    again = client.post(
+        "/api/protocol/start",
+        json={
+            "baseline": 30,
+            "hold": 30,
+            "recovery": 30,
+            "closed_loop": True,
+            "subject_id": "judge-2",
+        },
+    )
+    assert again.status_code == 200
+    assert again.json()["session_id"] != old_id
+    assert again.json()["subject_id"] == "judge-2"
+    client.post("/api/protocol/stop")
+
+
+def _protocol(recovered_within_pct=None):
+    body = {"baseline": 20, "hold": 0, "recovery": 20, "continue_s": 30, "closed_loop": True}
+    if recovered_within_pct is not None:
+        body["recovered_within_pct"] = recovered_within_pct
+    return body
+
+
+def test_protocol_start_applies_the_operator_recovery_boundary(app):
+    """The timed-protocol percent is the line LiveGate compares. Bad values do not stick."""
+    client = TestClient(app)
+    assert app.state.gate.recovered_below == pytest.approx(0.05)
+
+    for bad in (0, 26, 100):
+        rejected = client.post("/api/protocol/start", json=_protocol(bad))
+        assert rejected.status_code == 422
+        assert app.state.gate.recovered_below == pytest.approx(0.05)
+
+    # A start that cannot run must not leave a new line behind.
+    refused = client.post("/api/protocol/start", json={**_protocol(12), "closed_loop": False})
+    assert refused.status_code == 409
+    assert app.state.gate.recovered_below == pytest.approx(0.05)
+
+    started = client.post("/api/protocol/start", json=_protocol(12))
+    assert started.status_code == 200
+    assert app.state.gate.recovered_below == pytest.approx(0.12)
+    assert app.state.gate.settle_index == pytest.approx(0.12)
+    assert client.post("/api/protocol/stop").status_code == 200
+    assert client.post("/api/session/stop").status_code == 200
+
+
+def test_protocol_start_without_a_boundary_keeps_five_percent(app):
+    client = TestClient(app)
+    started = client.post("/api/protocol/start", json=_protocol())
+    assert started.status_code == 200
+    assert app.state.gate.recovered_below == pytest.approx(0.05)
+    client.post("/api/protocol/stop")
+    client.post("/api/session/stop")
+
+
+def test_demo_empty_post_starts_and_keeps_the_default_boundary(app):
+    with TestClient(app) as client:
+        empty = client.post("/api/demo/start")
+        assert empty.status_code == 200
+        assert app.state.gate.recovered_below == pytest.approx(0.05)
+        assert client.post("/api/demo/stop").status_code == 200
+
+
+def test_demo_start_applies_the_operator_recovery_boundary(app):
+    with TestClient(app) as client:
+        rejected = client.post("/api/demo/start", json={"recovered_within_pct": 0})
+        assert rejected.status_code == 422
+        assert app.state.gate.recovered_below == pytest.approx(0.05)
+
+        started = client.post("/api/demo/start", json={"recovered_within_pct": 8})
+        assert started.status_code == 200
+        assert app.state.gate.recovered_below == pytest.approx(0.08)
+        assert client.post("/api/demo/stop").status_code == 200
