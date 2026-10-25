@@ -34,10 +34,16 @@ class HeartRate(_Frame):
 
 
 class ContactQuality(_Frame):
+    """Per-side contact score. Null means that side has no measurement.
+
+    1.0 is only a real pass of the contact check. Producers must not send 1.0
+    to fill in a missing side.
+    """
+
     type: Literal["cq"]
     t: float
-    left: Unit
-    right: Unit
+    left: Unit | None = None
+    right: Unit | None = None
 
 
 class Stress(_Frame):

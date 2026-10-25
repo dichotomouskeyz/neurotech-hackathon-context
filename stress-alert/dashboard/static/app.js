@@ -4,6 +4,7 @@ const WINDOW_S = 30;
 const STALE_S = 5;
 const CQ_GOOD = 0.7;
 const CQ_GATE = 0.5;
+const CQ_WEAK = 0.4;
 const BREATH_IN_S = 4;
 const BREATH_OUT_S = 6;
 const NEXT = {
@@ -398,22 +399,49 @@ function renderHrTile() {
   $("hr-note").textContent = stale ? `last value ${Math.round(now - optical.t)} s ago` : "";
 }
 
+function finiteCq(value) {
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
 function cqStatus() {
   if (!latest.cq) return null;
-  const worst = Math.min(latest.cq.left, latest.cq.right);
-  if (worst >= CQ_GOOD) return ["good", "Good contact"];
+  const scores = SIDES.map((side) => finiteCq(latest.cq[side]));
+  const known = scores.filter((v) => v !== null);
+  if (!known.length) return ["unknown", "Contact unknown"];
+  const worst = Math.min(...known);
+  const missing = scores.some((v) => v === null);
+  if (worst >= CQ_GOOD) {
+    return missing ? ["warning", "One side has no contact score"] : ["good", "Good contact"];
+  }
+  // 0.50 is the live-gate threshold. The weaker band is display only.
   if (worst >= CQ_GATE) return ["warning", "Contact ok to score"];
+  if (worst >= CQ_WEAK) return ["warning", "Weak contact"];
   return ["critical", "Fix sensor coupling"];
 }
 
 function renderCqTile() {
   if (!latest.cq) return;
-  $("tile-cq").dataset.live = "true";
-  for (const side of SIDES) {
-    const v = latest.cq[side];
-    $(`cq-${side}`).textContent = fmt(v);
-    $(`cq-${side}-fill`).style.width = `${Math.round(v * 100)}%`;
+  const scores = SIDES.map((side) => finiteCq(latest.cq[side]));
+  if (scores.every((v) => v === null)) {
+    $("tile-cq").dataset.live = "false";
+    for (const side of SIDES) {
+      $(`cq-${side}`).textContent = "--";
+      $(`cq-${side}-fill`).style.width = "0%";
+    }
+    setState($("cq-state"), "unknown", "Contact unknown");
+    return;
   }
+  $("tile-cq").dataset.live = "true";
+  SIDES.forEach((side, i) => {
+    const v = scores[i];
+    if (v === null) {
+      $(`cq-${side}`).textContent = "--";
+      $(`cq-${side}-fill`).style.width = "0%";
+    } else {
+      $(`cq-${side}`).textContent = fmt(v);
+      $(`cq-${side}-fill`).style.width = `${Math.round(v * 100)}%`;
+    }
+  });
   const [status, text] = cqStatus();
   setState($("cq-state"), status, text);
 }
@@ -614,6 +642,15 @@ function handle(frame) {
       if (frame.type === "bfi") framesThisSecond += 1;
       $(`card-${frame.type}`).dataset.live = "true";
       dirty = true;
+      if (brainHeatmap) {
+        brainHeatmap.update(frame);
+        const cardH = $("card-heatmap");
+        if (cardH && cardH.dataset.live !== "true") {
+          cardH.dataset.live = "true";
+          const s = $("heatmap-status-text");
+          if (s) s.textContent = "Live Stream (40 Hz)";
+        }
+      }
       break;
     case "hr":
       latest.hr[frame.source] = frame;
@@ -623,6 +660,7 @@ function handle(frame) {
       latest.cq = frame;
       renderCqTile();
       renderStressTile();
+      if (brainHeatmap) brainHeatmap.update(frame);
       break;
     case "stress":
       latest.stress = frame;
@@ -683,6 +721,180 @@ renderDevice();
 renderPhaseTile();
 connect();
 requestAnimationFrame(draw);
+
+// Brain Heatmap Setup
+let brainHeatmap = null;
+const heatmapCanvas = $("heatmap-canvas");
+if (heatmapCanvas && typeof BrainHeatmap !== "undefined") {
+  const COLORBAR_GRADIENTS = {
+    turbo: "linear-gradient(to top, #30123b, #4145ab, #4675ed, #39a2fc, #1bcfd4, #24eca6, #61fc4c, #a4fc3b, #d1e834, #f3c63a, #fe9b2d, #f36315, #d93806, #b11902, #7a0402)",
+    viridis: "linear-gradient(to top, #440154, #482777, #3f4a8a, #31678e, #26838f, #1f9d8a, #6cce5a, #b6de2b, #fee825)",
+    coolwarm: "linear-gradient(to top, #3b4cc0, #8cb2e9, #f2f2f2, #f49a7b, #b40426)",
+  };
+
+  const updateColorbarGradient = (cm) => {
+    const cb = $("heatmap-colorbar");
+    if (cb && COLORBAR_GRADIENTS[cm]) {
+      cb.style.background = COLORBAR_GRADIENTS[cm];
+    }
+  };
+
+  brainHeatmap = new BrainHeatmap(heatmapCanvas, {
+    container: $("heatmap-container"),
+    tooltipEl: $("heatmap-tooltip"),
+    onStatsUpdate: (stats) => {
+      const elLeft = $("heatmap-stat-left");
+      const elRight = $("heatmap-stat-right");
+      const elAsym = $("heatmap-stat-asym");
+      const elAsymDesc = $("heatmap-stat-asym-desc");
+      const cbMax = $("cb-max");
+      const cbMid = $("cb-mid");
+      const cbMin = $("cb-min");
+      const cbUnit = $("cb-unit");
+
+      if (elLeft) elLeft.textContent = fmt(stats.meanL);
+      if (elRight) elRight.textContent = fmt(stats.meanR);
+      if (elAsym) {
+        elAsym.textContent = stats.asym !== null ? `${stats.asym > 0 ? "+" : ""}${stats.asym.toFixed(1)}%` : "--";
+      }
+      if (elAsymDesc) {
+        elAsymDesc.textContent = stats.asym !== null
+          ? (stats.asym > 2.5 ? "Right Dominant" : (stats.asym < -2.5 ? "Left Dominant" : "Symmetric (Balanced)"))
+          : "R vs L asymmetry";
+      }
+      if (cbMax) cbMax.textContent = fmt(stats.scaleMax, 1);
+      if (cbMid) cbMid.textContent = fmt((stats.scaleMin + stats.scaleMax) / 2, 1);
+      if (cbMin) cbMin.textContent = fmt(stats.scaleMin, 1);
+      if (cbUnit) {
+        cbUnit.textContent = stats.metric === "asym" ? "% Asym" : (stats.metric === "bfi" ? "BFI Index" : "BVI Index");
+      }
+    },
+  });
+
+  updateColorbarGradient("turbo");
+
+  // Projection buttons
+  const viewAxial = $("btn-view-axial");
+  const viewFrontal = $("btn-view-frontal");
+  if (viewAxial && viewFrontal) {
+    viewAxial.addEventListener("click", () => {
+      viewAxial.classList.add("active");
+      viewAxial.setAttribute("aria-pressed", "true");
+      viewFrontal.classList.remove("active");
+      viewFrontal.setAttribute("aria-pressed", "false");
+      brainHeatmap.setProjection("axial");
+    });
+    viewFrontal.addEventListener("click", () => {
+      viewFrontal.classList.add("active");
+      viewFrontal.setAttribute("aria-pressed", "true");
+      viewAxial.classList.remove("active");
+      viewAxial.setAttribute("aria-pressed", "false");
+      brainHeatmap.setProjection("frontal");
+    });
+  }
+
+  // Metric buttons
+  const metricBtns = [
+    { id: "btn-metric-bfi", metric: "bfi" },
+    { id: "btn-metric-bvi", metric: "bvi" },
+    { id: "btn-metric-asym", metric: "asym" },
+  ];
+  metricBtns.forEach(({ id, metric }) => {
+    const btn = $(id);
+    if (!btn) return;
+    btn.addEventListener("click", () => {
+      metricBtns.forEach((m) => {
+        const b = $(m.id);
+        if (b) {
+          b.classList.toggle("active", m.metric === metric);
+          b.setAttribute("aria-pressed", String(m.metric === metric));
+        }
+      });
+      brainHeatmap.setMetric(metric);
+      const sel = $("heatmap-colormap");
+      if (sel) {
+        sel.value = brainHeatmap.colormap;
+        updateColorbarGradient(brainHeatmap.colormap);
+      }
+    });
+  });
+
+  // Colormap select
+  const colormapSelect = $("heatmap-colormap");
+  if (colormapSelect) {
+    colormapSelect.addEventListener("change", (e) => {
+      brainHeatmap.setColormap(e.target.value);
+      updateColorbarGradient(e.target.value);
+    });
+  }
+
+  // Toggles
+  const showOptodesToggle = $("heatmap-show-optodes");
+  if (showOptodesToggle) {
+    showOptodesToggle.addEventListener("change", (e) => {
+      brainHeatmap.setShowOptodes(e.target.checked);
+    });
+  }
+
+  const autoscaleToggle = $("heatmap-autoscale");
+  if (autoscaleToggle) {
+    autoscaleToggle.addEventListener("change", (e) => {
+      brainHeatmap.setAutoscale(e.target.checked);
+    });
+  }
+
+  // Demo simulation mode
+  let demoInterval = null;
+  let demoT = 0;
+  const demoBtn = $("btn-heatmap-demo");
+  if (demoBtn) {
+    const BASE_L = [3.4, 2.4, 1.3, 0.4, 0.3, 1.4, 2.5, 3.3];
+    const BASE_R = [3.5, 2.6, 1.3, 0.5, 0.4, 1.4, 3.5, 4.6];
+    const BVI_L = [5.6, 6.0, 6.1, 5.0, 5.6, 6.8, 7.0, 5.8];
+    const BVI_R = [5.6, 6.7, 6.9, 7.1, 6.7, 6.7, 6.3, 6.4];
+
+    demoBtn.addEventListener("click", () => {
+      if (demoInterval) {
+        clearInterval(demoInterval);
+        demoInterval = null;
+        demoBtn.classList.remove("active");
+        demoBtn.textContent = "Demo Mode";
+        const statusText = $("heatmap-status-text");
+        if (statusText) statusText.textContent = "Waiting for data";
+      } else {
+        demoBtn.classList.add("active");
+        demoBtn.textContent = "Stop Demo";
+        const statusText = $("heatmap-status-text");
+        if (statusText) statusText.textContent = "Simulated Demo (40 Hz)";
+        const cardH = $("card-heatmap");
+        if (cardH) cardH.dataset.live = "true";
+        const cardBfi = $("card-bfi");
+        if (cardBfi) cardBfi.dataset.live = "true";
+        const cardBvi = $("card-bvi");
+        if (cardBvi) cardBvi.dataset.live = "true";
+
+        demoInterval = setInterval(() => {
+          demoT += 0.025; // 40 Hz
+          const pulse = 0.28 * Math.sin(2.0 * Math.PI * 1.2 * demoT);
+          const resp = 0.18 * Math.sin(2.0 * Math.PI * 0.2 * demoT);
+          const asymWave = 0.45 * Math.sin(2.0 * Math.PI * 0.1 * demoT);
+
+          const leftBfi = BASE_L.map((b) => Math.max(0.05, b + pulse + (Math.random() - 0.5) * 0.08));
+          const rightBfi = BASE_R.map((b) => Math.max(0.05, b + pulse + asymWave + (Math.random() - 0.5) * 0.08));
+
+          const leftBvi = BVI_L.map((b) => b + resp + (Math.random() - 0.5) * 0.05);
+          const rightBvi = BVI_R.map((b) => b + resp + (Math.random() - 0.5) * 0.05);
+
+          const now = sharedNow() || (performance.now() / 1000);
+          handle({ type: "bfi", t: now, left: leftBfi, right: rightBfi });
+          handle({ type: "bvi", t: now, left: leftBvi, right: rightBvi });
+          // Demo mode has no contact signal. Do not publish a fake CQ.
+          handle({ type: "hr", t: now, source: "optical", bpm: 72 + Math.sin(demoT * 0.1) * 3 });
+        }, 25);
+      }
+    });
+  }
+}
 
 $("spread").addEventListener("change", (event) => {
   showSpread = event.currentTarget.checked;

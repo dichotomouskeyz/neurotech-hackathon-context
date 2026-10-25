@@ -189,53 +189,8 @@ def test_live_sink_skips_dark_and_warmup_rows():
     assert bfi["left"][2] is None
 
 
-def test_live_sink_emits_cq_from_quality_labels():
-    published = []
-    sink = LiveSink(published.extend, now=lambda: 1000.0)
-    sink.on_scan_start(None)
-    sink.consume(
-        "live",
-        live_batch(
-            [
-                (10, 0, 0, 0.0, 2.0, 6.0, "light"),
-                (10, 1, 0, 0.0, 2.1, 6.1, "light"),
-                (11, 0, 0, 0.025, 2.2, 6.2, "light"),
-            ],
-            quality=["ok", "nan_filled", "ok"],
-        ),
-    )
-    cq = next(frame for frame in published if frame["type"] == "cq")
-    assert cq["t"] == pytest.approx(1000.0)
-    assert cq["left"] == pytest.approx(1.0)
-    assert cq["right"] == pytest.approx(0.0)
-    assert [frame["type"] for frame in published[:3]] == ["bfi", "bvi", "cq"]
-
-
-def test_live_sink_low_light_is_poor_contact_and_unknown_labels_do_not_raise():
-    published = []
-    sink = LiveSink(published.extend, now=lambda: 50.0)
-    sink.on_scan_start(None)
-    low = np.zeros((2, 2, 8), dtype=bool)
-    low[0, 0, 0] = True
-    sink.consume(
-        "live",
-        live_batch(
-            [
-                (4, 0, 0, 0.0, 2.0, 6.0, "light"),
-                (5, 0, 0, 0.025, 2.0, 6.0, "light"),
-            ],
-            quality=["ok", "not-a-label"],
-            low_light=low,
-        ),
-    )
-    cq = next(frame for frame in published if frame["type"] == "cq")
-    assert cq["left"] == pytest.approx(0.0)
-    assert cq["right"] == pytest.approx(1.0)
-    sink.on_complete()
-
-
 def test_live_sink_frames_are_scored_by_the_gate(tmp_path):
-    """The scan sink's BFI, BVI, and CQ frames are what the stress label reads."""
+    """BFI, BVI, and DN contact from the scan sink are what the stress label reads."""
     from dashboard.live_gate import LiveGate
 
     published = []
@@ -280,28 +235,118 @@ def test_live_sink_frames_are_scored_by_the_gate(tmp_path):
     sink.on_scan_start(None)
 
     def push(frame_id, t, bfi):
-        sink.consume(
-            "live",
-            live_batch(
-                [
-                    (frame_id, 0, 0, t, bfi, 5.0, "light"),
-                    (frame_id + 1, 0, 0, t + 0.01, bfi, 5.0, "light"),
-                ],
-                quality=["ok", "ok"],
-            ),
+        batch = live_batch(
+            [
+                (frame_id, 0, 0, t, bfi, 5.0, "light"),
+                (frame_id + 1, 0, 0, t + 0.01, bfi, 5.0, "light"),
+            ]
         )
+        light = np.full((2, 2, 8), np.nan)
+        light[:, 0, 0] = 30.0  # above the light threshold; timestamp "ok" is not contact
+        batch.mean_dc_rt = light
+        sink.consume("live", batch)
 
     for i in range(6):
         push(i * 2, i * 0.3, 2.0)
     emit([{"type": "phase", "t": 1005.0, "session_id": "s1", "phase": "hold", "source": "manual"}])
     push(30, 8.0, 2.8)
     push(34, 8.6, 2.8)
-    assert any(frame["type"] == "cq" and frame["left"] == pytest.approx(1.0) for frame in published)
+    assert any(
+        frame["type"] == "cq" and frame["left"] == pytest.approx(1.0) and frame["right"] is None
+        for frame in published
+    )
     assert any(
         frame["type"] == "stress" and frame["alert"] and "BFI" in frame["reason"]
         for frame in published
     )
     assert gate.challenge_done(0.0)
+
+
+def test_quality_label_ok_does_not_invent_perfect_cq():
+    """Pipeline quality 'ok' is a timestamp flag, not contact. It must not score 1."""
+    published = []
+    sink = LiveSink(published.extend, now=lambda: 1000.0)
+    sink.on_scan_start(None)
+    batch = live_batch(
+        [
+            (1, 0, 0, 0.0, 2.0, 6.0, "light"),
+            (2, 0, 0, 0.025, 2.1, 6.1, "light"),
+        ]
+    )
+    batch.quality = np.array(["ok", "ok"])
+    sink.consume("live", batch)
+    sink.on_complete()
+    assert [f["type"] for f in published] == ["bfi", "bvi", "bfi", "bvi"]
+
+
+def test_contact_dn_scores_and_drops_when_light_falls():
+    published = []
+    sink = LiveSink(published.extend, now=lambda: 0.0)
+    sink.on_scan_start(None)
+
+    def batch(capture, light_dn):
+        frame = live_batch([(capture, 0, 0, 0.0, 2.0, 6.0, "light")])
+        light = np.full((1, 2, 8), np.nan)
+        dark = np.full((1, 2, 8), np.nan)
+        light[0, 0, 0] = light_dn
+        dark[0, 0, 0] = 1.0  # inside the ambient threshold
+        frame.mean_dc_rt = light
+        frame.subtracted_mean = dark
+        return frame
+
+    sink.consume("live", batch(1, 30.0))
+    sink.consume("live", batch(2, 7.5))
+    sink.on_complete()
+    cqs = [f for f in published if f["type"] == "cq"]
+    assert len(cqs) == 2
+    assert cqs[0]["left"] == pytest.approx(1.0)
+    assert cqs[0]["right"] is None
+    assert cqs[1]["left"] == pytest.approx(0.5)
+    assert cqs[1]["right"] is None
+
+
+def test_unlit_camera_scores_zero_and_good_dark_alone_does_not():
+    published = []
+    sink = LiveSink(published.extend, now=lambda: 0.0)
+    sink.on_scan_start(None)
+    frame = live_batch(
+        [
+            (1, 0, 1, 0.0, 2.0, 6.0, "dark"),
+            (2, 0, 2, 0.025, 2.0, 6.0, "light"),
+        ]
+    )
+    dark = np.full((2, 2, 8), np.nan)
+    dark[0, 0, 1] = 1.0  # within threshold, no light yet: not a pass
+    frame.subtracted_mean = dark
+    low = np.zeros((2, 2, 8), dtype=bool)
+    low[1, 0, 2] = True
+    frame.low_light_rt = low
+    sink.consume("live", frame)
+    sink.on_complete()
+    cqs = [f for f in published if f["type"] == "cq"]
+    assert len(cqs) == 1
+    assert cqs[0]["left"] == pytest.approx(0.0)
+    assert cqs[0]["right"] is None
+
+
+def test_ambient_dark_lowers_contact_without_a_light_sample():
+    published = []
+    sink = LiveSink(published.extend, now=lambda: 0.0)
+    sink.on_scan_start(None)
+    frame = live_batch(
+        [
+            (1, 1, 4, 0.0, 2.0, 6.0, "dark"),
+            (2, 1, 4, 0.025, 2.0, 6.0, "light"),
+        ]
+    )
+    dark = np.full((2, 2, 8), np.nan)
+    dark[0, 1, 4] = 6.0  # twice the 3.0 DN ceiling -> 0
+    frame.subtracted_mean = dark
+    sink.consume("live", frame)
+    sink.on_complete()
+    cqs = [f for f in published if f["type"] == "cq"]
+    assert cqs
+    assert all(f["left"] is None and f["right"] == pytest.approx(0.0) for f in cqs)
 
 
 def test_live_sink_ignores_other_channels():

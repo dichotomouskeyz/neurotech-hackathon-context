@@ -362,6 +362,8 @@ body[data-loop="continue"] .tile-phase { box-shadow: var(--shadow), 0 0 0 1.5px 
 .state[data-status="warning"]::before { content: "▲"; color: var(--status-warning); }
 .state[data-status="critical"] { color: var(--status-critical-text); }
 .state[data-status="critical"]::before { content: "■"; color: var(--status-critical); }
+.state[data-status="unknown"] { color: var(--ink-muted); }
+.state[data-status="unknown"]::before { content: "○"; color: var(--ink-muted); }
 
 /* Operator controls */
 
@@ -465,9 +467,279 @@ body[data-view="present"] .coach-cue { font-size: 1.5rem; }
 body[data-view="present"] .coach-step { font-size: 3.25rem; }
 body[data-loop="coach"] .breath-core { fill: var(--breath-core-hold); }
 
+/* 2D Brain Hemodynamic Heatmap */
+
+.heatmap-card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  padding: var(--space-4);
+}
+
+.heatmap-head {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.heatmap-title-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.heatmap-title-row .card-title {
+  color: var(--ink);
+  font-size: var(--text-md);
+  margin: 0;
+}
+
+.heatmap-live-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--text-xs);
+  color: var(--ink-muted);
+  font-family: var(--font-mono);
+  background: var(--surface-sunken);
+  padding: 3px 8px;
+  border-radius: var(--radius-sm);
+}
+
+.heatmap-live-chip .chip-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #fab219;
+  transition: background var(--motion-fast);
+}
+
+.heatmap-card[data-live="true"] .chip-dot {
+  background: var(--status-good);
+  box-shadow: 0 0 6px rgba(12, 163, 12, 0.45);
+}
+
+.heatmap-toolbar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  flex: 0 0 auto;
+  gap: var(--space-3);
+  padding: var(--space-2) var(--space-3);
+  background: var(--surface-sunken);
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--hairline);
+}
+
+/* Chart-head toggles use margin-left: auto to pin one control to the right.
+   The heatmap toolbar has several controls; that margin shoved the colormap
+   and the checkboxes onto a row that left the viewport as the card grew. */
+.heatmap-toolbar .toggle {
+  margin-left: 0;
+}
+
+.segmented-sm {
+  display: inline-flex;
+  background: var(--control-bg);
+  border: 1px solid var(--control-border);
+  border-radius: var(--radius-sm);
+  padding: 2px;
+  gap: 2px;
+}
+
+.segmented-sm .btn-segmented {
+  font-size: var(--text-xs);
+  padding: 3px 9px;
+  border: none;
+  background: transparent;
+  color: var(--ink-2);
+  border-radius: 4px;
+  cursor: pointer;
+  font-weight: 500;
+  transition: background var(--motion-fast), color var(--motion-fast);
+}
+
+.segmented-sm .btn-segmented:hover {
+  color: var(--ink);
+}
+
+.segmented-sm .btn-segmented.active {
+  background: var(--primary-bg);
+  color: var(--primary-ink);
+  font-weight: 600;
+}
+
+.field-select {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--text-xs);
+  color: var(--ink-muted);
+  font-weight: 500;
+}
+
+.field-select select {
+  font-size: var(--text-xs);
+  font-family: var(--font-sans);
+  padding: 3px 8px;
+  background: var(--control-bg);
+  border: 1px solid var(--control-border);
+  border-radius: var(--radius-sm);
+  color: var(--ink);
+  cursor: pointer;
+}
+
+.heatmap-body {
+  display: grid;
+  grid-template-columns: 1fr 220px;
+  gap: var(--space-4);
+  align-items: stretch;
+}
+
+.heatmap-canvas-container {
+  position: relative;
+  width: 100%;
+  /* Fixed height. The canvas is position:absolute so it cannot change this. */
+  height: 420px;
+  min-height: 280px;
+  max-height: min(420px, 56vh);
+  background: var(--surface-sunken);
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--hairline);
+  overflow: hidden;
+}
+
+#heatmap-canvas {
+  position: absolute;
+  inset: 0;
+  display: block;
+  width: 100%;
+  height: 100%;
+  cursor: crosshair;
+}
+
+.heatmap-sidebar {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  justify-content: space-between;
+}
+
+.heatmap-stat-box {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: var(--space-3);
+  background: var(--surface-sunken);
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--hairline);
+}
+
+.heatmap-stat-box .stat-label {
+  font-size: var(--text-xs);
+  color: var(--ink-muted);
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.heatmap-stat-box .stat-value {
+  font-size: 1.5rem;
+  font-weight: 700;
+  font-family: var(--font-mono);
+  color: var(--ink);
+}
+
+.heatmap-stat-box .stat-sub {
+  font-size: var(--text-xs);
+  color: var(--ink-muted);
+}
+
+.heatmap-colorbar-wrap {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-3);
+  background: var(--surface-sunken);
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--hairline);
+  margin-top: auto;
+}
+
+.colorbar-bar {
+  width: 18px;
+  height: 110px;
+  border-radius: 3px;
+  border: 1px solid var(--hairline);
+}
+
+.colorbar-labels {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  height: 110px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--ink-2);
+}
+
+.colorbar-unit {
+  writing-mode: vertical-rl;
+  transform: rotate(180deg);
+  font-size: var(--text-xs);
+  color: var(--ink-muted);
+  text-align: center;
+  letter-spacing: 0.05em;
+  margin-left: auto;
+}
+
+.heatmap-tooltip {
+  position: absolute;
+  pointer-events: none;
+  z-index: 20;
+  background: var(--surface);
+  border: 1px solid var(--hairline);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.12);
+  border-radius: var(--radius-sm);
+  padding: 8px 12px;
+  font-size: var(--text-xs);
+  color: var(--ink);
+  min-width: 170px;
+}
+
+.heatmap-tooltip .tip-head {
+  font-weight: 600;
+  margin-bottom: 6px;
+  border-bottom: 1px solid var(--hairline);
+  padding-bottom: 4px;
+}
+
+.heatmap-tooltip .tip-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 2px;
+  color: var(--ink-2);
+}
+
+.heatmap-tooltip .tip-row strong {
+  color: var(--ink);
+  font-family: var(--font-mono);
+}
+
+.heatmap-card[data-live="true"] .chart-empty {
+  display: none;
+}
+
 @media (max-width: 1100px) {
   .strip { grid-template-columns: 1fr 1fr; }
   .controls { grid-template-columns: 1fr; }
+  .heatmap-body { grid-template-columns: 1fr; }
+  .heatmap-sidebar { flex-direction: row; flex-wrap: wrap; }
+  .heatmap-stat-box { flex: 1; min-width: 140px; }
+  .heatmap-colorbar-wrap { flex-basis: 100%; margin-top: 0; }
 }
 @media (max-width: 900px) {
   .topbar-inner { flex-wrap: wrap; row-gap: var(--space-2); }

@@ -63,15 +63,8 @@ def frames_for(row: dict[str, str], t: float) -> list[dict]:
     left, right = _side_cq(row, "l"), _side_cq(row, "r")
     if left is None and right is None:
         return frames
-    # A missing side is not poor contact. See LiveSink.
-    frames.append(
-        {
-            "type": "cq",
-            "t": t,
-            "left": 1.0 if left is None else left,
-            "right": 1.0 if right is None else right,
-        }
-    )
+    # A side with no quality labels is missing, not a perfect score.
+    frames.append({"type": "cq", "t": t, "left": left, "right": right})
     return frames
 
 
