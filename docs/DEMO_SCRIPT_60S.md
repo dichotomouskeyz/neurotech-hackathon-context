@@ -26,7 +26,7 @@ uv sync --locked
 uv run python -m dashboard
 ```
 
-Open http://127.0.0.1:8765. Leave the laser off. Press **Demo Mode** (operator bar or the heatmap toolbar). Switch the top bar to **Present**.
+Open http://127.0.0.1:8765. Leave the laser off. Press **Demo Mode** (operator bar or the heatmap toolbar). Switch the top bar to **Present**. It runs about 25 seconds: 3 s baseline, a hold that ends about a second in, about 10 s of recovery, and 10.5 s of work. The heart rate tile stays empty because the script has no pulse.
 
 Speak to the tiles. Do not quote a fixed percent or tau unless that is what the screen shows.
 

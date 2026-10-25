@@ -26,23 +26,25 @@ HOLD_PEAK = 2.70
 RAMP_S = 0.8
 # Fast return during calibration so setup stays short. Tau learned here is not
 # the work-loop load.
-CALIB_DECAY_TAU_S = 2.2
+CALIB_DECAY_TAU_S = 1.4
 # Work starts already above baseline (the person has been at the task), then
 # decays. The 1 s smoother needs a little time after this before BFI counts
 # as returned.
 WORK_PEAK = 2.50
-WORK_DECAY_TAU_S = 3.0
+WORK_DECAY_TAU_S = 1.4
 WORK_DECAY_START_S = 0.5
-WORK_BVI_START_S = 11.0
-WORK_CQ_DIP_START_S = 14.0
-WORK_CQ_DIP_END_S = 18.0
+WORK_BVI_START_S = 5.0
+WORK_CQ_DIP_START_S = 6.8
+WORK_CQ_DIP_END_S = 8.2
 DEMO_HZ = 20.0
+# About 25 s end to end. The hold ends about 1.5 s in, once the rise has held.
+# Recovery ends at about 10 s, the shortest window the tau fit accepts.
 DEMO_DURATIONS = {
-    "baseline": 4.0,
+    "baseline": 3.0,
     "hold": 6.0,
     "recovery": 14.0,
-    "work": 24.0,
-    "continue": 24.0,
+    "work": 10.5,
+    "continue": 10.5,
 }
 
 

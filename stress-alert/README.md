@@ -57,7 +57,7 @@ Producers talk to the dashboard only through [dashboard/SCHEMA.md](dashboard/SCH
 | :- | :- |
 | 1. Server, hub, ingest and browser sockets, live BFI charts from replay | Done |
 | 2. Session/phase logger: session bar, phase buttons and timer, `events.csv`, chart shading, LSL markers | Done |
-| 3. Contact quality, optical heart rate, perfusion tile, recovery gate | Done on the live scan, on Demo Mode, and on `--dev-feed`. Calibration learns resting BFI. The work step unlocks when forehead BFI has returned and contact quality is at least 0.50. The perfusion tile is secondary. Optical heart rate is a side panel |
+| 3. Contact quality, optical heart rate, perfusion tile, recovery gate | Done on the live scan, on Demo Mode, and on `--dev-feed`. Calibration learns resting BFI. The work step unlocks when forehead BFI has returned and contact quality is at least 0.50. The perfusion tile is secondary. Optical heart rate is a side panel, on the live scan and `--dev-feed` only, because the Demo Mode script has no pulse |
 
 ## Versions
 

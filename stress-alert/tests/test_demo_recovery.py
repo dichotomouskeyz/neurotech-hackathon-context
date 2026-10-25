@@ -80,7 +80,7 @@ def test_scripted_work_unlocks_only_after_calibration():
             if elapsed < 2.0:
                 assert frame["gate"] == "locked"
                 assert frame["gate_reason"] == "locked_bfi"
-            if 8.0 <= elapsed < WORK_BVI_START_S and frame["gate"] == "open":
+            if 3.0 <= elapsed < WORK_BVI_START_S and frame["gate"] == "open":
                 opened = True
                 assert frame["difficulty"] >= 2
                 assert frame["task"] in {"advance", "hold"}
