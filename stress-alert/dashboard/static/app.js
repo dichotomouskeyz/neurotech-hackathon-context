@@ -680,55 +680,70 @@ function setReplayTimeLabel(seconds) {
   $("replay-time").textContent = fmtClock(seconds);
 }
 
-const REPLAY_LIST_MS = 4000;
+const REPLAY_LIST_MS = 30000;
 
 function showReplayPick(label) {
   const pick = $("replay-pick");
-  pick.replaceChildren(new Option(label, ""));
+  while (pick.firstChild) pick.removeChild(pick.firstChild);
+  const option = document.createElement("option");
+  option.value = "";
+  option.textContent = label;
+  pick.append(option);
   pick.disabled = true;
+}
+
+function fillReplaySelect(pick, sessions) {
+  while (pick.firstChild) pick.removeChild(pick.firstChild);
+  pick.disabled = false;
+  sessions.forEach((item) => {
+    try {
+      const row = item && typeof item === "object" ? item : {};
+      const duration = Number(row.duration_s);
+      const clock = Number.isFinite(duration) ? ` (${fmtClock(duration)})` : "";
+      const name = row.label == null || row.label === "" ? "recording" : String(row.label);
+      const option = document.createElement("option");
+      option.value = row.path == null ? "" : String(row.path);
+      option.textContent = name + clock;
+      pick.append(option);
+    } catch {
+      // One bad row must not hide the rest of the catalog.
+    }
+  });
 }
 
 async function refreshReplayCatalog() {
   const pick = $("replay-pick");
-  const timer = setTimeout(() => {
-    const current = pick.options[0] && pick.options[0].textContent;
-    if (pick.options.length === 1 && current && current.startsWith("Restart dashboard")) {
-      showReplayPick("Could not list recordings");
-      $("replay-error").textContent =
-        "Listing timed out. Stop the dashboard, start it again on this branch, then hard-refresh.";
-    }
-  }, REPLAY_LIST_MS);
+  const controller = new AbortController();
+  const abortTimer = setTimeout(() => controller.abort(), REPLAY_LIST_MS);
+  let populated = false;
   try {
-    const res = await fetch("/api/replay/sessions", { signal: AbortSignal.timeout(REPLAY_LIST_MS) });
+    const res = await fetch("/api/replay/sessions", { signal: controller.signal });
     if (!res.ok) {
-      const restart = res.status === 404;
-      showReplayPick(restart ? "Restart dashboard, then refresh" : "Could not list recordings");
-      $("replay-error").textContent = restart
-        ? "This server has no replay list (it was started before this branch). Stop it, run uv run python -m dashboard, then hard-refresh."
-        : "Could not list recordings.";
+      const missing = res.status === 404;
+      showReplayPick(missing ? "Restart dashboard, then refresh" : "Could not list recordings");
+      $("replay-error").textContent = missing
+        ? "This server has no replay list (HTTP 404)."
+        : `Could not list recordings (HTTP ${res.status}).`;
       return;
     }
     const body = await res.json();
-    replayCatalog = body.sessions || [];
-    pick.replaceChildren();
-    if (!replayCatalog.length) {
+    const sessions = Array.isArray(body && body.sessions) ? body.sessions : [];
+    replayCatalog = sessions;
+    if (!sessions.length) {
       showReplayPick("No recordings found");
       $("replay-error").textContent =
         "Needs a corrected scan CSV (timestamp_s and bfi_l1) in stress-alert/data/, such as sample_scan.csv. A session with only meta.json and events.csv cannot be replayed.";
       return;
     }
-    pick.disabled = false;
-    replayCatalog.forEach((item) => {
-      const seconds = Number.isFinite(item.duration_s) ? ` (${fmtClock(item.duration_s)})` : "";
-      pick.append(new Option(`${item.label}${seconds}`, item.path));
-    });
+    fillReplaySelect(pick, sessions);
+    populated = true;
     $("replay-error").textContent = "";
-  } catch {
+  } catch (err) {
+    if (populated) return;
     showReplayPick("Could not list recordings");
-    $("replay-error").textContent =
-      "Could not list recordings. Restart the dashboard on this branch and hard-refresh.";
+    $("replay-error").textContent = String(err && err.message ? err.message : err);
   } finally {
-    clearTimeout(timer);
+    clearTimeout(abortTimer);
   }
 }
 

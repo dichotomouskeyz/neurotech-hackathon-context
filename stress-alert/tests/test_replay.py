@@ -57,7 +57,12 @@ def test_replay_page_does_not_stick_on_loading():
     assert "stress-alert/data/" in js
     assert "Could not list recordings" in js
     assert "Restart dashboard, then refresh" in js
-    assert "AbortSignal.timeout" in js
+    assert "AbortSignal.timeout" not in js
+    assert "new AbortController()" in js
+    assert "controller.abort()" in js
+    assert "String(err" in js
+    assert "Restart the dashboard on this branch and hard-refresh" not in js
+    assert "if (populated) return" in js
     assert "/api/replay/sessions" in js
 
 
