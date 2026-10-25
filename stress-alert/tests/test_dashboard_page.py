@@ -13,14 +13,18 @@ def test_page_defaults_are_a_long_work_bout_after_a_short_baseline():
     assert 'id="dur-hold" value="0"' in html
     assert 'id="dur-recovery" value="20"' in html
     assert 'id="dur-continue" value="1200"' in html
-    assert 'id="work-until-end"' in html
+    assert 'id="work-until-end"' not in html
+    assert "Until End" not in html
+    assert "0 skips" not in html
+    assert "work_until_end = false" in js
+    assert "work-until-end" not in js
     assert 'id="recovered-within" value="5"' in html
     assert 'min="1" max="25"' in html
     assert "BFI within baseline (%)" in html
     assert 'id="present-hint"' in html
     assert 'class="info-tip"' in html
     assert "info-btn" in html
-    assert "Hold at 0 skips" in html
+    assert "Hold (s)" in html
     assert "Long session (20 min work)" not in html
     assert 'id="loop-start"' not in html
     assert 'id="device-disconnect"' not in html
@@ -29,7 +33,9 @@ def test_page_defaults_are_a_long_work_bout_after_a_short_baseline():
     assert 'id="btn-heatmap-demo"' not in html
     assert 'id="heatmap-live-chip"' not in html
     assert ">Search<" in html
-    assert ">Start scan (laser on)<" in html
+    assert ">Start scan<" in html
+    assert "Start scan (laser on)" not in html
+    assert "Start scan (laser on)" not in js
     assert ">Run timed<" in html
     assert "closedLoop: true" in js
     assert "Stop protocol" in js

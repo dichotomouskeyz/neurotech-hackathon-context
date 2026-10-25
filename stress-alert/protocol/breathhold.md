@@ -89,7 +89,7 @@ Phase markers must match what the dashboard annotates:
 
 ## Long session (live default)
 
-For research. **Run timed** is the live path. **Demo Mode** is a short offline fallback: calibration, then a short work loop, contact quality below 1.00, and it will not start during a live scan. Run timed reads the duration fields. Defaults are a 20 second baseline, hold 0, and 20 minutes of work (1200 s). Hold at 0 skips the breath-hold and recovery. Typing a hold above 0 runs that hold and the recovery field as calibration proof. **Until End** keeps work going until the operator presses End. The full 60 / 30 / 90 sitting is still the manual breath-hold protocol above, not this default. The recovery gate controls the work step. The perfusion tile is secondary and does not unlock a step. It is not a stressed-or-not score.
+For research. **Run timed** is the live path. **Demo Mode** is a short offline fallback: calibration, then a short work loop, contact quality below 1.00, and it will not start during a live scan. Run timed reads the duration fields. Defaults are a 20 second baseline, hold 0, and 20 minutes of work (1200 s). A hold above 0 runs that breath-hold and the recovery field as calibration proof. Work runs for the Work field. The full 60 / 30 / 90 sitting is still the manual breath-hold protocol above, not this default. The recovery gate controls the work step. The perfusion tile is secondary and does not unlock a step. It is not a stressed-or-not score.
 
 | Step | Duration | What the screen does |
 | :- | :- | :- |
@@ -102,4 +102,4 @@ If the hold ends without that elevation, recovery runs for about 4 seconds (or t
 
 Camera selection, for research. A camera is eligible when it has at least five positive baseline samples, a baseline of at least 0.2, and a coefficient of variation of at most 0.50. Non-positive samples are dropped, so a camera sitting on zero does not enter the mean. Rank is the relative rise of the hold median versus that camera's own baseline. The kept set is at most four cameras, and only when at least two rise by 3% or more. One spiked camera does not choose the set. The index after that lock is the median of the kept cameras' latest 1 second rises, so recovery can fall and a single spike does not set the alert. The same rule runs separately for BFI and for BVI. The label is the larger of the two.
 
-Laser light still comes only from **Start scan (laser on)**.
+Laser light still comes only from **Start scan**.

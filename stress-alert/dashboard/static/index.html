@@ -125,7 +125,7 @@
             <li><span class="state" id="dev-left">Left sensor</span></li>
             <li><span class="state" id="dev-right">Right sensor</span></li>
           </ul>
-          <button type="button" class="mode-btn" id="scan-start" aria-pressed="false" disabled>Start scan (laser on)</button>
+          <button type="button" class="mode-btn" id="scan-start" aria-pressed="false" disabled>Start scan</button>
         </div>
         <p class="error" id="device-error" role="alert"></p>
       </div>
@@ -152,7 +152,7 @@
         <h2 class="card-title">Timed protocol
           <span class="info">
             <button type="button" class="info-btn" aria-label="About the timed protocol" aria-describedby="loop-hint">ⓘ</button>
-            <span class="info-tip" id="loop-hint" role="tooltip">Run timed is the live path. Calibrate is a 20 second baseline sit. Hold at 0 skips the breath-hold and recovery. Work then runs 20 minutes. The gate tile locks as soon as forehead flow crosses the boundary. The breath starts only after about 4 seconds when the average rise, and most of that window, are still over the boundary. It stays on until the average is under half the boundary. BFI within baseline is the recovery boundary for that check, applied when Run timed or Demo Mode starts. It stays fixed until you stop and start again. Default 5, allowed 1 to 25. Contact quality stays at least 0.50. Check Until End to keep Work going until you press End. Demo Mode is the short offline fallback: it will not start during a live scan, and its contact scores stay below 1.00.</span>
+            <span class="info-tip" id="loop-hint" role="tooltip">Run timed is the live path. Calibrate is a 20 second baseline sit. Work then runs 20 minutes. A hold above 0 runs that breath-hold, then recovery. The gate tile locks as soon as forehead flow crosses the boundary. The breath starts only after about 4 seconds when the average rise, and most of that window, are still over the boundary. It stays on until the average is under half the boundary. BFI within baseline is the recovery boundary for that check, applied when Run timed or Demo Mode starts. It stays fixed until you stop and start again. Default 5, allowed 1 to 25. Contact quality stays at least 0.50. Demo Mode is the short offline fallback: it will not start during a live scan, and its contact scores stay below 1.00.</span>
           </span>
         </h2>
         <div class="row">
@@ -160,7 +160,7 @@
         </div>
         <form class="row" id="protocol-form">
           <label class="field">Baseline (s) <input type="number" id="dur-baseline" value="20" min="1" max="600"></label>
-          <label class="field">Hold (s, 0 skips) <input type="number" id="dur-hold" value="0" min="0" max="120"></label>
+          <label class="field">Hold (s) <input type="number" id="dur-hold" value="0" min="0" max="120"></label>
           <label class="field">Recovery (s) <input type="number" id="dur-recovery" value="20" min="1" max="600"></label>
           <label class="field">Work (s) <input type="number" id="dur-continue" value="1200" min="1" max="14400"></label>
           <label class="field">
@@ -172,7 +172,6 @@
             </span>
             <input type="number" id="recovered-within" value="5" min="1" max="25" step="1">
           </label>
-          <label class="toggle"><input type="checkbox" id="work-until-end"> Until End</label>
           <label class="field">Cycles <input type="number" id="cycles" value="1" min="1" max="10"></label>
           <button type="submit" class="primary mode-btn" id="protocol-start" aria-pressed="false">Run timed</button>
         </form>

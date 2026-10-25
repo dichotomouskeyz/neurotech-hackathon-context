@@ -608,7 +608,6 @@ function renderControls() {
   run.disabled = timerRunning ? false : !canTime;
   setModeButton(run, timerRunning, timerRunning ? "Stop protocol" : "Run timed");
   document.querySelectorAll("#protocol-form input").forEach((i) => { i.disabled = timerRunning; });
-  syncWorkDurationField();
 }
 
 function renderEvents() {
@@ -656,25 +655,15 @@ function readProtocolFields() {
   };
 }
 
-function workUntilEndChecked() {
-  const box = $("work-until-end");
-  return Boolean(box && box.checked);
-}
-
-function syncWorkDurationField() {
-  const untilEnd = workUntilEndChecked();
-  const workField = $("dur-continue");
-  if (workField && !protocolRunning()) workField.disabled = untilEnd;
-}
-
 function timedProtocolBody() {
-  // Duration fields are the long session. closed_loop is what runs Work,
-  // starts a session when there is none, and honors Until End.
-  return liveMath.protocolBody(readProtocolFields(), {
+  // Duration fields are the long session. closed_loop runs Work and starts a
+  // session when there is none. work_until_end stays off, the old Until End default.
+  const body = liveMath.protocolBody(readProtocolFields(), {
     closedLoop: true,
     subjectId: $("subject").value,
-    workUntilEnd: workUntilEndChecked(),
   });
+  body.work_until_end = false;
+  return body;
 }
 
 $("protocol-form").addEventListener("submit", (e) => {
@@ -710,8 +699,6 @@ async function toggleDemo() {
 
 $("demo-start").addEventListener("click", () => { toggleDemo(); });
 fetch("/api/demo").then((res) => res.json()).then((data) => setDemoRunning(Boolean(data.running))).catch(() => {});
-$("protocol-form").addEventListener("input", syncWorkDurationField);
-syncWorkDurationField();
 
 // Open-Motion device -------------------------------------------------------
 
@@ -737,7 +724,7 @@ function renderDevice() {
   setModeButton($("device-connect"), Boolean(d.connected), d.connected ? "Disconnect" : "Search");
   const scan = $("scan-start");
   const scanning = Boolean(d.scanning);
-  setModeButton(scan, scanning, scanning ? "Stop scan" : "Start scan (laser on)");
+  setModeButton(scan, scanning, scanning ? "Stop scan" : "Start scan");
   if (scan && scan.dataset.busy !== "true") {
     const canScan = d.connected && d.console && (d.left || d.right);
     scan.disabled = scanning ? false : !canScan;
