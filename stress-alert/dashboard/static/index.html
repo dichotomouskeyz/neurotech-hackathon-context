@@ -30,238 +30,259 @@
     </div>
   </header>
 
-  <main id="main">
+  <main id="main" class="main-single-screen">
     <p class="present-hint present-only" id="present-hint">Calibrate, then work. A breath starts when forehead flow leaves the calibrated baseline and contact is good. For research. Not a diagnosis.</p>
-    <section class="strip" aria-label="Live status">
-      <article class="card tile tile-phase" id="tile-phase" data-phase="" data-live="true">
-        <h2 class="card-title">Phase</h2>
-        <div class="value" id="phase-name">Idle</div>
-        <div class="phase-meta sub">
-          <span class="phase-elapsed" id="phase-elapsed"></span>
-          <span id="phase-next"></span>
-        </div>
-        <div class="progress" aria-hidden="true"><span id="phase-progress"></span></div>
-        <div class="breath" aria-hidden="true">
-          <svg viewBox="0 0 240 240">
-            <circle class="breath-track" cx="120" cy="120" r="114"></circle>
-            <circle class="breath-progress" id="breath-progress" cx="120" cy="120" r="114" pathLength="100"></circle>
-            <circle class="breath-core" id="breath-core" cx="120" cy="120" r="96"></circle>
-          </svg>
-          <div class="breath-label">
-            <span class="phase" id="breath-phase">Idle</span>
-            <span class="clock" id="breath-clock"></span>
-            <span class="next" id="breath-next"></span>
+
+    <!-- COLUMN 1: Telemetry & Operator Controls -->
+    <div class="column-left">
+      <section class="strip" aria-label="Live status">
+        <article class="card tile tile-phase" id="tile-phase" data-phase="" data-live="true">
+          <h2 class="card-title">Phase</h2>
+          <div class="value" id="phase-name">Idle</div>
+          <div class="phase-meta sub">
+            <span class="phase-elapsed" id="phase-elapsed"></span>
+            <span id="phase-next"></span>
           </div>
-        </div>
-      </article>
-
-      <article class="card tile" id="tile-hr">
-        <h2 class="card-title">Heart rate</h2>
-        <div class="value live-only"><span class="num" id="hr-optical">--</span><span class="unit">bpm optical</span></div>
-        <div class="sub" id="hr-role">Side panel, from the optical pulse. Not the recovery gate.</div>
-        <div class="sub live-only" id="hr-note"></div>
-        <p class="waiting">Waiting for optical heart rate</p>
-      </article>
-
-      <article class="card tile" id="tile-gate" data-gate="off">
-        <h2 class="card-title">Recovery gate</h2>
-        <div class="gate-readouts live-only">
-          <div class="value"><span class="num" id="gate-state">Locked</span></div>
-          <div class="tau-readout">
-            <span class="tau-label">Recovery τ</span>
-            <span class="tau-value"><span class="num" id="gate-tau">--</span><span class="unit" id="gate-tau-unit" hidden>s</span></span>
-          </div>
-        </div>
-        <span class="state live-only" id="gate-status"></span>
-        <div class="sub live-only" id="gate-detail"></div>
-        <p class="waiting">Waiting for BFI and contact quality</p>
-      </article>
-
-      <article class="card tile" id="tile-cq">
-        <h2 class="card-title">Contact quality</h2>
-        <div class="meters live-only">
-          <div class="meter"><span>Left</span><div class="track"><div class="fill" id="cq-left-fill"></div></div><output id="cq-left">--</output></div>
-          <div class="meter"><span>Right</span><div class="track"><div class="fill" id="cq-right-fill"></div></div><output id="cq-right">--</output></div>
-        </div>
-        <span class="state live-only" id="cq-state"></span>
-        <p class="waiting">Waiting for contact quality</p>
-      </article>
-
-      <article class="card tile" id="tile-stress">
-        <h2 class="card-title">Perfusion</h2>
-        <div class="value live-only"><span class="num" id="stress-index">--</span><span class="unit">vs baseline</span></div>
-        <span class="state live-only" id="stress-state"></span>
-        <div class="sub live-only" id="stress-detail"></div>
-        <p class="sub">Secondary telemetry. Each camera versus its own baseline median. Heart rate is not used. The recovery gate controls the task.</p>
-        <p class="waiting">Waiting for BFI and BVI versus baseline</p>
-      </article>
-    </section>
-
-    <section class="card coach" id="coach" data-mode="off" hidden aria-live="polite">
-      <h2 class="card-title" id="coach-kicker">Closed loop</h2>
-      <p class="coach-step" id="coach-step"></p>
-      <p class="coach-cue" id="coach-cue"></p>
-      <p class="coach-note">For research. Not a diagnosis, a screening result, or a treatment signal.</p>
-    </section>
-
-    <section class="card controls operator-only" aria-label="Session controls">
-      <div class="control-group device-group">
-        <h2 class="card-title">Open-Motion device <span class="meta" id="device-sdk"></span></h2>
-        <div class="row">
-          <button type="button" class="primary" id="device-connect">Connect device</button>
-          <button type="button" id="device-disconnect">Disconnect</button>
-          <ul class="device-parts" aria-label="Device parts">
-            <li><span class="state" id="dev-console">Console</span></li>
-            <li><span class="state" id="dev-left">Left sensor</span></li>
-            <li><span class="state" id="dev-right">Right sensor</span></li>
-          </ul>
-          <button type="button" id="scan-start">Start scan (laser on)</button>
-          <button type="button" id="scan-stop">Stop scan</button>
-        </div>
-        <p class="error" id="device-error" role="alert"></p>
-      </div>
-
-      <div class="control-group">
-        <h2 class="card-title">Session</h2>
-        <form class="row" id="session-form" autocomplete="off">
-          <label class="field">Subject <input id="subject" maxlength="64" placeholder="jb"></label>
-          <label class="field grow">Notes <input id="notes" maxlength="2000"></label>
-          <button type="submit" class="primary" id="session-start">Start session</button>
-          <button type="button" id="session-stop">Stop</button>
-        </form>
-        <div class="phase-buttons" role="group" aria-label="Mark phase">
-          <button type="button" data-phase="baseline">Baseline</button>
-          <button type="button" data-phase="hold">Hold</button>
-          <button type="button" data-phase="recovery">Recovery</button>
-          <button type="button" data-phase="work">Work</button>
-          <button type="button" data-phase="end">End</button>
-        </div>
-        <p class="error" id="session-error" role="alert"></p>
-      </div>
-
-      <div class="control-group">
-        <h2 class="card-title">Timed protocol</h2>
-        <div class="row loop-row">
-          <button type="button" class="primary" id="demo-start" aria-pressed="false">Demo Mode</button>
-          <button type="button" class="primary" id="loop-start">Long session (20 min work)</button>
-          <p class="hint" id="loop-hint">Long session is the live path. Calibrate is a 20 second baseline sit. Hold at 0 skips the breath-hold and recovery. Work then runs 20 minutes. The gate tile locks as soon as forehead flow crosses the boundary. The breath starts only after about 4 seconds when the average rise, and most of that window, are still over the boundary. It stays on until the average is under half the boundary. BFI within baseline is the recovery boundary for that check, applied when Long session, Run timed, or Demo Mode starts. It stays fixed until you stop and start again. Default 5, allowed 1 to 25. Contact quality stays at least 0.50. Check Until End to keep Work going until you press End. Demo Mode is the short offline fallback: it will not start during a live scan, and its contact scores stay below 1.00.</p>
-        </div>
-        <form class="row" id="protocol-form">
-          <label class="field">Baseline (s) <input type="number" id="dur-baseline" value="20" min="1" max="600"></label>
-          <label class="field">Hold (s, 0 skips) <input type="number" id="dur-hold" value="0" min="0" max="120"></label>
-          <label class="field">Recovery (s) <input type="number" id="dur-recovery" value="20" min="1" max="600"></label>
-          <label class="field">Work (s) <input type="number" id="dur-continue" value="1200" min="1" max="14400"></label>
-          <label class="field" title="Perfusion-ready when the forehead BFI rise is under this percent of the calibrated baseline. The breath coach uses the same line. Contact quality is separate.">BFI within baseline (%) <input type="number" id="recovered-within" value="5" min="1" max="25" step="1"></label>
-          <label class="toggle"><input type="checkbox" id="work-until-end"> Until End</label>
-          <label class="field">Cycles <input type="number" id="cycles" value="1" min="1" max="10"></label>
-          <button type="submit" class="primary" id="protocol-start">Run timed</button>
-          <button type="button" id="protocol-stop">Stop protocol</button>
-        </form>
-        <ol class="events" id="events" aria-label="Phase events"></ol>
-      </div>
-    </section>
-
-    <section class="card heatmap-card" id="card-heatmap" aria-labelledby="title-heatmap">
-      <div class="heatmap-head">
-        <div class="heatmap-title-row">
-          <h2 class="card-title" id="title-heatmap">2D Brain Hemodynamic Heatmap</h2>
-          <div class="heatmap-live-chip" id="heatmap-live-chip">
-            <span class="chip-dot"></span>
-            <span id="heatmap-status-text">Waiting for Open-Motion</span>
-          </div>
-        </div>
-
-        <div class="heatmap-toolbar">
-          <div class="segmented segmented-sm" role="group" aria-label="Projection View">
-            <button type="button" class="btn-segmented active" id="btn-view-axial" data-projection="axial" aria-pressed="true">Axial (10-20)</button>
-            <button type="button" class="btn-segmented" id="btn-view-frontal" data-projection="frontal" aria-pressed="false">Frontal PFC</button>
-          </div>
-
-          <div class="segmented segmented-sm" role="group" aria-label="Metric">
-            <button type="button" class="btn-segmented active" id="btn-metric-bfi" data-metric="bfi" aria-pressed="true">BFI (Flow)</button>
-            <button type="button" class="btn-segmented" id="btn-metric-bvi" data-metric="bvi" aria-pressed="false">BVI (Volume)</button>
-            <button type="button" class="btn-segmented" id="btn-metric-asym" data-metric="asym" aria-pressed="false">Laterality</button>
-          </div>
-
-          <label class="field-select">
-            <span>Colormap</span>
-            <select id="heatmap-colormap">
-              <option value="turbo">Turbo</option>
-              <option value="viridis" selected>Viridis</option>
-              <option value="coolwarm">Coolwarm</option>
-            </select>
-          </label>
-
-          <label class="toggle"><input type="checkbox" id="heatmap-show-optodes" checked> Optodes &amp; labels</label>
-          <label class="toggle"><input type="checkbox" id="heatmap-autoscale" checked> Auto-scale</label>
-          <button type="button" class="btn-segmented" id="btn-heatmap-demo">Demo Mode</button>
-        </div>
-      </div>
-
-      <div class="heatmap-body">
-        <div class="heatmap-canvas-container" id="heatmap-container">
-          <canvas id="heatmap-canvas" width="640" height="420"></canvas>
-          <div class="heatmap-tooltip" id="heatmap-tooltip" style="display: none;"></div>
-        </div>
-
-        <div class="heatmap-sidebar">
-          <div class="heatmap-stat-box">
-            <span class="stat-label">Left PFC Mean</span>
-            <span class="stat-value" id="heatmap-stat-left">--</span>
-            <span class="stat-sub">Channels L1–L8</span>
-          </div>
-          <div class="heatmap-stat-box">
-            <span class="stat-label">Right PFC Mean</span>
-            <span class="stat-value" id="heatmap-stat-right">--</span>
-            <span class="stat-sub">Channels R1–R8</span>
-          </div>
-          <div class="heatmap-stat-box" id="heatmap-stat-asym-box">
-            <span class="stat-label">Hemispheric Balance</span>
-            <span class="stat-value" id="heatmap-stat-asym">--</span>
-            <span class="stat-sub" id="heatmap-stat-asym-desc">R vs L asymmetry</span>
-          </div>
-
-          <div class="heatmap-colorbar-wrap">
-            <div class="colorbar-labels">
-              <span class="cb-label" id="cb-max">--</span>
-              <span class="cb-label" id="cb-mid">--</span>
-              <span class="cb-label" id="cb-min">--</span>
+          <div class="progress" aria-hidden="true"><span id="phase-progress"></span></div>
+          <div class="breath" aria-hidden="true">
+            <svg viewBox="0 0 240 240">
+              <circle class="breath-track" cx="120" cy="120" r="114"></circle>
+              <circle class="breath-progress" id="breath-progress" cx="120" cy="120" r="114" pathLength="100"></circle>
+              <circle class="breath-core" id="breath-core" cx="120" cy="120" r="96"></circle>
+            </svg>
+            <div class="breath-label">
+              <span class="phase" id="breath-phase">Idle</span>
+              <span class="clock" id="breath-clock"></span>
+              <span class="next" id="breath-next"></span>
             </div>
-            <div class="colorbar-bar" id="heatmap-colorbar"></div>
-            <span class="colorbar-unit" id="cb-unit">Index</span>
+          </div>
+        </article>
+
+        <article class="card tile" id="tile-hr">
+          <h2 class="card-title">Heart rate</h2>
+          <div class="value live-only"><span class="num" id="hr-optical">--</span><span class="unit">bpm optical</span></div>
+          <div class="sub" id="hr-role">Side panel, from optical pulse.</div>
+          <div class="sub live-only" id="hr-note"></div>
+          <p class="waiting">Waiting for optical heart rate</p>
+        </article>
+
+        <article class="card tile" id="tile-gate" data-gate="off">
+          <h2 class="card-title">Recovery gate</h2>
+          <div class="gate-readouts live-only">
+            <div class="value"><span class="num" id="gate-state">Locked</span></div>
+            <div class="tau-readout">
+              <span class="tau-label">Recovery τ</span>
+              <span class="tau-value"><span class="num" id="gate-tau">--</span><span class="unit" id="gate-tau-unit" hidden>s</span></span>
+            </div>
+          </div>
+          <span class="state live-only" id="gate-status"></span>
+          <div class="sub live-only" id="gate-detail"></div>
+          <p class="waiting">Waiting for BFI &amp; CQ</p>
+        </article>
+
+        <article class="card tile" id="tile-cq">
+          <h2 class="card-title">Contact quality</h2>
+          <div class="meters live-only">
+            <div class="meter"><span>Left</span><div class="track"><div class="fill" id="cq-left-fill"></div></div><output id="cq-left">--</output></div>
+            <div class="meter"><span>Right</span><div class="track"><div class="fill" id="cq-right-fill"></div></div><output id="cq-right">--</output></div>
+          </div>
+          <span class="state live-only" id="cq-state"></span>
+          <p class="waiting">Waiting for contact quality</p>
+        </article>
+
+        <article class="card tile" id="tile-stress">
+          <h2 class="card-title">Perfusion</h2>
+          <div class="value live-only"><span class="num" id="stress-index">--</span><span class="unit">vs baseline</span></div>
+          <span class="state live-only" id="stress-state"></span>
+          <div class="sub live-only" id="stress-detail"></div>
+          <p class="waiting">Waiting for baseline</p>
+        </article>
+      </section>
+
+      <section class="card controls operator-only" aria-label="Session controls">
+        <div class="controls-tabs" role="tablist" aria-label="Controls Navigation">
+          <button type="button" class="tab-btn active" id="tab-btn-proto" role="tab" aria-selected="true">Protocol</button>
+          <button type="button" class="tab-btn" id="tab-btn-dev" role="tab" aria-selected="false">Device</button>
+          <button type="button" class="tab-btn" id="tab-btn-sess" role="tab" aria-selected="false">Session</button>
+        </div>
+
+        <div class="tab-pane active" id="tab-pane-proto" role="tabpanel">
+          <div class="control-group">
+            <h2 class="card-title">Timed protocol</h2>
+            <div class="row loop-row">
+              <button type="button" class="primary" id="demo-start" aria-pressed="false">Demo Mode</button>
+              <button type="button" class="primary" id="loop-start">Long session (20 min)</button>
+              <p class="hint" id="loop-hint">Long session is the live path: 20s baseline calibration, then 20 min work. Automatic breath coach triggers if flow exceeds threshold.</p>
+            </div>
+            <form class="row" id="protocol-form">
+              <label class="field">Baseline (s) <input type="number" id="dur-baseline" value="20" min="1" max="600"></label>
+              <label class="field">Hold (s, 0 skips) <input type="number" id="dur-hold" value="0" min="0" max="120"></label>
+              <label class="field">Recovery (s) <input type="number" id="dur-recovery" value="20" min="1" max="600"></label>
+              <label class="field">Work (s) <input type="number" id="dur-continue" value="1200" min="1" max="14400"></label>
+              <label class="field" title="Perfusion-ready when forehead BFI rise is under this percent of calibrated baseline.">BFI within baseline (%) <input type="number" id="recovered-within" value="5" min="1" max="25" step="1"></label>
+              <label class="toggle"><input type="checkbox" id="work-until-end"> Until End</label>
+              <label class="field">Cycles <input type="number" id="cycles" value="1" min="1" max="10"></label>
+              <button type="submit" class="primary" id="protocol-start">Run timed</button>
+              <button type="button" id="protocol-stop">Stop</button>
+            </form>
+            <ol class="events" id="events" aria-label="Phase events"></ol>
           </div>
         </div>
-      </div>
-      
-      <p class="chart-empty" id="heatmap-empty-msg">Waiting for Open-Motion bfi/bvi frames</p>
-    </section>
 
-    <section class="card chart-card" id="card-bfi" aria-labelledby="title-bfi">
-      <div class="chart-head">
-        <h2 class="card-title" id="title-bfi">Blood flow index</h2>
-        <p class="gate-readout" id="gate-chart" data-gate="off">Gate waiting for BFI, BVI, and contact quality</p>
-        <div class="legend" aria-live="off">
-          <span class="key"><span class="swatch swatch-left"></span>Left <output id="val-left-bfi">--</output></span>
-          <span class="key"><span class="swatch swatch-right"></span>Right <output id="val-right-bfi">--</output></span>
+        <div class="tab-pane" id="tab-pane-dev" role="tabpanel" hidden>
+          <div class="control-group device-group">
+            <h2 class="card-title">Open-Motion device <span class="meta" id="device-sdk"></span></h2>
+            <div class="row">
+              <button type="button" class="primary" id="device-connect">Connect device</button>
+              <button type="button" id="device-disconnect">Disconnect</button>
+              <ul class="device-parts" aria-label="Device parts">
+                <li><span class="state" id="dev-console">Console</span></li>
+                <li><span class="state" id="dev-left">Left sensor</span></li>
+                <li><span class="state" id="dev-right">Right sensor</span></li>
+              </ul>
+              <button type="button" id="scan-start">Start scan (laser on)</button>
+              <button type="button" id="scan-stop">Stop scan</button>
+            </div>
+            <p class="error" id="device-error" role="alert"></p>
+          </div>
         </div>
-        <label class="toggle operator-only"><input type="checkbox" id="spread"> Camera spread (middle 50%)</label>
-        <span class="meta" id="rate"></span>
-      </div>
-      <div class="chart" id="chart-bfi"></div>
-      <p class="chart-empty">Waiting for bfi frames</p>
-    </section>
 
-    <section class="card chart-card" id="card-bvi" aria-labelledby="title-bvi">
-      <div class="chart-head">
-        <h2 class="card-title" id="title-bvi">Blood volume index</h2>
-        <div class="legend" aria-live="off">
-          <span class="key"><span class="swatch swatch-left"></span>Left <output id="val-left-bvi">--</output></span>
-          <span class="key"><span class="swatch swatch-right"></span>Right <output id="val-right-bvi">--</output></span>
+        <div class="tab-pane" id="tab-pane-sess" role="tabpanel" hidden>
+          <div class="control-group">
+            <h2 class="card-title">Session</h2>
+            <form class="row" id="session-form" autocomplete="off">
+              <label class="field">Subject <input id="subject" maxlength="64" placeholder="jb"></label>
+              <label class="field grow">Notes <input id="notes" maxlength="2000"></label>
+              <button type="submit" class="primary" id="session-start">Start session</button>
+              <button type="button" id="session-stop">Stop</button>
+            </form>
+            <div class="phase-buttons" role="group" aria-label="Mark phase">
+              <button type="button" data-phase="baseline">Baseline</button>
+              <button type="button" data-phase="hold">Hold</button>
+              <button type="button" data-phase="recovery">Recovery</button>
+              <button type="button" data-phase="work">Work</button>
+              <button type="button" data-phase="end">End</button>
+            </div>
+            <p class="error" id="session-error" role="alert"></p>
+          </div>
         </div>
-      </div>
-      <div class="chart" id="chart-bvi"></div>
-      <p class="chart-empty">Waiting for bvi frames</p>
-    </section>
+      </section>
+    </div>
+
+    <!-- COLUMN 2: Center Hero Heatmap & Coach -->
+    <div class="column-center">
+      <section class="card coach" id="coach" data-mode="off" hidden aria-live="polite">
+        <h2 class="card-title" id="coach-kicker">Closed loop</h2>
+        <p class="coach-step" id="coach-step"></p>
+        <p class="coach-cue" id="coach-cue"></p>
+        <p class="coach-note">For research. Not a diagnosis, a screening result, or a treatment signal.</p>
+      </section>
+
+      <section class="card heatmap-card" id="card-heatmap" aria-labelledby="title-heatmap">
+        <div class="heatmap-head">
+          <div class="heatmap-title-row">
+            <h2 class="card-title" id="title-heatmap">2D Brain Hemodynamic Heatmap</h2>
+            <div class="heatmap-live-chip" id="heatmap-live-chip">
+              <span class="chip-dot"></span>
+              <span id="heatmap-status-text">Waiting for Open-Motion</span>
+            </div>
+          </div>
+
+          <div class="heatmap-toolbar">
+            <div class="segmented segmented-sm" role="group" aria-label="Projection View">
+              <button type="button" class="btn-segmented active" id="btn-view-axial" data-projection="axial" aria-pressed="true">Axial (10-20)</button>
+              <button type="button" class="btn-segmented" id="btn-view-frontal" data-projection="frontal" aria-pressed="false">Frontal PFC</button>
+            </div>
+
+            <div class="segmented segmented-sm" role="group" aria-label="Metric">
+              <button type="button" class="btn-segmented active" id="btn-metric-bfi" data-metric="bfi" aria-pressed="true">BFI (Flow)</button>
+              <button type="button" class="btn-segmented" id="btn-metric-bvi" data-metric="bvi" aria-pressed="false">BVI (Volume)</button>
+              <button type="button" class="btn-segmented" id="btn-metric-asym" data-metric="asym" aria-pressed="false">Laterality</button>
+            </div>
+
+            <label class="field-select">
+              <span>Colormap</span>
+              <select id="heatmap-colormap">
+                <option value="turbo">Turbo</option>
+                <option value="viridis" selected>Viridis</option>
+                <option value="coolwarm">Coolwarm</option>
+              </select>
+            </label>
+
+            <label class="toggle"><input type="checkbox" id="heatmap-show-optodes" checked> Optodes &amp; labels</label>
+            <label class="toggle"><input type="checkbox" id="heatmap-autoscale" checked> Auto-scale</label>
+            <button type="button" class="btn-segmented" id="btn-heatmap-demo">Demo Mode</button>
+          </div>
+        </div>
+
+        <div class="heatmap-body">
+          <div class="heatmap-canvas-container" id="heatmap-container">
+            <canvas id="heatmap-canvas" width="640" height="420"></canvas>
+            <div class="heatmap-tooltip" id="heatmap-tooltip" style="display: none;"></div>
+          </div>
+
+          <div class="heatmap-sidebar">
+            <div class="heatmap-stat-box">
+              <span class="stat-label">Left PFC Mean</span>
+              <span class="stat-value" id="heatmap-stat-left">--</span>
+              <span class="stat-sub">Channels L1–L8</span>
+            </div>
+            <div class="heatmap-stat-box">
+              <span class="stat-label">Right PFC Mean</span>
+              <span class="stat-value" id="heatmap-stat-right">--</span>
+              <span class="stat-sub">Channels R1–R8</span>
+            </div>
+            <div class="heatmap-stat-box" id="heatmap-stat-asym-box">
+              <span class="stat-label">Hemispheric Balance</span>
+              <span class="stat-value" id="heatmap-stat-asym">--</span>
+              <span class="stat-sub" id="heatmap-stat-asym-desc">R vs L asymmetry</span>
+            </div>
+
+            <div class="heatmap-colorbar-wrap">
+              <div class="colorbar-labels">
+                <span class="cb-label" id="cb-max">--</span>
+                <span class="cb-label" id="cb-mid">--</span>
+                <span class="cb-label" id="cb-min">--</span>
+              </div>
+              <div class="colorbar-bar" id="heatmap-colorbar"></div>
+              <span class="colorbar-unit" id="cb-unit">Index</span>
+            </div>
+          </div>
+        </div>
+        
+        <p class="chart-empty" id="heatmap-empty-msg">Waiting for Open-Motion bfi/bvi frames</p>
+      </section>
+    </div>
+
+    <!-- COLUMN 3: Right Stacked Charts -->
+    <div class="column-right">
+      <section class="card chart-card" id="card-bfi" aria-labelledby="title-bfi">
+        <div class="chart-head">
+          <h2 class="card-title" id="title-bfi">Blood flow index</h2>
+          <p class="gate-readout" id="gate-chart" data-gate="off">Gate waiting for signals</p>
+          <div class="legend" aria-live="off">
+            <span class="key"><span class="swatch swatch-left"></span>Left <output id="val-left-bfi">--</output></span>
+            <span class="key"><span class="swatch swatch-right"></span>Right <output id="val-right-bfi">--</output></span>
+          </div>
+          <label class="toggle operator-only"><input type="checkbox" id="spread"> Spread (IQR)</label>
+          <span class="meta" id="rate"></span>
+        </div>
+        <div class="chart" id="chart-bfi"></div>
+        <p class="chart-empty">Waiting for bfi frames</p>
+      </section>
+
+      <section class="card chart-card" id="card-bvi" aria-labelledby="title-bvi">
+        <div class="chart-head">
+          <h2 class="card-title" id="title-bvi">Blood volume index</h2>
+          <div class="legend" aria-live="off">
+            <span class="key"><span class="swatch swatch-left"></span>Left <output id="val-left-bvi">--</output></span>
+            <span class="key"><span class="swatch swatch-right"></span>Right <output id="val-right-bvi">--</output></span>
+          </div>
+        </div>
+        <div class="chart" id="chart-bvi"></div>
+        <p class="chart-empty">Waiting for bvi frames</p>
+      </section>
+    </div>
   </main>
 
   <script src="/static/vendor/uPlot.iife.min.js"></script>

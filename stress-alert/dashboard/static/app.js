@@ -217,7 +217,14 @@ let hoverIdx = null;
 // operator view, off by default.
 let showSpread = false;
 
-const chartHeight = () => (document.body.dataset.view === "present" ? 300 : 240);
+const chartHeight = (metric) => {
+  if (document.body.dataset.view === "present") return 300;
+  if (metric) {
+    const el = $(`chart-${metric}`);
+    if (el && el.clientHeight > 40) return el.clientHeight;
+  }
+  return 190;
+};
 
 function makeChart(metric) {
   const buf = bufs[metric];
@@ -299,7 +306,12 @@ function renderLegends() {
 
 function resizeCharts() {
   for (const metric of METRICS) {
-    charts[metric].setSize({ width: $(`chart-${metric}`).clientWidth, height: chartHeight() });
+    const el = $(`chart-${metric}`);
+    if (el && charts[metric]) {
+      const w = el.clientWidth || 320;
+      const h = chartHeight(metric);
+      charts[metric].setSize({ width: w, height: h });
+    }
   }
 }
 
@@ -1020,7 +1032,34 @@ $("pause").addEventListener("click", (event) => {
   event.currentTarget.setAttribute("aria-pressed", String(paused));
   event.currentTarget.textContent = paused ? "Resume" : "Pause";
 });
-window.addEventListener("resize", resizeCharts);
+// Operator controls tab navigation
+const controlTabs = [
+  { btn: $("tab-btn-proto"), pane: $("tab-pane-proto") },
+  { btn: $("tab-btn-dev"), pane: $("tab-pane-dev") },
+  { btn: $("tab-btn-sess"), pane: $("tab-pane-sess") },
+];
+controlTabs.forEach(({ btn, pane }) => {
+  if (!btn || !pane) return;
+  btn.addEventListener("click", () => {
+    controlTabs.forEach((tab) => {
+      if (tab.btn) {
+        const isCurrent = tab.btn === btn;
+        tab.btn.classList.toggle("active", isCurrent);
+        tab.btn.setAttribute("aria-selected", String(isCurrent));
+      }
+      if (tab.pane) {
+        tab.pane.hidden = tab.pane !== pane;
+      }
+    });
+  });
+});
+
+window.addEventListener("resize", () => {
+  resizeCharts();
+  if (brainHeatmap && typeof brainHeatmap.resize === "function") {
+    brainHeatmap.resize();
+  }
+});
 matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () => {
   METRICS.forEach(makeChart);
   dirty = true;
