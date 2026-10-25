@@ -163,6 +163,24 @@
         </form>
         <ol class="events" id="events" aria-label="Phase events"></ol>
       </div>
+
+      <div class="control-group">
+        <h2 class="card-title">Session replay</h2>
+        <div class="row">
+          <label class="field grow">Recording
+            <select id="replay-pick"><option value="">Restart dashboard, then refresh</option></select>
+          </label>
+          <button type="button" id="replay-load">Load</button>
+          <button type="button" id="replay-stop">Stop replay</button>
+        </div>
+        <div class="row">
+          <label class="field grow">Time in recording
+            <input type="range" id="replay-scrub" min="0" max="30" step="0.05" value="0" disabled>
+          </label>
+          <output id="replay-time" for="replay-scrub">0:00</output>
+        </div>
+        <p class="error" id="replay-error" role="alert"></p>
+      </div>
     </section>
 
     <section class="card heatmap-card" id="card-heatmap" aria-labelledby="title-heatmap">

@@ -663,6 +663,141 @@ async function toggleDemo() {
 $("demo-start").addEventListener("click", () => { toggleDemo(); });
 fetch("/api/demo").then((res) => res.json()).then((data) => setDemoRunning(Boolean(data.running))).catch(() => {});
 
+// Session replay (offline scan CSV) --------------------------------------
+
+let replayCatalog = [];
+let replayDuration = 0;
+
+function setReplayTimeLabel(seconds) {
+  $("replay-time").textContent = fmtClock(seconds);
+}
+
+const REPLAY_LIST_MS = 30000;
+
+function showReplayPick(label) {
+  const pick = $("replay-pick");
+  while (pick.firstChild) pick.removeChild(pick.firstChild);
+  const option = document.createElement("option");
+  option.value = "";
+  option.textContent = label;
+  pick.append(option);
+  pick.disabled = true;
+}
+
+function fillReplaySelect(pick, sessions) {
+  while (pick.firstChild) pick.removeChild(pick.firstChild);
+  pick.disabled = false;
+  sessions.forEach((item) => {
+    try {
+      const row = item && typeof item === "object" ? item : {};
+      const duration = Number(row.duration_s);
+      const clock = Number.isFinite(duration) ? ` (${fmtClock(duration)})` : "";
+      const name = row.label == null || row.label === "" ? "recording" : String(row.label);
+      const option = document.createElement("option");
+      option.value = row.path == null ? "" : String(row.path);
+      option.textContent = name + clock;
+      pick.append(option);
+    } catch {
+      // One bad row must not hide the rest of the catalog.
+    }
+  });
+}
+
+async function refreshReplayCatalog() {
+  const pick = $("replay-pick");
+  const controller = new AbortController();
+  const abortTimer = setTimeout(() => controller.abort(), REPLAY_LIST_MS);
+  let populated = false;
+  try {
+    const res = await fetch("/api/replay/sessions", { signal: controller.signal });
+    if (!res.ok) {
+      const missing = res.status === 404;
+      showReplayPick(missing ? "Restart dashboard, then refresh" : "Could not list recordings");
+      $("replay-error").textContent = missing
+        ? "This server has no replay list (HTTP 404)."
+        : `Could not list recordings (HTTP ${res.status}).`;
+      return;
+    }
+    const body = await res.json();
+    const sessions = Array.isArray(body && body.sessions) ? body.sessions : [];
+    replayCatalog = sessions;
+    if (!sessions.length) {
+      showReplayPick("No recordings found");
+      $("replay-error").textContent =
+        "Needs a corrected scan CSV (timestamp_s and bfi_l1) in stress-alert/data/, such as sample_scan.csv. A session with only meta.json and events.csv cannot be replayed.";
+      return;
+    }
+    fillReplaySelect(pick, sessions);
+    populated = true;
+    $("replay-error").textContent = "";
+  } catch (err) {
+    if (populated) return;
+    showReplayPick("Could not list recordings");
+    $("replay-error").textContent = String(err && err.message ? err.message : err);
+  } finally {
+    clearTimeout(abortTimer);
+  }
+}
+
+async function loadReplay() {
+  const path = $("replay-pick").value;
+  if (!path) return;
+  $("replay-error").textContent = "";
+  const res = await fetch("/api/replay/load", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ path }),
+  });
+  if (!res.ok) {
+    $("replay-error").textContent = (await res.json()).detail || "Replay did not load";
+    return;
+  }
+  const data = await res.json();
+  replayDuration = data.duration_s || 0;
+  const scrub = $("replay-scrub");
+  scrub.max = String(replayDuration);
+  scrub.value = "0";
+  scrub.disabled = false;
+  setReplayTimeLabel(0);
+}
+
+async function seekReplay(tS) {
+  if (!replayDuration) return;
+  const res = await fetch("/api/replay/seek", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ t_s: tS }),
+  });
+  if (!res.ok) {
+    $("replay-error").textContent = (await res.json()).detail || "Seek failed";
+    return;
+  }
+  $("replay-error").textContent = "";
+  setReplayTimeLabel(tS);
+}
+
+function clearReplayScrub() {
+  replayDuration = 0;
+  const scrub = $("replay-scrub");
+  if (!scrub) return;
+  scrub.disabled = true;
+  scrub.value = "0";
+  setReplayTimeLabel(0);
+}
+
+$("replay-load").addEventListener("click", () => { loadReplay(); });
+$("replay-stop").addEventListener("click", async () => {
+  await fetch("/api/replay/stop", { method: "POST" });
+  clearReplayScrub();
+});
+$("replay-scrub").addEventListener("input", (e) => {
+  setReplayTimeLabel(Number(e.target.value));
+});
+$("replay-scrub").addEventListener("change", (e) => {
+  seekReplay(Number(e.target.value));
+});
+refreshReplayCatalog();
+
 // Open-Motion device -------------------------------------------------------
 
 let device = { connected: false, console: false, left: false, right: false, scanning: false };
@@ -800,6 +935,7 @@ function handle(frame) {
     case "status":
       setChip(`chip-src-${frame.source.replace(/\W+/g, "-")}`, frame.source, frame.connected, frame.detail);
       if (frame.source === "dev_feed") setDemoRunning(Boolean(frame.connected));
+      if (frame.source === "replay" && !frame.connected) clearReplayScrub();
       break;
     default:
       break;

@@ -13,6 +13,8 @@ uv run python -m dashboard --dev-feed
 
 Open http://127.0.0.1:8765. `--dev-feed` turns on Demo Mode at launch: it replays `data/sample_scan.csv` (16-channel BFI and BVI) so the charts move without hardware. The **Demo Mode** button starts that same replay, with no flag. Without either one, the dashboard waits for producers on `/ws/ingest`.
 
+Session replay (Operator view) lists corrected scan CSVs from `data/` (`sample_scan.csv`, `synthetic_scan.csv`, and any local file such as `raymond_locked_scan.csv` whose header has `timestamp_s` and `bfi_l1`) and from `sessions/**/scan.csv` plus `sessions/device-scans/`. A session folder that only has `meta.json` and `events.csv` is not playable. Stop scan and Stop session link the SDK CSV from `device-scans/` into the open session when one was just written. Loading a recording stops Demo Mode. If the dashboard was started with `--dev-feed`, stopping replay turns that sample playback back on. If the recording menu says to restart, the process was started before that route existed: stop it and run `uv run python -m dashboard` again, then hard-refresh the page.
+
 ```
 ws://<dashboard-host>:8765/ws/ingest?source=<your-name>
 ```

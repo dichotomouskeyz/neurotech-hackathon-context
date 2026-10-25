@@ -15,6 +15,7 @@ path only; nothing here changes laser parameters or safety outputs.
 import asyncio
 import math
 import sys
+import time
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
@@ -250,6 +251,7 @@ class DeviceManager:
         self.sdk_version = ""
         self.console = self.left = self.right = False
         self.scanning = False
+        self.scan_started_at: float | None = None
         self.error = ""
 
     # State
@@ -334,6 +336,7 @@ class DeviceManager:
             raise DeviceError(self._found_message() or "No sensor connected.")
         if self.scanning:
             return self.state()
+        self.scan_started_at = time.time()
 
         def on_error(exc: BaseException) -> None:
             self.scanning = False

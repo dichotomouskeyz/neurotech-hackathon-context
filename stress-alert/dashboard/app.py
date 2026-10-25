@@ -24,6 +24,12 @@ from dashboard import dev_feed as sample_replay
 from dashboard.device import DeviceError, DeviceManager
 from dashboard.hub import Hub, drain
 from dashboard.live_gate import LiveGate
+from dashboard.replay import (
+    ReplayEngine,
+    ensure_session_scan_copy,
+    list_recordings,
+    newest_scan_csv,
+)
 from dashboard.schema import PhaseName, frame_adapter
 from features.recovery_gate import (
     BFI_RECOVERED_BELOW,
@@ -45,6 +51,7 @@ log = logging.getLogger(__name__)
 
 STATIC = Path(__file__).resolve().parent / "static"
 SESSIONS = Path(__file__).resolve().parent.parent / "sessions"
+DATA = Path(__file__).resolve().parent.parent / "data"
 
 
 class SessionStart(BaseModel):
@@ -80,10 +87,19 @@ class ProtocolStart(BaseModel):
     subject_id: str = Field(default="", max_length=64)
 
 
+class ReplayLoad(BaseModel):
+    path: str = Field(min_length=1, max_length=4096)
+
+
+class ReplaySeek(BaseModel):
+    t_s: float = Field(ge=0.0)
+
+
 def create_app(
     *,
     dev_feed: bool = False,
     sessions_dir: Path = SESSIONS,
+    data_dir: Path = DATA,
     lsl_markers: bool = True,
     device_factory: Any = None,
 ) -> FastAPI:
@@ -95,6 +111,7 @@ def create_app(
     """
     hub = Hub()
     gate = LiveGate()
+    replay = ReplayEngine()
     demo_task: asyncio.Task[None] | None = None
 
     def publish(frames: list[dict[str, Any]]) -> None:
@@ -130,10 +147,21 @@ def create_app(
             _start_feed()
         yield
         await _cancel_demo()
+        replay.stop()
         logger.stop_session()
         await asyncio.to_thread(device.shutdown)
 
     app = FastAPI(title="stress-alert dashboard", lifespan=lifespan)
+
+    @app.middleware("http")
+    async def dashboard_assets_not_cached(request, call_next):
+        """Keep Operator on the files from this process after a restart."""
+        response = await call_next(request)
+        path = request.url.path
+        if path == "/" or path.startswith("/static/"):
+            response.headers["Cache-Control"] = "no-store"
+        return response
+
     app.state.hub = hub
     app.state.logger = logger
     app.state.device = device
@@ -174,9 +202,19 @@ def create_app(
         subject = logger.session.subject_id if logger.session else ""
         return await device_call(device.start_scan, subject)
 
+    def _keep_scan_with_session() -> None:
+        """Link the SDK scan CSV into the open session so replay can find it later."""
+        if logger.session is None or device.scan_started_at is None:
+            return
+        source = newest_scan_csv(sessions_dir / "device-scans", since=device.scan_started_at - 1.0)
+        if source is not None:
+            ensure_session_scan_copy(logger.session.directory, source)
+
     @app.post("/api/device/scan/stop")
     async def device_scan_stop() -> dict[str, Any]:
-        return await device_call(device.stop_scan)
+        state = await device_call(device.stop_scan)
+        _keep_scan_with_session()
+        return state
 
     @app.get("/")
     async def index() -> FileResponse:
@@ -196,6 +234,7 @@ def create_app(
 
     @app.post("/api/session/stop")
     async def session_stop() -> dict[str, Any]:
+        _keep_scan_with_session()
         return guarded(logger.stop_session)
 
     @app.post("/api/phase")
@@ -270,6 +309,63 @@ def create_app(
             with contextlib.suppress(asyncio.CancelledError):
                 await running
 
+    def _stop_replay() -> None:
+        if not replay.active:
+            return
+        replay.stop()
+        publish(
+            [
+                {
+                    "type": "status",
+                    "source": "replay",
+                    "connected": False,
+                    "detail": "",
+                }
+            ]
+        )
+
+    async def _begin_replay(path: Path) -> dict[str, Any]:
+        # Session replay and the sample feed both publish BFI. One of them runs.
+        await _cancel_demo()
+        try:
+            loaded = replay.load(path)
+        except ValueError as exc:
+            if dev_feed:
+                _start_feed()
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        replay.seek(0.0, gate=gate, publish=publish)
+        return loaded
+
+    @app.get("/api/replay/sessions")
+    async def replay_sessions() -> dict[str, Any]:
+        # Header and tail only. A full CSV parse here blocks the dashboard.
+        sessions = await asyncio.to_thread(list_recordings, data_dir, sessions_dir)
+        return {"sessions": sessions, "data_dir": str(data_dir)}
+
+    @app.get("/api/replay")
+    async def replay_state() -> dict[str, Any]:
+        return replay.state()
+
+    @app.post("/api/replay/load")
+    async def replay_load(body: ReplayLoad) -> dict[str, Any]:
+        return await _begin_replay(Path(body.path))
+
+    @app.post("/api/replay/seek")
+    async def replay_seek(body: ReplaySeek) -> dict[str, Any]:
+        if not replay.loaded:
+            raise HTTPException(status_code=409, detail="Load a recording first.")
+        try:
+            return replay.seek(body.t_s, gate=gate, publish=publish)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    @app.post("/api/replay/stop")
+    async def replay_stop() -> dict[str, Any]:
+        _stop_replay()
+        if dev_feed:
+            _start_feed()
+        return replay.state()
+
     async def _run_feed() -> None:
         publish(
             [
@@ -311,6 +407,7 @@ def create_app(
             )
         if _demo_running():
             raise HTTPException(status_code=409, detail="Demo mode is already running.")
+        _stop_replay()
         _start_feed()
         return {"running": True}
 
