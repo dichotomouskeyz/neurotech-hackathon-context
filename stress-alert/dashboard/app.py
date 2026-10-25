@@ -99,6 +99,7 @@ def create_app(
     sessions_dir: Path = SESSIONS,
     lsl_markers: bool = True,
     device_factory: Any = None,
+    camera_power_settle_s: float | None = None,
 ) -> FastAPI:
     """Build the app. With ``dev_feed_url`` set, replay sample data into it on startup.
 
@@ -125,7 +126,11 @@ def create_app(
 
     markers = MarkerOutlet() if lsl_markers else None
     logger = PhaseLogger(sessions_dir, emit=publish, markers=markers)
-    device_kwargs = {"factory": device_factory} if device_factory else {}
+    device_kwargs: dict[str, Any] = {}
+    if device_factory is not None:
+        device_kwargs["factory"] = device_factory
+    if camera_power_settle_s is not None:
+        device_kwargs["camera_power_settle_s"] = camera_power_settle_s
     device = DeviceManager(publish, sessions_dir / "device-scans", **device_kwargs)
 
     @contextlib.asynccontextmanager

@@ -1,9 +1,10 @@
 """Find, connect, and stream from the Openwater Open-Motion device.
 
 ``DeviceManager`` wraps ``openmotion-sdk``'s ``MotionInterface``. Connecting starts
-the SDK's own USB/serial discovery and hotplug monitor; a scan streams live BFI/BVI
-through a pipeline sink on the SDK's ``live`` channel. Frames go to the dashboard hub
-on the shared LSL clock.
+the SDK's own USB/serial discovery and hotplug monitor. It does not power cameras.
+Start scan powers the scan mask, requires ``enable_camera`` to succeed, then
+starts the SDK scan. Frames are live BFI/BVI through a pipeline sink on the SDK's
+``live`` channel, published to the dashboard hub on the shared LSL clock.
 
 The SDK runs its connection monitor and scan worker on its own threads, so every
 hub publish is marshalled onto the event loop with ``call_soon_threadsafe``.
@@ -15,6 +16,8 @@ path only; nothing here changes laser parameters or safety outputs.
 import asyncio
 import math
 import sys
+import threading
+import time
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
@@ -24,12 +27,46 @@ from features.cq_score import DEFAULT_DARK_MAX_DN, DEFAULT_LIGHT_MIN_DN, cq_scor
 
 SCAN_SECONDS = 3600  # upper bound; the operator stops the scan from the dashboard
 SIDES = ("left", "right")
+# All 8 cameras on a module. Power, the enable check, and ScanRequest use this
+# same mask. 0x66 (middle) is the older narrower default; keep All.
+CAMERA_MASK_ALL = 0xFF
+# Bloodflow connect sleeps this long after enable_camera_power before the next command.
+CAMERA_POWER_SETTLE_S = 0.5
+# ScanWorkflow enables cameras on its worker after start_scan returns. Each
+# enable waits up to 1.5 s, so two sides plus frame-sync setup fit in this window.
+CAMERA_ENABLE_WAIT_S = 8.0
 
 Emit = Callable[[list[dict[str, Any]]], None]
 
 
 class DeviceError(RuntimeError):
     """A device action that cannot run, with a message an operator can act on."""
+
+
+def _mask_label(mask: int) -> str:
+    return f"0x{mask:02X}"
+
+
+def _camera_call(sensor: Any, method: str, mask: int) -> bool:
+    fn = getattr(sensor, method, None)
+    if not callable(fn):
+        raise DeviceError(f"Open-Motion SDK is missing {method}; cannot start a scan.")
+    try:
+        return bool(fn(mask))
+    except Exception as exc:
+        raise DeviceError(f"{method} on mask {_mask_label(mask)} failed: {exc}") from exc
+
+
+def _disable_cameras(enabled: list[tuple[Any, int]]) -> None:
+    """Best-effort stream off. A failed disable must not hide an enable error."""
+    for sensor, mask in enabled:
+        fn = getattr(sensor, "disable_camera", None)
+        if not callable(fn):
+            continue
+        try:
+            fn(mask)
+        except Exception:
+            pass
 
 
 def _default_factory(data_dir: Path):
@@ -238,11 +275,15 @@ class DeviceManager:
         data_dir: Path,
         factory: Callable[[Path], tuple[Any, Any, str]] = _default_factory,
         now: Callable[[], float] = clock.now,
+        camera_power_settle_s: float = CAMERA_POWER_SETTLE_S,
+        camera_enable_wait_s: float = CAMERA_ENABLE_WAIT_S,
     ) -> None:
         self._emit = emit
         self._data_dir = data_dir
         self._factory = factory
         self._now = now
+        self._camera_power_settle_s = camera_power_settle_s
+        self._camera_enable_wait_s = camera_enable_wait_s
         self._loop: asyncio.AbstractEventLoop | None = None
         self._iface: Any = None
         self._scan_request: Any = None
@@ -335,6 +376,16 @@ class DeviceManager:
         if self.scanning:
             return self.state()
 
+        left_mask = CAMERA_MASK_ALL if self.left else 0x00
+        right_mask = CAMERA_MASK_ALL if self.right else 0x00
+        try:
+            self._prepare_cameras(left_mask, right_mask)
+        except DeviceError as exc:
+            self.scanning = False
+            self.error = str(exc)
+            self._emit_state()
+            raise
+
         def on_error(exc: BaseException) -> None:
             self.scanning = False
             self.error = f"Scan stopped: {exc}"
@@ -343,16 +394,29 @@ class DeviceManager:
         request = self._scan_request(
             subject_id=subject_id or "stress-alert",
             duration_sec=SCAN_SECONDS,
-            left_camera_mask=0xFF if self.left else 0x00,
-            right_camera_mask=0xFF if self.right else 0x00,
+            left_camera_mask=left_mask,
+            right_camera_mask=right_mask,
             sinks=[LiveSink(self._publish, self._now)],
             on_error=on_error,
         )
-        if not self._iface.start_scan(request):
-            reason = getattr(self._iface.scan_workflow, "last_scan_error", None)
-            self.error = f"The SDK refused to start the scan: {reason or 'no reason given'}"
+        # start_scan returns True once its worker is spawned. That worker calls
+        # enable_camera and only logs a failure, then starts the trigger anyway.
+        try:
+            watch = self._arm_enable_watch((("left", left_mask), ("right", right_mask)))
+        except DeviceError as exc:
+            self.scanning = False
+            self.error = str(exc)
             self._emit_state()
-            raise DeviceError(self.error)
+            raise
+        try:
+            if not self._iface.start_scan(request):
+                reason = getattr(self._iface.scan_workflow, "last_scan_error", None)
+                self.error = f"The SDK refused to start the scan: {reason or 'no reason given'}"
+                self._emit_state()
+                raise DeviceError(self.error)
+            self._require_sdk_enable(watch)
+        finally:
+            self._disarm_enable_watch(watch)
         self.scanning = True
         self.error = ""
         self._emit_state()
@@ -364,6 +428,140 @@ class DeviceManager:
         self.scanning = False
         self._emit_state()
         return self.state()
+
+    def _prepare_cameras(self, left_mask: int, right_mask: int) -> None:
+        """Power the scan mask and require ``enable_camera`` before ``start_scan``.
+
+        The bloodflow app calls ``MotionSensor.enable_camera_power`` at connect
+        and leaves those cameras on (``motion_connector._run_sensor_init_impl``,
+        mask 0xFF, then 0.5 s). ``ScanWorkflow.start_scan`` calls ``enable_camera``
+        and only logs a failure, so an unpowered module still returns a running
+        scan and an empty live pipe. Power the same mask the scan will stream,
+        settle, and refuse to start when enable fails.
+
+        A successful enable is turned back off so ``start_scan`` keeps its own
+        order: external frame sync, then ``enable_camera``, then the trigger.
+        ``start_configure_camera_sensors`` (the bloodflow flash step, FPGA program
+        plus register configure) is not run here. Connect-time power is the gap
+        that left Start scan with no frames. Mask stays ``CAMERA_MASK_ALL``.
+        """
+        active = [
+            (side, mask) for side, mask in (("left", left_mask), ("right", right_mask)) if mask
+        ]
+        for side, mask in active:
+            sensor = self._sensor(side)
+            if not _camera_call(sensor, "enable_camera_power", mask):
+                raise DeviceError(
+                    f"Failed to power on cameras on {side} (mask {_mask_label(mask)}). "
+                    "The scan was not started."
+                )
+            if self._camera_power_settle_s > 0:
+                time.sleep(self._camera_power_settle_s)
+
+        enabled: list[tuple[Any, int]] = []
+        try:
+            for side, mask in active:
+                sensor = self._sensor(side)
+                if not _camera_call(sensor, "enable_camera", mask):
+                    raise DeviceError(
+                        f"Failed to enable camera on {side} (mask {_mask_label(mask)}). "
+                        "The scan was not started."
+                    )
+                enabled.append((sensor, mask))
+        except DeviceError:
+            _disable_cameras(enabled)
+            raise
+        _disable_cameras(enabled)
+
+    def _sensor(self, side: str) -> Any:
+        sensor = getattr(self._iface, side, None)
+        if sensor is None:
+            raise DeviceError(f"Open-Motion {side} sensor handle is missing; cannot power cameras.")
+        connected = getattr(sensor, "is_connected", None)
+        if callable(connected) and not connected():
+            raise DeviceError(f"{side.capitalize()} sensor is not connected.")
+        return sensor
+
+    def _arm_enable_watch(self, masks: tuple[tuple[str, int], ...]) -> dict[str, Any]:
+        """Record ``enable_camera`` results while ``start_scan``'s worker runs."""
+        expected = {side for side, mask in masks if mask}
+        failures: list[tuple[str, int]] = []
+        seen: list[str] = []
+        originals: list[tuple[Any, Any]] = []
+        pending: list[tuple[Any, Any, Any]] = []
+        lock = threading.Lock()
+        done = threading.Event()
+
+        for side, mask in masks:
+            if not mask:
+                continue
+            sensor = self._sensor(side)
+            original = getattr(sensor, "enable_camera", None)
+            if not callable(original):
+                raise DeviceError("Open-Motion SDK is missing enable_camera; cannot start a scan.")
+
+            def enable_camera(camera_mask, *args, _side=side, _orig=original, **kwargs):
+                ok = False
+                try:
+                    ok = bool(_orig(camera_mask, *args, **kwargs))
+                    return ok
+                finally:
+                    with lock:
+                        seen.append(_side)
+                        if not ok:
+                            failures.append((_side, int(camera_mask)))
+                        if expected.issubset(seen):
+                            done.set()
+
+            pending.append((sensor, enable_camera, original))
+
+        for sensor, wrapped, original in pending:
+            sensor.enable_camera = wrapped
+            originals.append((sensor, original))
+
+        return {
+            "expected": expected,
+            "failures": failures,
+            "seen": seen,
+            "lock": lock,
+            "done": done,
+            "originals": originals,
+            "masks": dict(masks),
+        }
+
+    def _require_sdk_enable(self, watch: dict[str, Any]) -> None:
+        """Cancel the scan when the SDK's ``enable_camera`` fails or never runs."""
+        expected: set[str] = watch["expected"]
+        if not expected:
+            return
+        done: threading.Event = watch["done"]
+        if not done.is_set():
+            done.wait(self._camera_enable_wait_s)
+        with watch["lock"]:
+            failures = list(watch["failures"])
+            seen = set(watch["seen"])
+        if not failures and expected.issubset(seen):
+            return
+        try:
+            self._iface.cancel_scan()
+        except Exception:
+            pass
+        self.scanning = False
+        if failures:
+            side, mask = failures[0]
+        else:
+            side = next(item for item in ("left", "right") if item in expected - seen)
+            mask = int(watch["masks"][side])
+        self.error = (
+            f"Failed to enable camera on {side} (mask {_mask_label(mask)}). "
+            "The scan was not started."
+        )
+        self._emit_state()
+        raise DeviceError(self.error)
+
+    def _disarm_enable_watch(self, watch: dict[str, Any]) -> None:
+        for sensor, original in watch["originals"]:
+            sensor.enable_camera = original
 
     # Hotplug: re-read connection flags while connected so a replugged sensor shows up
 

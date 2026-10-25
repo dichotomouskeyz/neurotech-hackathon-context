@@ -13,16 +13,55 @@ class FakeRequest:
         self.__dict__.update(kwargs)
 
 
+class FakeSensor:
+    """One side of MotionInterface. Records power and stream commands."""
+
+    def __init__(self, side, log, *, connected=True, power_ok=True, enable_ok=True):
+        self.side = side
+        self.log = log
+        self.connected = connected
+        self.power_ok = power_ok
+        self.enable_ok = enable_ok
+        self.power_calls = []
+        self.enable_calls = []
+        self.disable_calls = []
+
+    def is_connected(self):
+        return self.connected
+
+    def enable_camera_power(self, mask):
+        self.power_calls.append(mask)
+        self.log.append(("power", self.side, mask))
+        return self.power_ok
+
+    def enable_camera(self, mask):
+        self.enable_calls.append(mask)
+        self.log.append(("enable", self.side, mask))
+        return self.enable_ok
+
+    def disable_camera(self, mask):
+        self.disable_calls.append(mask)
+        self.log.append(("disable", self.side, mask))
+        return True
+
+
 class FakeInterface:
     """Stands in for omotion.MotionInterface."""
 
-    def __init__(self, flags=(True, True, True), accept_scan=True):
+    def __init__(self, flags=(True, True, True), accept_scan=True, power_ok=True, enable_ok=True):
         self.flags = flags
         self.accept_scan = accept_scan
         self.started = False
         self.stopped = False
         self.request = None
         self.canceled = False
+        self.log = []
+        self.left = FakeSensor(
+            "left", self.log, connected=bool(flags[1]), power_ok=power_ok, enable_ok=enable_ok
+        )
+        self.right = FakeSensor(
+            "right", self.log, connected=bool(flags[2]), power_ok=power_ok, enable_ok=enable_ok
+        )
         self.scan_workflow = SimpleNamespace(running=False, last_scan_error="sensor busy")
 
     def start(self, wait=True, wait_timeout=2.0):
@@ -36,8 +75,21 @@ class FakeInterface:
 
     def start_scan(self, request):
         self.request = request
-        self.scan_workflow.running = self.accept_scan
-        return self.accept_scan
+        self.log.append(("start_scan", request.left_camera_mask, request.right_camera_mask))
+        if not self.accept_scan:
+            self.scan_workflow.running = False
+            return False
+        # ScanWorkflow calls enable_camera on its worker and ignores a False
+        # return. Do that here, still on this thread, so the dashboard can see it.
+        for side, mask in (
+            ("left", request.left_camera_mask),
+            ("right", request.right_camera_mask),
+        ):
+            sensor = getattr(self, side)
+            if mask and sensor.is_connected():
+                sensor.enable_camera(mask)
+        self.scan_workflow.running = True
+        return True
 
     def cancel_scan(self, **kwargs):
         self.canceled = True
@@ -46,7 +98,12 @@ class FakeInterface:
 
 def manager(tmp_path, iface):
     frames = []
-    mgr = DeviceManager(frames.extend, tmp_path, factory=lambda d: (iface, FakeRequest, "1.12.0"))
+    mgr = DeviceManager(
+        frames.extend,
+        tmp_path,
+        factory=lambda d: (iface, FakeRequest, "1.12.0"),
+        camera_power_settle_s=0.0,
+    )
     mgr.frames = frames
     return mgr
 
@@ -79,6 +136,10 @@ def test_missing_side_is_named_and_masked_off(tmp_path):
     assert iface.request.right_camera_mask == 0x00
     assert iface.request.subject_id == "jb"
     assert isinstance(iface.request.sinks[0], LiveSink)
+    assert iface.left.power_calls == [0xFF]
+    assert iface.left.enable_calls == [0xFF, 0xFF]
+    assert iface.right.power_calls == []
+    assert iface.right.enable_calls == []
 
 
 def test_sdk_problem_is_reported_not_crashed(tmp_path):
@@ -107,6 +168,138 @@ def test_scan_start_stop_and_refusal(tmp_path):
     mgr2.connect()
     with pytest.raises(DeviceError, match="sensor busy"):
         mgr2.start_scan()
+
+
+def test_connect_does_not_power_cameras(tmp_path):
+    iface = FakeInterface()
+    mgr = manager(tmp_path, iface)
+    mgr.connect()
+    assert iface.log == []
+    assert not mgr.state()["scanning"]
+
+
+def test_start_scan_powers_and_checks_the_same_mask(tmp_path):
+    """Power, prove enable, release the stream, then start. Mask is All (0xFF)."""
+    iface = FakeInterface()
+    mgr = manager(tmp_path, iface)
+    mgr.connect()
+    assert mgr.start_scan("s1")["scanning"]
+    assert iface.log == [
+        ("power", "left", 0xFF),
+        ("power", "right", 0xFF),
+        ("enable", "left", 0xFF),
+        ("enable", "right", 0xFF),
+        ("disable", "left", 0xFF),
+        ("disable", "right", 0xFF),
+        ("start_scan", 0xFF, 0xFF),
+        ("enable", "left", 0xFF),
+        ("enable", "right", 0xFF),
+    ]
+    assert mgr.state()["error"] == ""
+
+
+def test_camera_power_failure_does_not_start_scanning(tmp_path):
+    iface = FakeInterface(power_ok=False)
+    mgr = manager(tmp_path, iface)
+    mgr.connect()
+    with pytest.raises(DeviceError, match="Failed to power on cameras on left"):
+        mgr.start_scan("s1")
+    state = mgr.state()
+    assert state["scanning"] is False
+    assert "mask 0xFF" in state["error"]
+    assert "not started" in state["error"]
+    assert iface.request is None
+    assert iface.left.enable_calls == []
+    assert iface.left.power_calls == [0xFF]
+    assert mgr.frames[-1]["type"] == "device"
+    assert mgr.frames[-1]["scanning"] is False
+
+
+def test_enable_camera_failure_does_not_start_scanning(tmp_path):
+    """The SDK logs this and keeps going. Start scan must fail instead."""
+    iface = FakeInterface()
+    iface.right.enable_ok = False
+    mgr = manager(tmp_path, iface)
+    mgr.connect()
+    with pytest.raises(DeviceError, match="Failed to enable camera on right"):
+        mgr.start_scan("s1")
+    state = mgr.state()
+    assert state["scanning"] is False
+    assert "mask 0xFF" in state["error"]
+    assert iface.request is None
+    assert ("start_scan", 0xFF, 0xFF) not in iface.log
+    assert iface.left.enable_calls == [0xFF]
+    assert iface.left.disable_calls == [0xFF]
+    assert iface.right.enable_calls == [0xFF]
+    assert iface.right.disable_calls == []
+    assert mgr.frames[-1]["scanning"] is False
+    assert "Failed to enable camera on right" in mgr.frames[-1]["error"]
+
+
+def test_sdk_enable_failure_cancels_and_is_not_scanning(tmp_path):
+    """ScanWorkflow ignores a False enable and would still report the scan running."""
+    iface = FakeInterface()
+    attempts = {"n": 0}
+    original = iface.right.enable_camera
+
+    def enable(mask):
+        attempts["n"] += 1
+        if attempts["n"] == 1:
+            return original(mask)
+        iface.log.append(("enable", "right", mask))
+        iface.right.enable_calls.append(mask)
+        return False
+
+    iface.right.enable_camera = enable
+    mgr = manager(tmp_path, iface)
+    mgr.connect()
+    with pytest.raises(DeviceError, match="Failed to enable camera on right"):
+        mgr.start_scan()
+    assert mgr.state()["scanning"] is False
+    assert "not started" in mgr.state()["error"]
+    assert iface.canceled
+    assert attempts["n"] == 2
+
+
+def test_sdk_enable_timeout_is_not_scanning(tmp_path):
+    iface = FakeInterface()
+
+    def start_scan(request):
+        iface.request = request
+        iface.scan_workflow.running = True
+        return True
+
+    iface.start_scan = start_scan
+    frames = []
+    mgr = DeviceManager(
+        frames.extend,
+        tmp_path,
+        factory=lambda d: (iface, FakeRequest, "1.12.0"),
+        camera_power_settle_s=0.0,
+        camera_enable_wait_s=0.05,
+    )
+    mgr.connect()
+    with pytest.raises(DeviceError, match="Failed to enable camera on left"):
+        mgr.start_scan()
+    assert mgr.state()["scanning"] is False
+    assert iface.canceled
+    assert iface.scan_workflow.running is False
+
+
+def test_enable_camera_exception_is_an_error(tmp_path):
+    iface = FakeInterface()
+
+    def boom(mask):
+        iface.left.enable_calls.append(mask)
+        raise TimeoutError("UART timeout")
+
+    iface.left.enable_camera = boom
+    mgr = manager(tmp_path, iface)
+    mgr.connect()
+    with pytest.raises(DeviceError, match="UART timeout"):
+        mgr.start_scan()
+    assert mgr.state()["scanning"] is False
+    assert iface.request is None
 
 
 def test_disconnect_stops_interface(tmp_path):
@@ -243,7 +436,11 @@ def test_live_sink_frames_are_scored_by_the_gate(tmp_path):
 
     iface = FakeInterface()
     mgr = DeviceManager(
-        emit, tmp_path, factory=lambda d: (iface, FakeRequest, "1.12.0"), now=lambda: 1000.0
+        emit,
+        tmp_path,
+        factory=lambda d: (iface, FakeRequest, "1.12.0"),
+        now=lambda: 1000.0,
+        camera_power_settle_s=0.0,
     )
     mgr.connect()
     mgr.start_scan("scan")
@@ -404,6 +601,7 @@ def test_device_api_streams_scan_frames_to_browser(tmp_path):
         sessions_dir=tmp_path,
         lsl_markers=False,
         device_factory=lambda d: (iface, FakeRequest, "1.12.0"),
+        camera_power_settle_s=0.0,
     )
     with TestClient(app) as client, client.websocket_connect("/ws") as browser:
         assert client.post("/api/device/scan/start").status_code == 409
@@ -420,3 +618,23 @@ def test_device_api_streams_scan_frames_to_browser(tmp_path):
         assert bfi["left"][0] == pytest.approx(2.0)
         assert client.post("/api/device/scan/stop").json()["scanning"] is False
         assert client.get("/api/device").json()["connected"]
+
+
+def test_device_api_enable_failure_is_not_scanning(tmp_path):
+    iface = FakeInterface(enable_ok=False)
+    app = create_app(
+        sessions_dir=tmp_path,
+        lsl_markers=False,
+        device_factory=lambda d: (iface, FakeRequest, "1.12.0"),
+        camera_power_settle_s=0.0,
+    )
+    with TestClient(app) as client:
+        assert client.post("/api/device/connect").status_code == 200
+        response = client.post("/api/device/scan/start")
+        assert response.status_code == 409
+        assert "Failed to enable camera" in response.json()["detail"]
+        state = client.get("/api/device").json()
+        assert state["scanning"] is False
+        assert state["connected"] is True
+        assert "Failed to enable camera" in state["error"]
+        assert iface.request is None
