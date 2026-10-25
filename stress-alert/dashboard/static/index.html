@@ -126,6 +126,81 @@
       </div>
     </section>
 
+    <section class="card heatmap-card" id="card-heatmap" aria-labelledby="title-heatmap">
+      <div class="heatmap-head">
+        <div class="heatmap-title-row">
+          <h2 class="card-title" id="title-heatmap">2D Brain Hemodynamic Heatmap</h2>
+          <div class="heatmap-live-chip" id="heatmap-live-chip">
+            <span class="chip-dot"></span>
+            <span id="heatmap-status-text">Waiting for Open-Motion</span>
+          </div>
+        </div>
+
+        <div class="heatmap-toolbar">
+          <div class="segmented segmented-sm" role="group" aria-label="Projection View">
+            <button type="button" class="btn-segmented active" id="btn-view-axial" data-projection="axial" aria-pressed="true">Axial (10-20)</button>
+            <button type="button" class="btn-segmented" id="btn-view-frontal" data-projection="frontal" aria-pressed="false">Frontal PFC</button>
+          </div>
+
+          <div class="segmented segmented-sm" role="group" aria-label="Metric">
+            <button type="button" class="btn-segmented active" id="btn-metric-bfi" data-metric="bfi" aria-pressed="true">BFI (Flow)</button>
+            <button type="button" class="btn-segmented" id="btn-metric-bvi" data-metric="bvi" aria-pressed="false">BVI (Volume)</button>
+            <button type="button" class="btn-segmented" id="btn-metric-asym" data-metric="asym" aria-pressed="false">Laterality</button>
+          </div>
+
+          <label class="field-select">
+            <span>Colormap</span>
+            <select id="heatmap-colormap">
+              <option value="turbo" selected>Turbo</option>
+              <option value="viridis">Viridis</option>
+              <option value="coolwarm">Coolwarm</option>
+            </select>
+          </label>
+
+          <label class="toggle"><input type="checkbox" id="heatmap-show-optodes" checked> Optodes &amp; labels</label>
+          <label class="toggle"><input type="checkbox" id="heatmap-autoscale" checked> Auto-scale</label>
+          <button type="button" class="btn-segmented" id="btn-heatmap-demo">Demo Mode</button>
+        </div>
+      </div>
+
+      <div class="heatmap-body">
+        <div class="heatmap-canvas-container" id="heatmap-container">
+          <canvas id="heatmap-canvas" width="640" height="420"></canvas>
+          <div class="heatmap-tooltip" id="heatmap-tooltip" style="display: none;"></div>
+        </div>
+
+        <div class="heatmap-sidebar">
+          <div class="heatmap-stat-box">
+            <span class="stat-label">Left PFC Mean</span>
+            <span class="stat-value" id="heatmap-stat-left">--</span>
+            <span class="stat-sub">Channels L1–L8</span>
+          </div>
+          <div class="heatmap-stat-box">
+            <span class="stat-label">Right PFC Mean</span>
+            <span class="stat-value" id="heatmap-stat-right">--</span>
+            <span class="stat-sub">Channels R1–R8</span>
+          </div>
+          <div class="heatmap-stat-box" id="heatmap-stat-asym-box">
+            <span class="stat-label">Hemispheric Balance</span>
+            <span class="stat-value" id="heatmap-stat-asym">--</span>
+            <span class="stat-sub" id="heatmap-stat-asym-desc">R vs L asymmetry</span>
+          </div>
+
+          <div class="heatmap-colorbar-wrap">
+            <div class="colorbar-labels">
+              <span class="cb-label" id="cb-max">--</span>
+              <span class="cb-label" id="cb-mid">--</span>
+              <span class="cb-label" id="cb-min">--</span>
+            </div>
+            <div class="colorbar-bar" id="heatmap-colorbar"></div>
+            <span class="colorbar-unit" id="cb-unit">Index</span>
+          </div>
+        </div>
+      </div>
+      
+      <p class="chart-empty" id="heatmap-empty-msg">Waiting for Open-Motion bfi/bvi frames</p>
+    </section>
+
     <section class="card chart-card" id="card-bfi" aria-labelledby="title-bfi">
       <div class="chart-head">
         <h2 class="card-title" id="title-bfi">Blood flow index</h2>
@@ -154,6 +229,7 @@
   </main>
 
   <script src="/static/vendor/uPlot.iife.min.js"></script>
+  <script src="/static/heatmap.js"></script>
   <script src="/static/app.js"></script>
 </body>
 </html>

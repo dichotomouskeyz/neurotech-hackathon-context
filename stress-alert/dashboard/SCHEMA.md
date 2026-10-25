@@ -27,11 +27,11 @@ ws://<dashboard-host>:8765/ws/ingest?source=<your-name>
 | :- | :- | :- |
 | `bfi`, `bvi` | `t`, `left[8]`, `right[8]` | one value per camera, `null` for a disabled camera |
 | `hr` | `t`, `source` (`optical`), `bpm` | 0 < bpm < 300. Optical heart rate from the Open-Motion pulse. ECG was dropped on 2026-10-24 and `ecg` is rejected |
-| `cq` | `t`, `left`, `right` | contact quality, 0 to 1 |
+| `cq` | `t`, `left`, `right` | contact quality, 0 to 1, or `null` when that side has no contact measurement. A missing side is `null`, not 1. The live device fills this from per-camera light and dark DN on the Open-Motion `live` batch (the same thresholds as `features/cq_score.py`), not from the pipeline timestamp-quality flag (`ok` means the timestamp was unchanged and is not contact) |
 | `stress` | `t`, `index`, `recovery_score` (optional), `alert` (bool), `reason` | the dashboard only shows an alert when contact quality passes its threshold |
 | `phase` | `t`, `session_id`, `phase` (`baseline`, `hold`, `recovery`, `end`), `source` (`manual` or `timer`) | sent by the session/phase logger |
 | `session` | `t`, `active`, `session_id`, `subject_id`, `phase`, `phase_t`, `timer_next`, `timer_ends_t` | sent by the dashboard itself whenever the session changes |
-| `device` | `t`, `connected`, `console`, `left`, `right`, `scanning`, `sdk_version`, `error` | sent by the dashboard itself for the Open-Motion device. While a scan runs, the dashboard also produces the `bfi` and `bvi` frames from the device |
+| `device` | `t`, `connected`, `console`, `left`, `right`, `scanning`, `sdk_version`, `error` | sent by the dashboard itself for the Open-Motion device. While a scan runs, the dashboard also produces the `bfi`, `bvi`, and `cq` frames from the device |
 | `status` | `source`, `connected`, `detail` | the dashboard sends these itself on connect and disconnect. Producers may add detail, e.g. `"right sensor not connected"` |
 
 Unknown types and unknown fields are rejected. To change the contract, edit `dashboard/schema.py` and this file together, with Jahlon (dashboard lane owner).
