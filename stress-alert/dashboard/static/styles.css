@@ -573,6 +573,7 @@ body[data-view="present"] {
 body[data-view="present"] .operator-only { display: none; }
 body[data-view="present"] .present-only { display: block; }
 body[data-view="present"] #coach { display: none; }
+body[data-view="present"] #pause { display: none; }
 body[data-view="present"] main {
   flex: 1 1 auto;
   min-height: 0;
@@ -613,6 +614,17 @@ body[data-view="present"] .tile {
   padding: 10px 12px;
   gap: 4px;
   overflow: hidden;
+}
+body[data-view="present"] .strip:has(.info:hover),
+body[data-view="present"] .strip:has(.info:focus-within) {
+  position: relative;
+  z-index: 20;
+  overflow: visible;
+}
+body[data-view="present"] .tile:has(.info:hover),
+body[data-view="present"] .tile:has(.info:focus-within) {
+  overflow: visible;
+  z-index: 30;
 }
 body[data-view="present"] .tile-phase {
   display: grid;

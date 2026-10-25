@@ -734,6 +734,12 @@ function setView(view) {
     b.setAttribute("aria-pressed", String(b.dataset.view === view));
   });
   try { localStorage.setItem("stress-alert:view", view); } catch { /* storage unavailable */ }
+  if (view === "present" && paused) {
+    paused = false;
+    const pause = $("pause");
+    pause.setAttribute("aria-pressed", "false");
+    pause.textContent = "Pause";
+  }
   if (charts.bfi) requestAnimationFrame(resizeCharts);
 }
 document.querySelectorAll(".segmented button").forEach((b) => {
