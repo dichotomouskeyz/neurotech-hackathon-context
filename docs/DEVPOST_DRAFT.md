@@ -11,7 +11,7 @@
 
 ## Elevator Pitch
 
-A research demo on Open-Motion. A short task stays locked until forehead blood flow (BFI) returns toward baseline and contact quality is good. Difficulty, a break, and a breath coach then follow BFI, blood volume (BVI), and the recovery time constant. Same loop shape as an adaptive focus product, with optical perfusion as the control signal. For research. Not a stress classifier and not a diagnosis.
+A research demo on Open-Motion. A short calibration learns resting forehead blood flow. Then, during work, the next step unlocks only when BFI has returned and contact quality is good. Difficulty, a break, and a breath coach follow BFI, blood volume (BVI), and recovery tau. Same loop shape as an adaptive focus product, with optical perfusion as the control signal. For research. Not a stress classifier and not a diagnosis.
 
 ---
 
@@ -25,37 +25,30 @@ This project is a research engineering demonstration created during a 24-hour ha
 
 **Prompt**: *How can neurotechnology expand human cognitive potential?*
 
-Expanding cognitive potential needs a control signal for when the next piece of work should start, ease off, or wait. Forehead blood flow and blood volume from Open-Motion move with a breath-hold and then return. Contact quality tells us whether that return is trustworthy.
+Expanding cognitive potential needs a control signal for when the next piece of work should start, ease off, or wait. A short breath-hold calibrates resting forehead blood flow and how it returns. The product is what happens after that, while someone is working: Open-Motion BFI and BVI decide the next step. Contact quality tells us whether that return is trustworthy.
 
 We built a perfusion-ready gate on that signal:
-1. Track forehead BFI and BVI at 40 Hz. Optical heart rate stays a side panel and does not drive the loop.
-2. Keep the next task step locked until BFI has returned toward baseline and contact quality is at least 0.50. Bad contact cannot unlock the step.
+1. Calibrate. Baseline, a breath-hold, and recovery learn per-camera resting BFI and how flow returns. The task stays locked. Optical heart rate stays a side panel and does not drive the loop.
+2. Work. The next step unlocks only when BFI has returned toward that baseline and contact quality is at least 0.50. Bad contact cannot unlock the step.
 3. Once the gate is open, step difficulty up. If BVI is still high, ease the step or ask for a break. If the recovery time constant is slow, coach a breath. The policy uses BFI, BVI, and tau, not an EEG-style focus score.
 
 ---
 
 ## What It Does
 
-The dashboard runs a breath-hold as the load, then a recovery gate that controls a short adaptive task. Demo Mode plays the same policy on a simulated recovery without a laser. Its contact scores stay below 1.00, and Demo Mode will not start during a live scan.
+The dashboard has two parts. Calibration is a short breath-hold that learns resting forehead BFI. Work is the application: an adaptive task gated by the recovery policy. Demo Mode plays both without a laser. Its contact scores stay below 1.00, and Demo Mode will not start during a live scan.
 
-1. **Baseline**
-   - Resting breathing sets a per-camera BFI and BVI baseline, and only while contact quality is at least 0.50.
-   - The task stays locked.
+1. **Calibration**
+   - Baseline breathing sets a per-camera BFI and BVI baseline, and only while contact quality is at least 0.50.
+   - A gentle breath-hold is the calibration load, not the product. Recovery fits how flow returns.
+   - The task stays locked through all three.
 
-2. **Breath-hold load**
-   - A gentle breath-hold is the physiological load. Forehead BFI rises.
-   - The gate stays locked while flow is up. A secondary perfusion tile can show the rise. That tile does not unlock the task.
-
-3. **Recovery gate**
-   - The participant breathes with the on-screen coach.
-   - The gate opens only when forehead BFI is back under 5% of baseline and contact quality is still at least 0.50.
+2. **Work**
+   - The chart is the proof. Flow starts up, as if the person has been working, and the next step stays locked.
+   - The gate opens only when forehead BFI is back under 5% of the calibrated baseline and contact quality is still at least 0.50.
    - If contact drops below 0.50, the gate locks even if the flow trace looks recovered.
-
-4. **Adaptive step**
-   - When the gate opens, task difficulty advances one step.
-   - If BVI is still elevated, the step eases or the banner asks for a break.
-   - If the fitted recovery time constant is 18 seconds or slower, the step eases and the breath coach runs.
-   - A hold that never rises does not pretend the gate unlocked.
+   - When the gate opens, task difficulty advances one step. If BVI is still elevated, the step eases or the banner asks for a break. If recovery tau is 18 seconds or slower, the step eases and the breath coach runs.
+   - A calibration hold that never rises does not pretend the work step unlocked.
 
 ---
 
@@ -140,7 +133,7 @@ We fit the linear slope $m = -1 / \tau$ via ordinary least squares regression ov
 
 ## Closed loop in this build
 
-The loop that ships is a task policy, not stimulation and not a diagnosis. Demo Mode and the live scan share one gate: BFI returned and contact quality good. Ultrasound neuromodulation is outside this hackathon build.
+The loop that ships is a task policy, not stimulation and not a diagnosis. Calibration learns the resting signal. Work is where the gate opens: BFI returned and contact quality good. Ultrasound neuromodulation is outside this hackathon build.
 
 For research. The perfusion tile, the recovery time constant, and the task step are engineering readouts. They are not a screening result, a clinical score, or a treatment signal.
 

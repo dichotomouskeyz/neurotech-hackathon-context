@@ -1,8 +1,10 @@
-"""Scripted recovery for Demo Mode.
+"""Scripted calibration, then a work loop, for Demo Mode.
 
-The trace rises, decays back toward the resting blood-flow level, and later
-drops contact quality while flow is already back. The recovery gate should
-unlock on the decay and lock again on the contact drop.
+Calibration is a short baseline, breath-hold, and recovery. It learns resting
+forehead blood flow. The task stays locked. The work phase is the application:
+flow is up as if the person has been working, the next step stays locked until
+BFI returns and contact is good, blood volume can ask for a break, and a
+contact dip locks the gate again.
 
 Contact quality here is a graded score below 1.00. A live scan is a different
 path: light and dark digital numbers, and this script must not run over it.
@@ -16,28 +18,36 @@ from collections.abc import Callable
 from typing import Any
 
 from dashboard import clock
+from features.recovery_gate import BVI_BREAK
 
 BASE_BFI = 2.0
 BASE_BVI = 5.0
 HOLD_PEAK = 2.70
 RAMP_S = 0.8
-DECAY_TAU_S = 4.5
-# While recovery has already brought BFI back, contact falls through the floor
-# so the gate has to close again. It then returns to a good score that is
-# still not 1.00.
-CQ_DIP_START_S = 16.0
-CQ_DIP_END_S = 20.0
+# Fast return during calibration so setup stays short. Tau learned here is not
+# the work-loop load.
+CALIB_DECAY_TAU_S = 2.2
+# Work starts already above baseline (the person has been at the task), then
+# decays. The 1 s smoother needs a little time after this before BFI counts
+# as returned.
+WORK_PEAK = 2.50
+WORK_DECAY_TAU_S = 3.0
+WORK_DECAY_START_S = 0.5
+WORK_BVI_START_S = 11.0
+WORK_CQ_DIP_START_S = 14.0
+WORK_CQ_DIP_END_S = 18.0
 DEMO_HZ = 20.0
 DEMO_DURATIONS = {
-    "baseline": 6.0,
-    "hold": 8.0,
-    "recovery": 24.0,
-    "continue": 12.0,
+    "baseline": 4.0,
+    "hold": 6.0,
+    "recovery": 14.0,
+    "work": 24.0,
+    "continue": 24.0,
 }
 
 
 def demo_sample(phase: str | None, elapsed: float) -> tuple[float, float, float]:
-    """Return ``(bfi, bvi, cq)`` for one moment of the scripted recovery.
+    """Return ``(bfi, bvi, cq)`` for one moment of the script.
 
     ``cq`` is always in ``[0, 1)``. Demo Mode does not publish 1.00.
     """
@@ -50,16 +60,29 @@ def demo_sample(phase: str | None, elapsed: float) -> tuple[float, float, float]
             0.78,
         )
     if phase == "recovery":
-        decay = math.exp(-elapsed / DECAY_TAU_S)
-        bfi = BASE_BFI + (HOLD_PEAK - BASE_BFI) * decay
-        bvi = BASE_BVI + 0.15 * decay
-        if CQ_DIP_START_S <= elapsed < CQ_DIP_END_S:
-            cq = 0.32
-        elif elapsed >= CQ_DIP_END_S:
-            cq = 0.74
-        else:
-            cq = 0.76
-        return bfi, bvi, cq
+        decay = math.exp(-elapsed / CALIB_DECAY_TAU_S)
+        return (
+            BASE_BFI + (HOLD_PEAK - BASE_BFI) * decay,
+            BASE_BVI + 0.15 * decay,
+            0.76,
+        )
+    if phase == "work":
+        if elapsed < WORK_DECAY_START_S:
+            return WORK_PEAK, BASE_BVI * 1.03, 0.80
+        if elapsed < WORK_BVI_START_S:
+            decay = math.exp(-(elapsed - WORK_DECAY_START_S) / WORK_DECAY_TAU_S)
+            return (
+                BASE_BFI + (WORK_PEAK - BASE_BFI) * decay,
+                BASE_BVI + BASE_BVI * 0.03 * decay,
+                0.78,
+            )
+        if elapsed < WORK_CQ_DIP_START_S:
+            # Flow is back. Volume is still up, so the open gate eases or breaks
+            # instead of treating volume as another lock.
+            return BASE_BFI * 1.01, BASE_BVI * (1.0 + BVI_BREAK), 0.76
+        if elapsed < WORK_CQ_DIP_END_S:
+            return BASE_BFI, BASE_BVI, 0.32
+        return BASE_BFI, BASE_BVI, 0.74
     return BASE_BFI, BASE_BVI, 0.82
 
 

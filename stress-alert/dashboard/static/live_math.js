@@ -4,10 +4,10 @@
 // Node tests require this file. Keep the rules in sync with dashboard/live_gate.py.
 
 const LOOP_DEFAULTS = {
-  baseline: 15,
-  hold: 20,
-  recovery: 20,
-  continue_s: 5,
+  baseline: 8,
+  hold: 8,
+  recovery: 12,
+  continue_s: 32,
   cycles: 1,
 };
 
@@ -124,6 +124,14 @@ function worstCq(cq) {
 // Display rule for the recovery gate. Open only when the server says so.
 // A missing gate stays locked. If the latest contact score is already under
 // 0.50, do not keep an older open decision on screen.
+// Fitted recovery time constant only. Missing, non-finite, and boolean values
+// stay blank. The phase timer is not a tau.
+function recoveryTauText(stress) {
+  const tau = stress && stress.tau_s;
+  if (typeof tau !== "number" || !Number.isFinite(tau)) return "--";
+  return tau.toFixed(1);
+}
+
 function gateState(stress, cq) {
   const score = worstCq(cq);
   if (score !== null && score < 0.5) {
@@ -167,7 +175,7 @@ function stressState(stress, phase) {
   const alert = Boolean(stress && stress.alert);
   if (reason.includes("poor_coupling")) return { status: "warning", text: "Poor contact, alert off" };
   if (alert) return { status: "critical", text: "Elevated vs baseline" };
-  if (phase === "hold" || phase === "recovery") {
+  if (phase === "hold" || phase === "recovery" || phase === "work") {
     if (reason.includes("uncalibrated")) return { status: "warning", text: "Needs a baseline" };
     return { status: "good", text: "Near baseline" };
   }
@@ -192,6 +200,7 @@ const liveMath = {
   stressState,
   gateState,
   gateReadout,
+  recoveryTauText,
   worstCq,
 };
 

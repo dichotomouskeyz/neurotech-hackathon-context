@@ -6,24 +6,24 @@ const liveMath = require("../dashboard/static/live_math.js");
 test("protocol defaults sum to one minute and closed loop sends the flag", () => {
   const body = liveMath.protocolBody({});
   assert.deepEqual(body, {
-    baseline: 15,
-    hold: 20,
-    recovery: 20,
-    continue_s: 5,
+    baseline: 8,
+    hold: 8,
+    recovery: 12,
+    continue_s: 32,
     cycles: 1,
   });
   assert.equal(liveMath.loopTotalSeconds(body), 60);
   const empty = liveMath.protocolBody({ baseline: "", hold: "0", recovery: "nope" });
-  assert.equal(empty.baseline, 15);
-  assert.equal(empty.hold, 20);
-  assert.equal(empty.recovery, 20);
+  assert.equal(empty.baseline, 8);
+  assert.equal(empty.hold, 8);
+  assert.equal(empty.recovery, 12);
   const loop = liveMath.protocolBody({ baseline: "15", hold: "20" }, {
     closedLoop: true,
     subjectId: "jb",
   });
   assert.equal(loop.closed_loop, true);
   assert.equal(loop.subject_id, "jb");
-  assert.equal(liveMath.loopTotalSeconds(loop), 60);
+  assert.equal(liveMath.loopTotalSeconds(loop), 79);
 });
 
 test("phase progress and clocks stay finite when the timer is missing", () => {
@@ -80,6 +80,14 @@ test("recovery gate stays locked until the server opens it", () => {
     liveMath.gateReadout({ gate: "open", difficulty: 2, task: "advance" }, { left: 0.32, right: 0.4 }),
     "Gate locked · contact · CQ 0.32",
   );
+});
+
+test("recovery tau readout is the fitted number or a blank", () => {
+  assert.equal(liveMath.recoveryTauText(null), "--");
+  assert.equal(liveMath.recoveryTauText({}), "--");
+  assert.equal(liveMath.recoveryTauText({ tau_s: null }), "--");
+  assert.equal(liveMath.recoveryTauText({ tau_s: Number.NaN }), "--");
+  assert.equal(liveMath.recoveryTauText({ tau_s: 4.46 }), "4.5");
 });
 
 test("chart scale ignores a minority of zeros and a baseline level shift", () => {

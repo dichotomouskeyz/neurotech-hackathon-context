@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="description" content="Recovery gate for research: forehead blood flow and contact quality on Open-Motion. The next task unlocks when BFI returns and contact is good.">
+  <meta name="description" content="For research. A short calibration learns resting forehead blood flow. During work, the next step unlocks when BFI returns and contact is good.">
   <link rel="icon" href="data:,">
   <title>stress-alert</title>
   <link rel="preload" href="/static/vendor/geist-latin-wght-normal.woff2" as="font" type="font/woff2" crossorigin>
@@ -64,7 +64,13 @@
 
       <article class="card tile" id="tile-gate" data-gate="off">
         <h2 class="card-title">Recovery gate</h2>
-        <div class="value live-only"><span class="num" id="gate-state">Locked</span></div>
+        <div class="gate-readouts live-only">
+          <div class="value"><span class="num" id="gate-state">Locked</span></div>
+          <div class="tau-readout">
+            <span class="tau-label">Recovery τ</span>
+            <span class="tau-value"><span class="num" id="gate-tau">--</span><span class="unit" id="gate-tau-unit" hidden>s</span></span>
+          </div>
+        </div>
         <span class="state live-only" id="gate-status"></span>
         <div class="sub live-only" id="gate-detail"></div>
         <p class="waiting">Waiting for BFI and contact quality</p>
@@ -126,6 +132,7 @@
           <button type="button" data-phase="baseline">Baseline</button>
           <button type="button" data-phase="hold">Hold</button>
           <button type="button" data-phase="recovery">Recovery</button>
+          <button type="button" data-phase="work">Work</button>
           <button type="button" data-phase="end">End</button>
         </div>
         <p class="error" id="session-error" role="alert"></p>
@@ -136,13 +143,13 @@
         <div class="row loop-row">
           <button type="button" class="primary" id="demo-start" aria-pressed="false">Demo Mode</button>
           <button type="button" class="primary" id="loop-start">Closed loop (~60s)</button>
-          <p class="hint">Demo Mode plays a simulated recovery: the task stays locked until forehead BFI returns and contact is good, then unlocks. Contact quality in the demo stays below 1.00, and Demo Mode will not start during a live scan. Closed loop uses the durations below on a live scan. Defaults are one minute (15 + 20 + 20 + 5).</p>
+          <p class="hint">Demo Mode runs a short calibration (baseline, breath-hold, recovery), then a work loop. The task stays locked during calibration. During work it unlocks only when forehead BFI is back and contact is good. Contact quality in the demo stays below 1.00, and Demo Mode will not start during a live scan. Closed loop is the same two parts on a live scan. Defaults are one minute: calibrate 8 + 8 + 12, then work 32.</p>
         </div>
         <form class="row" id="protocol-form">
-          <label class="field">Baseline (s) <input type="number" id="dur-baseline" value="15" min="1" max="600"></label>
-          <label class="field">Hold (s) <input type="number" id="dur-hold" value="20" min="1" max="120"></label>
-          <label class="field">Recovery (s) <input type="number" id="dur-recovery" value="20" min="1" max="600"></label>
-          <label class="field">Continue (s) <input type="number" id="dur-continue" value="5" min="1" max="30"></label>
+          <label class="field">Baseline (s) <input type="number" id="dur-baseline" value="8" min="1" max="600"></label>
+          <label class="field">Hold (s) <input type="number" id="dur-hold" value="8" min="1" max="120"></label>
+          <label class="field">Recovery (s) <input type="number" id="dur-recovery" value="12" min="1" max="600"></label>
+          <label class="field">Work (s) <input type="number" id="dur-continue" value="32" min="1" max="120"></label>
           <label class="field">Cycles <input type="number" id="cycles" value="1" min="1" max="10"></label>
           <button type="submit" class="primary" id="protocol-start">Run timed</button>
           <button type="button" id="protocol-stop">Stop protocol</button>

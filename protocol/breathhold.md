@@ -88,7 +88,7 @@ Phase markers must match what the dashboard annotates:
 
 ## Closed loop demo (about 60 seconds)
 
-For research. The live copy of this section is `stress-alert/protocol/breathhold.md`. **Demo Mode** and **Closed loop (~60s)** share one policy: the next task step stays locked until forehead BFI has returned toward baseline and contact quality is at least 0.50. Bad contact locks the gate. BVI and a slow recovery tau ease the step, ask for a break, or coach a breath. The perfusion tile does not unlock the task. Demo Mode keeps contact quality below 1.00 and will not start during a live scan.
+For research. The live copy of this section is `stress-alert/protocol/breathhold.md`. Calibration is the breath-hold sit. Work is the application: the next step stays locked until forehead BFI has returned toward baseline and contact quality is at least 0.50. Bad contact locks the gate. BVI and a slow recovery tau ease the step, ask for a break, or coach a breath. The perfusion tile does not unlock the task. Demo Mode keeps contact quality below 1.00 and will not start during a live scan.
 
 If the hold ends without a rise, the screen says so and does not unlock the task. Optical heart rate stays on the side panel and is not an input.
 

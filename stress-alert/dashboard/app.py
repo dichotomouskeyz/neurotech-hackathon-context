@@ -46,7 +46,7 @@ class ProtocolStart(BaseModel):
     baseline: float = Field(default=60, gt=0, le=600)
     hold: float = Field(default=30, gt=0, le=120)
     recovery: float = Field(default=90, gt=0, le=600)
-    continue_s: float = Field(default=3, gt=0, le=30)
+    continue_s: float = Field(default=32, gt=0, le=120)
     cycles: int = Field(default=1, ge=1, le=10)
     closed_loop: bool = False
     subject_id: str = Field(default="", max_length=64)
@@ -187,6 +187,7 @@ def create_app(
             "baseline": body.baseline,
             "hold": body.hold,
             "recovery": body.recovery,
+            "work": body.continue_s,
             "continue": body.continue_s,
         }
         return guarded(
@@ -224,7 +225,7 @@ def create_app(
                     "type": "status",
                     "source": "demo",
                     "connected": True,
-                    "detail": "Simulated recovery. Contact quality stays below 1.00.",
+                    "detail": "Simulated calibration, then work. Contact quality stays below 1.00.",
                 }
             ]
         )

@@ -104,7 +104,7 @@ def test_stress_tau_and_closed_loop_session_are_in_the_contract():
             "type": "session",
             "t": 2.0,
             "active": True,
-            "phase": "recovery",
+            "phase": "work",
             "loop": "task",
             "gate": "open",
             "difficulty": 2,

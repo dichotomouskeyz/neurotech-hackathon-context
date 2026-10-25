@@ -1,10 +1,12 @@
 """Recovery gate and the task policy it controls.
 
-The gate is the loop. The next task step unlocks only when forehead blood flow
-has returned toward its resting baseline and contact quality is high enough to
-trust that return. A bad contact score keeps the gate shut. Blood volume and
-the recovery time constant change difficulty, ask for a break, or coach a
-breath. They do not invent an EEG-style focus score.
+Calibration (baseline, breath-hold, recovery) learns resting forehead blood
+flow and how it returns. The gate stays shut there. The work phase is the
+application: the next task step unlocks only when forehead blood flow has
+returned toward that baseline and contact quality is high enough to trust the
+return. A bad contact score keeps the gate shut. Blood volume and the recovery
+time constant change difficulty, ask for a break, or coach a breath. They do
+not invent an EEG-style focus score.
 
 The stress label remains secondary telemetry. For research. Not a diagnosis.
 """
@@ -66,26 +68,29 @@ def evaluate_gate(
     bfi_index: float | None,
     cq: float | None,
     *,
-    phase: str = "recovery",
+    phase: str = "work",
     recovered_below: float = BFI_RECOVERED_BELOW,
     cq_min: float = CQ_MIN,
 ) -> GateDecision:
-    """Open only in recovery, and only when BFI has returned and contact is good.
+    """Open only during work, and only when BFI has returned and contact is good.
 
     ``bfi_index`` is the relative forehead blood-flow rise versus baseline.
     ``cq`` is contact quality from 0 to 1. Missing values, a non-finite score,
     and contact below ``cq_min`` all keep the gate closed. Contact of 1.0 can
     be a real light/dark pass. Callers that simulate a headset must not send
     1.0 to fill in a missing measurement.
+
+    Baseline, the breath-hold, and recovery are calibration. They never open
+    the gate, even when flow is already back and contact is good.
     """
     cq_value = _number(cq)
     bfi_value = _number(bfi_index)
     cq_ok = cq_value is not None and cq_min <= cq_value <= 1.0
     bfi_recovered = bfi_value is not None and bfi_value < recovered_below
 
-    if phase != "recovery":
-        # Baseline and the breath-hold are not the unlock window. Report why
-        # the step is waiting, and still refuse to open.
+    if phase != "work":
+        # Calibration is not the unlock window. Report why the step is
+        # waiting, and still refuse to open.
         if not cq_ok:
             reason = "locked_cq"
         elif bfi_value is None:
@@ -125,10 +130,12 @@ def _cue(action: str, reason: str, difficulty: int, gate_open: bool) -> str:
     if reason == "locked_cq":
         return "Task locked. Contact is too poor to call perfusion ready."
     if reason == "locked_bfi":
-        return "Task locked until forehead BFI returns toward baseline. Breathe with the circle."
+        return "Task locked until forehead BFI returns toward baseline."
     if reason == "locked_waiting":
         return "Task locked. Waiting for forehead BFI and contact quality."
-    return "Task locked. The next step waits until recovery."
+    if reason == "locked_phase":
+        return "Calibration. The task stays locked while resting blood flow is learned."
+    return "Task locked. The next step waits until perfusion is ready."
 
 
 def _view(action: str, difficulty: int, gate: GateDecision, reason: str | None = None) -> TaskView:
@@ -169,13 +176,13 @@ class TaskController:
         bvi_index: float | None,
         cq: float | None,
         tau_s: float | None,
-        phase: str = "recovery",
+        phase: str = "work",
     ) -> TaskView:
         gate = evaluate_gate(bfi_index, cq, phase=phase)
         bvi = _number(bvi_index)
         if not gate.open:
             self._advanced_this_open = False
-            if gate.reason == "locked_bfi" and phase == "recovery" and _tau_poor(tau_s):
+            if gate.reason == "locked_bfi" and phase == "work" and _tau_poor(tau_s):
                 self._ease_once()
                 self._view = _view("coach", self.difficulty, gate, "tau_poor")
             elif gate.reason in {"locked_cq", "locked_bfi"}:

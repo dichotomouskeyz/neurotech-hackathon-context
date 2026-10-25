@@ -55,9 +55,10 @@ class Stress(_Frame):
     default) and contact quality passed. Optical heart rate is a separate ``hr``
     frame and does not set ``alert``. ``channels`` names the cameras in use.
     ``tau_s`` is the recovery time constant, in seconds, once a decay fit succeeds.
-    ``gate`` is the recovery policy: ``open`` only when forehead BFI has returned
-    and contact quality passed. ``task`` is what that policy does to the step
-    (locked, advance, ease, break, coach, or hold). ``difficulty`` is the step.
+    ``gate`` is the work-phase policy: ``open`` only when forehead BFI has
+    returned and contact quality passed. Calibration (baseline, hold, recovery)
+    stays locked. ``task`` is what that policy does to the step (locked,
+    advance, ease, break, coach, or hold). ``difficulty`` is the step.
     ``alert`` stays secondary telemetry and does not unlock the task.
     """
 
@@ -78,7 +79,7 @@ class Stress(_Frame):
     difficulty: Annotated[int, Field(ge=1, le=8)] | None = None
 
 
-PhaseName = Literal["baseline", "hold", "recovery", "end"]
+PhaseName = Literal["baseline", "hold", "recovery", "work", "end"]
 LoopMode = Literal[
     "off",
     "baseline",

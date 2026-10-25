@@ -11,7 +11,8 @@ const NEXT = {
   null: ["baseline", "end"],
   baseline: ["hold", "end"],
   hold: ["recovery", "end"],
-  recovery: ["baseline", "end"],
+  recovery: ["work", "baseline", "end"],
+  work: ["baseline", "end"],
   end: [],
 };
 
@@ -81,7 +82,7 @@ function pushHemo(buf, frame) {
 // so the traces do not jump on every frame.
 function scaleOrigin() {
   if (!session.active) return null;
-  if (!["baseline", "hold", "recovery"].includes(session.phase)) return null;
+  if (!["baseline", "hold", "recovery", "work"].includes(session.phase)) return null;
   return Number.isFinite(session.phase_t) ? session.phase_t : null;
 }
 
@@ -123,7 +124,12 @@ function phaseBands(u, buf) {
   const { ctx } = u;
   const { top, height } = u.bbox;
   const dpr = devicePixelRatio;
-  const fills = { hold: css("--phase-hold"), recovery: css("--phase-recovery") };
+  const fills = {
+    hold: css("--phase-hold"),
+    recovery: css("--phase-recovery"),
+    work: css("--phase-work"),
+  };
+  const bandName = { baseline: "calib", hold: "calib", recovery: "calib", work: "work" };
   ctx.save();
   ctx.font = `500 ${11 * dpr}px ${css("--font-sans")}`;
   ctx.textAlign = "left";
@@ -144,9 +150,10 @@ function phaseBands(u, buf) {
       ctx.fillRect(Math.round(x0), top, dpr, height);
     }
     const pad = 6 * dpr;
-    if (ctx.measureText(p.phase).width + 2 * pad <= x1 - x0) {
+    const label = bandName[p.phase] || p.phase;
+    if (ctx.measureText(label).width + 2 * pad <= x1 - x0) {
       ctx.fillStyle = css("--ink-muted");
-      ctx.fillText(p.phase, x0 + pad, top + 14 * dpr);
+      ctx.fillText(label, x0 + pad, top + 14 * dpr);
     }
   });
   ctx.restore();
@@ -325,7 +332,7 @@ function renderPhaseTile() {
   const loop = session.loop || "off";
   tile.dataset.phase = phase || "";
   document.body.dataset.loop = loop;
-  $("phase-name").textContent = session.active ? phase || "Ready" : "Idle";
+  $("phase-name").textContent = session.active ? phaseTitle(phase) : "Idle";
   const running = phase && phase !== "end" && now !== null && Number.isFinite(session.phase_t);
   const elapsed = running ? now - session.phase_t : null;
   $("phase-elapsed").textContent = elapsed !== null && Number.isFinite(elapsed) ? liveMath.safeClock(elapsed) : "";
@@ -334,7 +341,9 @@ function renderPhaseTile() {
   let nextText = "";
   if (timed && Number.isFinite(remaining)) {
     nextText = `${session.timer_next} in ${liveMath.safeClock(remaining)}`;
-    if (loop === "coach" || loop === "locked") nextText += " · until the gate opens";
+    if (phase === "work" && (loop === "coach" || loop === "locked")) {
+      nextText += " · until the gate opens";
+    }
   }
   $("phase-next").textContent = nextText;
   let progress = timed
@@ -343,8 +352,8 @@ function renderPhaseTile() {
   const guided = loop === "coach" || loop === "locked" ? breathCycle(performance.now() / 1000) : null;
   if (guided) progress = guided.progress;
   $("phase-progress").style.width = `${(progress * 100).toFixed(1)}%`;
-  $("breath-phase").textContent = guided ? guided.word : $("phase-name").textContent;
-  $("breath-clock").textContent = guided ? "Breathe" : $("phase-elapsed").textContent;
+  $("breath-phase").textContent = phaseTitle(phase);
+  $("breath-clock").textContent = guided ? guided.word : $("phase-elapsed").textContent;
   $("breath-next").textContent = guided ? "Follow the circle" : $("phase-next").textContent;
   $("breath-progress").style.strokeDasharray = `${(progress * 100).toFixed(1)} 100`;
   $("breath-progress").style.opacity = progress > 0 ? "1" : "0";
@@ -364,7 +373,16 @@ function breathTarget(seconds) {
   if (loop === "challenge" || phase === "hold") return 1;
   if (loop === "baseline" || phase === "baseline") return 0.84 + wave(5, 0.05);
   if (loop === "continue" || phase === "recovery") return 0.88 + wave(3.5, 0.07);
+  if (phase === "work") return 0.84 + wave(5, 0.04);
   return 0.72;
+}
+
+function phaseTitle(phase) {
+  if (!phase) return "Ready";
+  if (phase === "work") return "Work";
+  if (phase === "baseline" || phase === "hold" || phase === "recovery") return "Calibrate";
+  if (phase === "end") return "End";
+  return phase;
 }
 
 function renderCoach(guided) {
@@ -378,17 +396,20 @@ function renderCoach(guided) {
   else if (loop === "break") $("coach-step").textContent = "Break";
   else if (loop === "coach" || loop === "locked") $("coach-step").textContent = guided ? guided.word : "";
   else $("coach-step").textContent = "";
+  const phase = session.active ? session.phase : null;
+  const calibrating = phase === "baseline" || phase === "hold" || phase === "recovery";
   const kicker = {
-    baseline: "Baseline",
-    challenge: "Breath-hold",
+    baseline: "Calibration",
+    challenge: "Calibration",
     coach: "Breath coach",
-    continue: "Continue",
-    locked: "Task locked",
+    continue: "Work",
+    locked: calibrating ? "Calibration" : "Task locked",
     task: "Task unlocked",
     ease: "Easing",
     break: "Break",
   };
-  $("coach-kicker").textContent = kicker[loop] || "Recovery gate";
+  const title = calibrating && loop !== "off" ? "Calibration" : kicker[loop];
+  $("coach-kicker").textContent = title || "Recovery gate";
 }
 function animateBreath() {
   if (document.body.dataset.view !== "present") return;
@@ -472,7 +493,6 @@ function renderStressTile() {
   if (!uncalibrated && reason && !reason.startsWith("resting baseline")) parts.push(reason);
   if (s.channels) parts.push(`using ${s.channels}`);
   if (Number.isFinite(s.alert_at)) parts.push(`alert at ${Math.round(s.alert_at * 100)}%`);
-  if (Number.isFinite(s.tau_s)) parts.push(`recovery tau ${Math.round(s.tau_s)} s`);
   if (typeof s.recovery_score === "number" && Number.isFinite(s.recovery_score)) {
     parts.push(`${Math.round(s.recovery_score * 100)}% returned`);
   }
@@ -502,6 +522,7 @@ function renderGate() {
   if (!source) {
     tile.dataset.live = "false";
     tile.dataset.gate = "off";
+    renderTau(tile);
     if (chart) {
       chart.dataset.gate = "off";
       chart.textContent = "Gate waiting for BFI, BVI, and contact quality";
@@ -513,6 +534,7 @@ function renderGate() {
   tile.dataset.live = "true";
   tile.dataset.gate = contact !== null && contact < 0.5 ? "locked" : source.gate;
   $("gate-state").textContent = label.headline;
+  renderTau(tile);
   setState($("gate-status"), label.status, label.text);
   const detail = [];
   if (source.gate_reason) detail.push(source.gate_reason.replaceAll("_", " "));
@@ -522,6 +544,17 @@ function renderGate() {
     chart.dataset.gate = source.gate;
     chart.textContent = liveMath.gateReadout(source, latest.cq);
   }
+}
+
+function renderTau(tile) {
+  const text = liveMath.recoveryTauText(latest.stress);
+  const el = $("gate-tau");
+  const unit = $("gate-tau-unit");
+  if (!el) return;
+  el.textContent = text;
+  const ready = text !== "--";
+  if (unit) unit.hidden = !ready;
+  if (tile) tile.dataset.tau = ready ? "ready" : "waiting";
 }
 
 setInterval(() => { renderPhaseTile(); renderHrTile(); }, 250);
@@ -539,8 +572,8 @@ function renderControls() {
     b.disabled = !allowed.includes(b.dataset.phase);
   });
   const timerRunning = Boolean(session.timer_next) || ["baseline", "challenge", "coach", "continue", "locked", "task", "ease", "break"].includes(session.loop);
-  const idlePhase = !session.active || session.phase === null || session.phase === "recovery" || session.phase === "end";
-  const canTime = session.active && (session.phase === null || session.phase === "recovery");
+  const idlePhase = !session.active || session.phase === null || session.phase === "recovery" || session.phase === "work" || session.phase === "end";
+  const canTime = session.active && (session.phase === null || session.phase === "recovery" || session.phase === "work");
   $("protocol-start").disabled = !canTime || timerRunning;
   $("loop-start").disabled = !idlePhase || timerRunning;
   $("protocol-stop").disabled = !timerRunning;
