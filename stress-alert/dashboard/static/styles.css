@@ -473,6 +473,7 @@ body[data-loop="ease"] .tile-phase { box-shadow: var(--shadow), 0 0 0 1.5px var(
 .coach-step { margin: 0; font-size: 2.5rem; font-weight: 640; letter-spacing: -0.03em; line-height: 1; }
 .coach-step:empty { display: none; }
 .coach-note { margin: 0; color: var(--ink-muted); font-size: var(--text-sm); }
+.phase-task { display: none; margin: 0; }
 .present-only { display: none; }
 .phase-meta { display: flex; justify-content: space-between; gap: var(--space-3); }
 .phase-elapsed { font-family: var(--font-mono); font-size: var(--text-lg); font-weight: 500; }
@@ -595,25 +596,123 @@ body[data-view="present"] .chart-head .meta { margin-left: auto; }
 
 /* Present view: controls out of the way, the state and signal larger */
 
+body[data-view="present"] {
+  --text-hero: 1.65rem;
+  height: 100dvh;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
 body[data-view="present"] .operator-only { display: none; }
 body[data-view="present"] .present-only { display: block; }
-body[data-view="present"] { --text-hero: 3.5rem; }
-body[data-view="present"] .strip {
-  grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr);
-  grid-template-rows: repeat(3, auto);
+body[data-view="present"] #tile-gate { display: none; }
+body[data-view="present"] #coach { display: none; }
+body[data-view="present"] #gate-chart { display: none; }
+body[data-view="present"] main {
+  flex: 1 1 auto;
+  min-height: 0;
+  height: auto;
+  max-height: none;
+  overflow: hidden;
+  padding: 12px 16px;
+  gap: 12px;
+  grid-template-columns: minmax(0, 1.15fr) minmax(0, 0.9fr);
+  grid-template-rows: auto minmax(0, 1fr) minmax(0, 1fr);
 }
-body[data-view="present"] .tile-phase { grid-row: span 3; min-height: 0; order: 0; }
-body[data-view="present"] #tile-gate { order: 1; }
-body[data-view="present"] #tile-cq { order: 2; }
-body[data-view="present"] #tile-stress { order: 3; }
-body[data-view="present"] #tile-hr { order: 4; }
-body[data-view="present"] .tile-phase .breath { display: block; }
+body[data-view="present"] .strip {
+  grid-column: 1 / -1;
+  grid-row: 1;
+  grid-template-columns: minmax(0, 1.35fr) minmax(0, 0.75fr) minmax(0, 1fr) minmax(0, 0.9fr);
+  grid-template-rows: auto;
+}
+body[data-view="present"] .tile-phase,
+body[data-view="present"] #tile-hr,
+body[data-view="present"] #tile-cq,
+body[data-view="present"] #tile-stress {
+  order: 0;
+  grid-row: auto;
+  grid-column: auto;
+}
+body[data-view="present"] #card-heatmap {
+  grid-column: 1;
+  grid-row: 2 / span 2;
+  min-height: 0;
+  height: 100%;
+  overflow: hidden;
+}
+body[data-view="present"] #card-bfi { grid-column: 2; grid-row: 2; min-height: 0; height: 100%; }
+body[data-view="present"] #card-bvi { grid-column: 2; grid-row: 3; min-height: 0; height: 100%; }
+body[data-view="present"] .tile {
+  min-height: 0;
+  max-height: 148px;
+  padding: 10px 12px;
+  gap: 4px;
+  overflow: hidden;
+}
+body[data-view="present"] .tile-phase {
+  display: grid;
+  grid-template-columns: 96px minmax(0, 1fr);
+  grid-template-rows: auto minmax(0, 1fr);
+  align-items: center;
+  column-gap: 8px;
+}
+body[data-view="present"] .tile-phase > .card-title { grid-column: 1 / -1; }
+body[data-view="present"] .tile-phase .breath {
+  display: block;
+  width: 96px;
+  margin: 0;
+  grid-column: 1;
+  grid-row: 2;
+}
+body[data-view="present"] .phase-task {
+  display: -webkit-box;
+  grid-column: 2;
+  grid-row: 2;
+  -webkit-line-clamp: 4;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  font-size: var(--text-sm);
+  line-height: 1.35;
+  color: var(--ink-2);
+}
+body[data-view="present"] .phase-task:empty { display: none; }
 body[data-view="present"] .tile-phase > .value,
 body[data-view="present"] .tile-phase > .phase-meta,
 body[data-view="present"] .tile-phase > .progress { display: none; }
-body[data-view="present"] .tile { min-height: 0; }
-body[data-view="present"] .coach-cue { font-size: 1.5rem; }
-body[data-view="present"] .coach-step { font-size: 3.25rem; }
+body[data-view="present"] .breath-label .phase { font-size: 0.95rem; }
+body[data-view="present"] .breath-label .clock { font-size: var(--text-xs); }
+body[data-view="present"] .breath-label .next { font-size: 0.65rem; }
+body[data-view="present"] .chart-card {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  padding: 8px 12px 10px;
+  overflow: hidden;
+}
+body[data-view="present"] .chart-head { margin-bottom: 4px; gap: 8px; }
+body[data-view="present"] .chart { flex: 1 1 auto; min-height: 0; height: auto; }
+body[data-view="present"] .heatmap-card {
+  height: 100%;
+  padding: 10px 12px;
+  gap: 8px;
+}
+body[data-view="present"] .heatmap-head { gap: 6px; }
+body[data-view="present"] .heatmap-body {
+  flex: 1;
+  min-height: 0;
+  grid-template-columns: minmax(0, 1fr) 128px;
+  gap: 8px;
+}
+body[data-view="present"] .heatmap-canvas-container {
+  height: 100%;
+  min-height: 0;
+  max-height: none;
+}
+body[data-view="present"] .heatmap-sidebar {
+  gap: 6px;
+  min-height: 0;
+  overflow: auto;
+}
 body[data-loop="coach"] .breath-core,
 body[data-loop="locked"] .breath-core { fill: var(--breath-core-hold); }
 
@@ -890,6 +989,29 @@ body[data-loop="locked"] .breath-core { fill: var(--breath-core-hold); }
   .heatmap-sidebar { flex-direction: row; flex-wrap: wrap; }
   .heatmap-stat-box { flex: 1; min-width: 140px; }
   .heatmap-colorbar-wrap { flex-basis: 100%; margin-top: 0; }
+  body[data-view="present"] {
+    height: auto;
+    display: block;
+    overflow: auto;
+  }
+  body[data-view="present"] main {
+    height: auto;
+    max-height: none;
+    overflow: visible;
+    grid-template-columns: 1fr;
+    grid-template-rows: auto;
+  }
+  body[data-view="present"] #card-heatmap,
+  body[data-view="present"] #card-bfi,
+  body[data-view="present"] #card-bvi {
+    grid-column: 1;
+    grid-row: auto;
+    height: auto;
+  }
+  body[data-view="present"] .heatmap-canvas-container {
+    height: 280px;
+    max-height: 40vh;
+  }
 }
 @media (max-width: 900px) {
   .topbar-inner { flex-wrap: wrap; row-gap: var(--space-2); }
@@ -902,15 +1024,7 @@ body[data-loop="locked"] .breath-core { fill: var(--breath-core-hold); }
   .strip { grid-template-columns: 1fr; }
   body[data-view="present"] .strip { grid-template-columns: 1fr 1fr; }
   body[data-view="present"] .tile-phase,
-  body[data-view="present"] #tile-hr { grid-column: 1 / -1; grid-row: auto; }
-  body[data-view="present"] #tile-gate { order: -3; }
-  body[data-view="present"] #tile-cq { order: -1; }
-  body[data-view="present"] #tile-stress { order: 1; }
-  body[data-view="present"] .coach { order: -1; }
-  body[data-view="present"] .breath { width: min(100%, 128px); }
-  body[data-view="present"] .breath-label .phase { font-size: 1.35rem; }
-  body[data-view="present"] .coach-step { font-size: 1.75rem; }
-  body[data-view="present"] .coach-cue { font-size: 1.05rem; }
+  body[data-view="present"] #tile-hr { grid-column: 1 / -1; }
   :root { --text-hero: 2.25rem; }
 }
 @media (prefers-reduced-motion: reduce) {

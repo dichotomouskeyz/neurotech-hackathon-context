@@ -217,7 +217,21 @@ let hoverIdx = null;
 // operator view, off by default.
 let showSpread = false;
 
-const chartHeight = () => (document.body.dataset.view === "present" ? 300 : 240);
+function outerHeight(el) {
+  if (!el || getComputedStyle(el).display === "none") return 0;
+  const style = getComputedStyle(el);
+  return el.offsetHeight + (parseFloat(style.marginTop) || 0) + (parseFloat(style.marginBottom) || 0);
+}
+
+function chartHeight(metric) {
+  if (document.body.dataset.view !== "present") return 240;
+  const card = $(`card-${metric}`);
+  const head = card && card.querySelector(".chart-head");
+  if (!card || !head || card.clientHeight < 80) return 140;
+  const pad = parseFloat(getComputedStyle(card).paddingTop) + parseFloat(getComputedStyle(card).paddingBottom);
+  const empty = card.querySelector(".chart-empty");
+  return Math.max(96, Math.floor(card.clientHeight - outerHeight(head) - pad - outerHeight(empty)));
+}
 
 function makeChart(metric) {
   const buf = bufs[metric];
@@ -234,7 +248,7 @@ function makeChart(metric) {
   charts[metric] = new uPlot(
     {
       width: el.clientWidth,
-      height: chartHeight(),
+      height: chartHeight(metric),
       padding: [8, 60, 0, 0],
       legend: { show: false },
       cursor: {
@@ -299,7 +313,7 @@ function renderLegends() {
 
 function resizeCharts() {
   for (const metric of METRICS) {
-    charts[metric].setSize({ width: $(`chart-${metric}`).clientWidth, height: chartHeight() });
+    charts[metric].setSize({ width: $(`chart-${metric}`).clientWidth, height: chartHeight(metric) });
   }
 }
 
@@ -426,6 +440,14 @@ function renderCoach(guided) {
   };
   const title = calibrating && loop !== "off" ? "Calibration" : kicker[loop];
   $("coach-kicker").textContent = title || "Recovery gate";
+  const task = $("phase-task");
+  if (task) {
+    if (loop === "off") task.textContent = "";
+    else {
+      const bits = [title, $("coach-step").textContent, session.loop_cue || ""].filter((part) => part);
+      task.textContent = bits.join(" · ");
+    }
+  }
 }
 function animateBreath() {
   if (document.body.dataset.view !== "present") return;
@@ -763,7 +785,7 @@ function setView(view) {
     b.setAttribute("aria-pressed", String(b.dataset.view === view));
   });
   try { localStorage.setItem("stress-alert:view", view); } catch { /* storage unavailable */ }
-  if (charts.bfi) resizeCharts();
+  if (charts.bfi) requestAnimationFrame(resizeCharts);
 }
 document.querySelectorAll(".segmented button").forEach((b) => {
   b.addEventListener("click", () => setView(b.dataset.view));
@@ -790,7 +812,9 @@ function handle(frame) {
     case "bvi":
       pushHemo(bufs[frame.type], frame);
       if (frame.type === "bfi") framesThisSecond += 1;
-      $(`card-${frame.type}`).dataset.live = "true";
+      const card = $(`card-${frame.type}`);
+      if (card.dataset.live !== "true") requestAnimationFrame(resizeCharts);
+      card.dataset.live = "true";
       dirty = true;
       if (brainHeatmap) {
         brainHeatmap.update(frame);
@@ -866,6 +890,7 @@ if (!initialView) {
 }
 setView(initialView === "present" ? "present" : "operator");
 METRICS.forEach(makeChart);
+requestAnimationFrame(resizeCharts);
 renderControls();
 renderDevice();
 renderPhaseTile();

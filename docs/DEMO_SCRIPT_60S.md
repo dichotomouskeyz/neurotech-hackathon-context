@@ -15,7 +15,7 @@ The same script lives at `stress-alert/docs/DEMO_SCRIPT_60S.md`.
 ## Overview
 
 - **Format**: Live long session for judges (Sunday 3:00 to 5:00 pm). Demo Mode is only the offline fallback.
-- **On screen**: Present view. The line under the title says calibrate, then work, then an automatic breath. Phase reads Calibrate, then Work. Recovery gate tile, contact quality, BFI and BVI charts with the gate line, and the coach banner. Perfusion percent and optical heart rate stay secondary.
+- **On screen**: Present view. The info control by the title says calibrate, then work, then an automatic breath. The top row is phase, heart rate, contact quality, and perfusion. The task line sits on the phase tile. The recovery-gate card and the coach card stay on Operator. Below the top row, the heatmap is on the left and the BFI and BVI charts are stacked on the right.
 - **Live contact**: light and dark digital numbers on the Open-Motion `live` batch, the same thresholds as `features/cq_score.py`. A bad score blocks the gate.
 - **Demo contact**, if you must fall back: graded scores such as 0.82, 0.78, 0.76, and 0.32. Demo Mode never publishes 1.00, and it will not start while a live scan is running.
 
@@ -25,12 +25,12 @@ Speak to the tiles. Do not quote a fixed percent or tau unless that is what the 
 
 | When | What to say | What to point at |
 | :- | :- | :- |
-| 0:00, phase says Calibrate | "This is setup, not the product. Twenty seconds of quiet sitting learns resting forehead blood flow. The task stays locked." | Phase tile Calibrate. Gate locked. |
-| Optional hold, if you turned it on | "The breath-hold is only calibration proof. Flow is up, and we still do not unlock a task. Recovery tau is how fast flow came back. It is not the countdown." | BFI chart during the hold. Recovery τ, unit s, once it leaves --. |
-| Phase flips to Work | "Now the session. This work bout runs twenty minutes. Wear it and keep going. The step unlocks only when forehead flow is back and contact is good." | Phase tile Work. Countdown near 20:00, or "until End" if that box is checked. |
-| Flow leaves the baseline, coach appears | "Forehead flow left the calibrated baseline, and contact is still good, so a breath starts on its own. This is a readiness cue. It is not a stress score." | Coach banner: Breath coach, Inhale and Exhale. Gate stays locked. |
-| Gate opens | "Perfusion-ready. Flow is back and contact is still good, so the step unlocks and the breath stops." | Gate tile shows a step. Banner: Task unlocked. |
-| Contact dips under 0.50 | "Contact failed. The gate locks, and we do not coach a breath on a bad signal." | Contact tile. Gate locked, contact. |
+| 0:00, phase says Calibrate | "This is setup, not the product. Twenty seconds of quiet sitting learns resting forehead blood flow. The task stays locked." | Phase tile Calibrate. Task line on that tile. |
+| Optional hold, if you turned it on | "The breath-hold is only calibration proof. Flow is up, and we still do not unlock a task. Recovery tau is how fast flow came back. It is not the countdown." | BFI chart during the hold. Recovery τ is on the Operator gate tile. |
+| Phase flips to Work | "Now the session. This work bout runs twenty minutes. Wear it and keep going. The step unlocks only when forehead flow is back and contact is good." | Phase tile Work. Countdown near 20:00. |
+| Flow leaves the baseline, coach appears | "Forehead flow left the calibrated baseline, and contact is still good, so a breath starts on its own. This is a readiness cue. It is not a stress score." | Phase tile task line: Breath coach, then inhale and exhale. |
+| Gate opens | "Perfusion-ready. Flow is back and contact is still good, so the step unlocks and the breath stops." | Phase tile task line: the step unlocked. |
+| Contact dips under 0.50 | "Contact failed. The gate locks, and we do not coach a breath on a bad signal." | Contact quality tile. The task line stays on the locked step. |
 | Last line | "For research. Not a diagnosis. The control signal is forehead BFI and BVI from Open-Motion." | Session under `stress-alert/sessions/`. |
 
 ## Live scan

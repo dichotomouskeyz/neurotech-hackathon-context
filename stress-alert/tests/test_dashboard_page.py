@@ -9,6 +9,7 @@ ROOT = Path(__file__).resolve().parents[1]
 def test_page_defaults_are_a_long_work_bout_after_a_short_baseline():
     html = (ROOT / "dashboard/static/index.html").read_text()
     js = (ROOT / "dashboard/static/app.js").read_text()
+    css = (ROOT / "dashboard/static/styles.css").read_text()
     assert 'id="dur-baseline" value="20"' in html
     assert 'id="dur-hold" value="0"' in html
     assert 'id="dur-recovery" value="20"' in html
@@ -47,6 +48,21 @@ def test_page_defaults_are_a_long_work_bout_after_a_short_baseline():
     assert "baseline: 12" not in js
     assert "liveMath.protocolBody" in js
     assert "renderStressTile()" in js
+    assert 'id="tile-gate"' in html
+    assert 'id="coach"' in html
+    phase = html.split('id="tile-phase"', 1)[1].split("</article>", 1)[0]
+    assert 'id="phase-task"' in phase
+    assert "phase-task" in js
+    assert 'body[data-view="present"] #tile-gate { display: none; }' in css
+    assert 'body[data-view="present"] #coach { display: none; }' in css
+    heatmap_rule = (
+        'body[data-view="present"] #card-heatmap {\n'
+        "  grid-column: 1;\n"
+        "  grid-row: 2 / span 2;"
+    )
+    assert heatmap_rule in css
+    assert 'body[data-view="present"] #card-bfi { grid-column: 2; grid-row: 2;' in css
+    assert 'body[data-view="present"] #card-bvi { grid-column: 2; grid-row: 3;' in css
 
 
 def test_heatmap_defaults_to_viridis_without_a_circular_clip():
