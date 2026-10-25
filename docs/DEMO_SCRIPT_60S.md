@@ -54,4 +54,4 @@ uv sync --locked
 uv run python -m dashboard
 ```
 
-Open http://127.0.0.1:8765. Leave the laser off. Press **Demo Mode**. Switch to **Present**. The script is a short calibrate, then a short work loop. While flow is up at the start of that work window, the same breath coach runs, then the step unlocks, blood volume can ask for a break, and a contact dip locks the gate. Say it is the offline stand-in for the long session, then use the same three sentences: calibrate, work, automatic breath.
+Open http://127.0.0.1:8765. Leave the laser off. Press **Demo Mode**. Switch to **Present**. The script is a short calibrate, then a short work loop, about 28 seconds in all. The heart rate tile stays empty because the script has no pulse. While flow is up at the start of that work window, the same breath coach runs, then the step unlocks, blood volume can ask for a break, and a contact dip locks the gate. Say it is the offline stand-in for the long session, then use the same three sentences: calibrate, work, automatic breath.

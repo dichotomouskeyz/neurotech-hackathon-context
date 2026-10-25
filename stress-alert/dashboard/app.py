@@ -108,14 +108,20 @@ def create_app(
     gate = LiveGate()
     demo_task: asyncio.Task[None] | None = None
 
-    def publish(frames: list[dict[str, Any]]) -> None:
+    def publish(frames: list[dict[str, Any]], *, heart_rate: bool = True) -> None:
         """Broadcast ``frames`` and any stress or heart-rate frames derived from them."""
         extra: list[dict[str, Any]] = []
         try:
             extra = gate.observe(frames)
         except Exception:
             log.exception("hemodynamic gate failed")
+        if not heart_rate:
+            extra = [frame for frame in extra if frame.get("type") != "hr"]
         hub.publish([*frames, *extra])
+
+    def publish_demo(frames: list[dict[str, Any]]) -> None:
+        # The demo script has no pulse, so any optical heart rate from it is noise.
+        publish(frames, heart_rate=False)
 
     markers = MarkerOutlet() if lsl_markers else None
     logger = PhaseLogger(sessions_dir, emit=publish, markers=markers)
@@ -284,7 +290,7 @@ def create_app(
         )
         try:
             reason = await run_recovery_demo(
-                publish,
+                publish_demo,
                 lambda: logger.session.phase if logger.session else None,
                 lambda: bool(device.state().get("scanning")),
             )

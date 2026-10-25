@@ -84,7 +84,12 @@ def test_scripted_work_unlocks_only_after_calibration():
                 assert frame["task"] != "coach"
             if frame["task"] == "coach" and frame["gate"] == "locked":
                 coached = True
-            if 10.0 <= elapsed < WORK_BVI_START_S and frame["gate"] == "open":
+            if (
+                coached
+                and elapsed < WORK_BVI_START_S
+                and frame["gate"] == "open"
+                and frame["task"] != "coach"
+            ):
                 opened = True
                 assert frame["difficulty"] >= 2
                 assert frame["task"] in {"advance", "hold"}
