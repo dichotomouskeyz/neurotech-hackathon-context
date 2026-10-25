@@ -249,8 +249,6 @@ button:active:not(:disabled) { transform: translateY(1px); }
 button:disabled { opacity: 0.38; cursor: not-allowed; }
 button.primary { background: var(--primary-bg); color: var(--primary-ink); border-color: var(--primary-bg); }
 button.primary:hover:not(:disabled) { background: color-mix(in srgb, var(--primary-bg) 85%, var(--page)); }
-button.quiet { border-color: transparent; background: transparent; color: var(--ink-2); }
-button.quiet:hover:not(:disabled) { background: var(--control-hover); color: var(--ink); }
 .segmented button:hover:not([aria-pressed="true"]) { background: transparent; color: var(--ink); }
 button.mode-btn[aria-pressed="true"]:not(.primary) {
   background: var(--ink);
@@ -573,7 +571,6 @@ body[data-view="present"] {
 body[data-view="present"] .operator-only { display: none; }
 body[data-view="present"] .present-only { display: block; }
 body[data-view="present"] #coach { display: none; }
-body[data-view="present"] #pause { display: none; }
 body[data-view="present"] main {
   flex: 1 1 auto;
   min-height: 0;

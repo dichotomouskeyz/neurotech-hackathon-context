@@ -65,10 +65,16 @@ def test_page_defaults_are_a_long_work_bout_after_a_short_baseline():
     )
     assert wide_phase in css
     assert 'body[data-view="present"] #coach { display: none; }' in css
-    assert 'id="pause"' in html
-    assert 'body[data-view="present"] #pause { display: none; }' in css
+    assert 'id="pause"' not in html
+    assert ">Pause<" not in html
+    assert ">Resume<" not in html
+    assert "#pause" not in css
+    assert "button.quiet" not in css
+    assert "paused" not in js
+    assert 'id="demo-start"' in html
+    assert 'id="scan-start"' in html
+    assert 'id="protocol-start"' in html
     assert 'body[data-view="present"] .tile:has(.info:hover)' in css
-    assert "view === \"present\" && paused" in js
     heatmap_rule = (
         'body[data-view="present"] #card-heatmap {\n'
         "  grid-column: 1;\n"

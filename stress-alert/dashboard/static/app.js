@@ -48,7 +48,6 @@ const makeBuffer = () => ({
   yRange: { lo: null, hi: null, shrinkSince: null },
 });
 const bufs = { bfi: makeBuffer(), bvi: makeBuffer() };
-let paused = false;
 let dirty = false;
 let framesThisSecond = 0;
 
@@ -319,7 +318,7 @@ function resizeCharts() {
 
 function draw() {
   animateBreath();
-  if (dirty && !paused) {
+  if (dirty) {
     for (const metric of METRICS) {
       updateYRange(bufs[metric], metric);
       charts[metric].setData(chartData(bufs[metric]));
@@ -727,12 +726,6 @@ function setView(view) {
     b.setAttribute("aria-pressed", String(b.dataset.view === view));
   });
   try { localStorage.setItem("stress-alert:view", view); } catch { /* storage unavailable */ }
-  if (view === "present" && paused) {
-    paused = false;
-    const pause = $("pause");
-    pause.setAttribute("aria-pressed", "false");
-    pause.textContent = "Pause";
-  }
   if (charts.bfi) requestAnimationFrame(resizeCharts);
 }
 document.querySelectorAll(".segmented button").forEach((b) => {
@@ -973,11 +966,6 @@ $("spread").addEventListener("change", (event) => {
   }
 });
 
-$("pause").addEventListener("click", (event) => {
-  paused = !paused;
-  event.currentTarget.setAttribute("aria-pressed", String(paused));
-  event.currentTarget.textContent = paused ? "Resume" : "Pause";
-});
 window.addEventListener("resize", resizeCharts);
 matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () => {
   METRICS.forEach(makeChart);
