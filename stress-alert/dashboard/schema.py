@@ -137,6 +137,8 @@ class Device(_Frame):
     right: bool
     scanning: bool
     sdk_version: str = ""
+    # Set while Start scan is programming camera FPGAs. Empty once that finishes.
+    status: str = ""
     error: str = ""
 
 

@@ -2,9 +2,11 @@
 
 ``DeviceManager`` wraps ``openmotion-sdk``'s ``MotionInterface``. Connecting starts
 the SDK's own USB/serial discovery and hotplug monitor. It does not power cameras.
-Start scan powers the scan mask, requires ``enable_camera`` to succeed, then
-starts the SDK scan. Frames are live BFI/BVI through a pipeline sink on the SDK's
-``live`` channel, published to the dashboard hub on the shared LSL clock.
+Start scan powers the scan mask, programs camera FPGAs and sensor registers
+(``start_configure_camera_sensors``, about 2 minutes for all 16 cameras), requires
+``enable_camera`` to succeed, then starts the SDK scan. Frames are live BFI/BVI
+through a pipeline sink on the SDK's ``live`` channel, published to the dashboard
+hub on the shared LSL clock.
 
 The SDK runs its connection monitor and scan worker on its own threads, so every
 hub publish is marshalled onto the event loop with ``call_soon_threadsafe``.
@@ -35,6 +37,10 @@ CAMERA_POWER_SETTLE_S = 0.5
 # ScanWorkflow enables cameras on its worker after start_scan returns. Each
 # enable waits up to 1.5 s, so two sides plus frame-sync setup fit in this window.
 CAMERA_ENABLE_WAIT_S = 8.0
+# FPGA programming is about 14 s per camera. The two modules run in parallel,
+# so mask 0xFF (8 cameras a side) is about 2 minutes. The bloodflow flash
+# watchdog is 250 s; this waits the same order of time before failing.
+CAMERA_CONFIGURE_TIMEOUT_S = 240.0
 
 Emit = Callable[[list[dict[str, Any]]], None]
 
@@ -55,6 +61,31 @@ def _camera_call(sensor: Any, method: str, mask: int) -> bool:
         return bool(fn(mask))
     except Exception as exc:
         raise DeviceError(f"{method} on mask {_mask_label(mask)} failed: {exc}") from exc
+
+
+def _configure_request(left_mask: int, right_mask: int) -> Any:
+    """Same object the bloodflow app passes to ``start_configure_camera_sensors``."""
+    try:
+        from omotion.ScanWorkflow import ConfigureRequest
+    except ImportError as exc:
+        raise DeviceError(
+            "Open-Motion SDK is missing ConfigureRequest; cannot start a scan."
+        ) from exc
+    return ConfigureRequest(
+        left_camera_mask=left_mask,
+        right_camera_mask=right_mask,
+        power_off_unused_cameras=False,
+    )
+
+
+def _cancel_configure(iface: Any) -> None:
+    cancel = getattr(iface, "cancel_configure_camera_sensors", None)
+    if not callable(cancel):
+        return
+    try:
+        cancel()
+    except Exception:
+        pass
 
 
 def _disable_cameras(enabled: list[tuple[Any, int]]) -> None:
@@ -277,6 +308,7 @@ class DeviceManager:
         now: Callable[[], float] = clock.now,
         camera_power_settle_s: float = CAMERA_POWER_SETTLE_S,
         camera_enable_wait_s: float = CAMERA_ENABLE_WAIT_S,
+        camera_configure_timeout_s: float = CAMERA_CONFIGURE_TIMEOUT_S,
     ) -> None:
         self._emit = emit
         self._data_dir = data_dir
@@ -284,6 +316,9 @@ class DeviceManager:
         self._now = now
         self._camera_power_settle_s = camera_power_settle_s
         self._camera_enable_wait_s = camera_enable_wait_s
+        self._camera_configure_timeout_s = camera_configure_timeout_s
+        self._config_pct = 0
+        self._config_note = ""
         self._loop: asyncio.AbstractEventLoop | None = None
         self._iface: Any = None
         self._scan_request: Any = None
@@ -291,6 +326,7 @@ class DeviceManager:
         self.sdk_version = ""
         self.console = self.left = self.right = False
         self.scanning = False
+        self.status = ""
         self.error = ""
 
     # State
@@ -305,6 +341,7 @@ class DeviceManager:
             "right": self.right,
             "scanning": self.scanning,
             "sdk_version": self.sdk_version,
+            "status": self.status,
             "error": self.error,
         }
 
@@ -360,9 +397,11 @@ class DeviceManager:
         if self._iface is not None:
             if self.scanning:
                 self.stop_scan()
+            _cancel_configure(self._iface)
             self._iface.stop()
         self._iface = None
         self.console = self.left = self.right = self.scanning = False
+        self.status = ""
         self.error = ""
         self._emit_state()
         return self.state()
@@ -382,12 +421,14 @@ class DeviceManager:
             self._prepare_cameras(left_mask, right_mask)
         except DeviceError as exc:
             self.scanning = False
+            self.status = ""
             self.error = str(exc)
             self._emit_state()
             raise
 
         def on_error(exc: BaseException) -> None:
             self.scanning = False
+            self.status = ""
             self.error = f"Scan stopped: {exc}"
             self._emit_state()
 
@@ -405,12 +446,14 @@ class DeviceManager:
             watch = self._arm_enable_watch((("left", left_mask), ("right", right_mask)))
         except DeviceError as exc:
             self.scanning = False
+            self.status = ""
             self.error = str(exc)
             self._emit_state()
             raise
         try:
             if not self._iface.start_scan(request):
                 reason = getattr(self._iface.scan_workflow, "last_scan_error", None)
+                self.status = ""
                 self.error = f"The SDK refused to start the scan: {reason or 'no reason given'}"
                 self._emit_state()
                 raise DeviceError(self.error)
@@ -418,6 +461,7 @@ class DeviceManager:
         finally:
             self._disarm_enable_watch(watch)
         self.scanning = True
+        self.status = ""
         self.error = ""
         self._emit_state()
         return self.state()
@@ -441,9 +485,12 @@ class DeviceManager:
 
         A successful enable is turned back off so ``start_scan`` keeps its own
         order: external frame sync, then ``enable_camera``, then the trigger.
-        ``start_configure_camera_sensors`` (the bloodflow flash step, FPGA program
-        plus register configure) is not run here. Connect-time power is the gap
-        that left Start scan with no frames. Mask stays ``CAMERA_MASK_ALL``.
+
+        Between power and that enable, ``start_configure_camera_sensors`` programs
+        each camera FPGA and writes sensor registers. That is the bloodflow flash
+        step, and it has to run after a power loss because FPGA SRAM does not
+        keep the bitstream. Mask stays ``CAMERA_MASK_ALL``. Both modules run at
+        once, about 2 minutes for 16 cameras. Progress is published on ``status``.
         """
         active = [
             (side, mask) for side, mask in (("left", left_mask), ("right", right_mask)) if mask
@@ -457,6 +504,8 @@ class DeviceManager:
                 )
             if self._camera_power_settle_s > 0:
                 time.sleep(self._camera_power_settle_s)
+
+        self._configure_cameras(left_mask, right_mask)
 
         enabled: list[tuple[Any, int]] = []
         try:
@@ -472,6 +521,77 @@ class DeviceManager:
             _disable_cameras(enabled)
             raise
         _disable_cameras(enabled)
+
+    def _configure_cameras(self, left_mask: int, right_mask: int) -> None:
+        """Program FPGAs and sensor registers for the scan mask. Block until done.
+
+        Bloodflow scan order is flash, then trigger, then capture. Flash is
+        ``start_configure_camera_sensors``: power (again), ``program_fpga``, then
+        ``camera_configure_registers`` for each camera in the mask. Sides run in
+        parallel. A failure here must not fall through to ``start_scan``.
+        """
+        start = getattr(self._iface, "start_configure_camera_sensors", None)
+        if not callable(start):
+            raise DeviceError(
+                "Open-Motion SDK is missing start_configure_camera_sensors; cannot start a scan."
+            )
+        done = threading.Event()
+        holder: dict[str, Any] = {}
+
+        def on_progress(pct: int) -> None:
+            self._config_pct = int(pct)
+            self._publish_config_status()
+
+        def on_log(msg: str) -> None:
+            self._config_note = str(msg)
+            self._publish_config_status()
+
+        def on_complete(result: Any) -> None:
+            holder["result"] = result
+            done.set()
+
+        self._config_pct = 0
+        self._config_note = "Programming camera FPGAs and registers"
+        self._publish_config_status()
+        try:
+            started = bool(
+                start(
+                    _configure_request(left_mask, right_mask),
+                    on_progress_fn=on_progress,
+                    on_log_fn=on_log,
+                    on_complete_fn=on_complete,
+                )
+            )
+        except DeviceError:
+            self.status = ""
+            raise
+        except Exception as exc:
+            self.status = ""
+            raise DeviceError(f"Camera configure failed: {exc}. The scan was not started.") from exc
+        if not started:
+            self.status = ""
+            raise DeviceError("Camera configure could not start. The scan was not started.")
+        if not done.wait(self._camera_configure_timeout_s):
+            _cancel_configure(self._iface)
+            self.status = ""
+            raise DeviceError(
+                "Camera configure timed out after "
+                f"{int(self._camera_configure_timeout_s)} s. The scan was not started."
+            )
+        result = holder.get("result")
+        ok = bool(getattr(result, "ok", False))
+        err = str(getattr(result, "error", "") or "no result")
+        self.status = ""
+        if not ok:
+            raise DeviceError(f"Camera configure failed: {err}. The scan was not started.")
+
+    def _publish_config_status(self) -> None:
+        note = self._config_note or "Programming camera FPGAs and registers"
+        self.status = (
+            f"Configuring cameras {self._config_pct}%: {note}. About 2 minutes for all 16 cameras."
+        )
+        self.error = ""
+        self._emit_state()
 
     def _sensor(self, side: str) -> Any:
         sensor = getattr(self._iface, side, None)
@@ -547,6 +667,7 @@ class DeviceManager:
         except Exception:
             pass
         self.scanning = False
+        self.status = ""
         if failures:
             side, mask = failures[0]
         else:

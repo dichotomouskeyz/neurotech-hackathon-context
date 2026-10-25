@@ -494,6 +494,8 @@ body[data-loop="ease"] .tile-phase { box-shadow: var(--shadow), 0 0 0 1.5px var(
 .field.grow { flex: 1; min-width: 160px; }
 .phase-buttons { display: flex; flex-wrap: wrap; gap: var(--space-2); }
 .error { color: var(--status-critical-text); font-size: var(--text-sm); margin: 0; min-height: 1.2em; }
+.device-status { color: var(--ink-muted); font-size: var(--text-sm); margin: 0; min-height: 1.2em; }
+.device-status:empty { display: none; }
 
 .events { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 6px; }
 .events li {
