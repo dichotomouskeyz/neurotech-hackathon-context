@@ -81,6 +81,63 @@ class PulseHrTests(unittest.TestCase):
         self.assertEqual(estimate.method, "fft")
         self.assertGreater(estimate.confidence, 0.9)
 
+    def test_half_rate_tone_does_not_replace_a_100_bpm_pulse(self):
+        import numpy as np
+
+        sample_rate = 40.0
+        timestamps = np.arange(0.0, 16.0, 1.0 / sample_rate)
+        phase = (timestamps * (100.0 / 60.0)) % 1.0
+        width = np.minimum(phase, 1.0 - phase)
+        pulse = np.exp(-0.5 * (width / 0.07) ** 2)
+        pulse = pulse / float(np.std(pulse))
+        # Stronger sine at half the pulse rate. The FFT argmax sits on it.
+        slow = np.sin(2 * np.pi * (50.0 / 60.0) * timestamps)
+        trace = 2.2 + 0.35 * pulse + 0.5 * slow
+        estimate = estimate_optical_hr(timestamps, trace)
+        self.assertIsNotNone(estimate.bpm)
+        self.assertAlmostEqual(estimate.bpm, 100.0, delta=3.0)
+        self.assertGreater(estimate.bpm, 80.0)
+
+    def test_true_50_bpm_pulse_is_not_doubled(self):
+        import numpy as np
+
+        sample_rate = 40.0
+        timestamps = np.arange(0.0, 16.0, 1.0 / sample_rate)
+        phase = (timestamps * (50.0 / 60.0)) % 1.0
+        width = np.minimum(phase, 1.0 - phase)
+        pulse = np.exp(-0.5 * (width / 0.07) ** 2)
+        pulse = pulse / float(np.std(pulse))
+        trace = 2.2 + 0.35 * pulse
+        estimate = estimate_optical_hr(timestamps, trace)
+        self.assertIsNotNone(estimate.bpm)
+        self.assertAlmostEqual(estimate.bpm, 50.0, delta=3.0)
+
+    def test_repeated_capture_stamps_do_not_set_the_sample_rate(self):
+        import numpy as np
+
+        sample_rate = 40.0
+        timestamps = np.arange(0.0, 16.0, 1.0 / sample_rate)
+        bpm = 100.0
+        trace = 2.2 + 0.2 * np.sin(2 * np.pi * (bpm / 60.0) * timestamps)
+        # Three stamps of each light frame, a few tens of microseconds apart.
+        stamped = np.repeat(timestamps, 3) + np.tile([0.0, 50e-6, 100e-6], timestamps.size)
+        values = np.repeat(trace, 3)
+        estimate = estimate_optical_hr(stamped, values)
+        self.assertIsNotNone(estimate.bpm)
+        self.assertAlmostEqual(estimate.bpm, 100.0, delta=3.0)
+
+    def test_uniform_20_hz_cadence_keeps_a_100_bpm_tone(self):
+        import numpy as np
+
+        # Dropped frames leave a real 20 Hz series. Do not rewrite it to 40 Hz.
+        sample_rate = 20.0
+        timestamps = np.arange(0.0, 16.0, 1.0 / sample_rate)
+        bpm = 100.0
+        trace = 2.2 + 0.2 * np.sin(2 * np.pi * (bpm / 60.0) * timestamps)
+        estimate = estimate_optical_hr(timestamps, trace)
+        self.assertIsNotNone(estimate.bpm)
+        self.assertAlmostEqual(estimate.bpm, 100.0, delta=2.0)
+
     def test_short_clip_is_rejected(self):
         estimate = estimate_optical_hr([0.0, 0.025, 0.05], [1.0, 1.2, 0.8])
         self.assertIsNone(estimate.bpm)

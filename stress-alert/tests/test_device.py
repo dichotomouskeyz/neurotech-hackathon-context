@@ -168,6 +168,47 @@ def test_live_sink_assembles_one_frame_per_capture():
     assert published[-2]["t"] == pytest.approx(1000.025)
 
 
+def test_interleaved_sides_keep_40_hz_and_a_100_bpm_pulse():
+    """Left and right share a capture id. The sink must not stretch time 2x.
+
+    Firmware timestamps are one light frame apart (0.025 s). A 100 bpm tone
+    on that cadence stays near 100. The half-rate failure is spectral.
+    """
+    import math
+
+    from dashboard.live_gate import LiveGate
+
+    published = []
+    gate = LiveGate()
+
+    def emit(frames):
+        published.extend(frames)
+        published.extend(gate.observe(frames))
+
+    sink = LiveSink(emit, now=lambda: 1000.0)
+    sink.on_scan_start(None)
+    for index in range(16 * 40):
+        t = index / 40.0
+        bfi = 2.2 + 0.25 * math.sin(2 * math.pi * (100.0 / 60.0) * t)
+        # Same capture id on both sides. Right stamp is a fraction of a millisecond later.
+        sink.consume(
+            "live",
+            live_batch(
+                [
+                    (index + 10, 0, 0, t, bfi, 5.0, "light"),
+                    (index + 10, 1, 0, t + 0.0004, bfi, 5.0, "light"),
+                ]
+            ),
+        )
+    sink.on_complete()
+    times = [frame["t"] for frame in published if frame["type"] == "bfi"]
+    assert len(times) >= 600
+    assert float(np.median(np.diff(times))) == pytest.approx(0.025, abs=0.002)
+    hrs = [frame for frame in published if frame["type"] == "hr"]
+    assert hrs
+    assert hrs[-1]["bpm"] == pytest.approx(100, abs=3)
+
+
 def test_live_sink_skips_dark_and_warmup_rows():
     published = []
     sink = LiveSink(published.extend, now=lambda: 1000.0)
