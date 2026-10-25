@@ -350,6 +350,8 @@ main {
 .state[data-status="warning"]::before { content: "▲"; color: var(--status-warning); }
 .state[data-status="critical"] { color: var(--status-critical-text); }
 .state[data-status="critical"]::before { content: "■"; color: var(--status-critical); }
+.state[data-status="unknown"] { color: var(--ink-muted); }
+.state[data-status="unknown"]::before { content: "○"; color: var(--ink-muted); }
 
 /* Operator controls */
 
@@ -508,11 +510,19 @@ body[data-view="present"] .tile { min-height: 0; }
   display: flex;
   align-items: center;
   flex-wrap: wrap;
+  flex: 0 0 auto;
   gap: var(--space-3);
   padding: var(--space-2) var(--space-3);
   background: var(--surface-sunken);
   border-radius: var(--radius-sm);
   border: 1px solid var(--hairline);
+}
+
+/* Chart-head toggles use margin-left: auto to pin one control to the right.
+   The heatmap toolbar has several controls; that margin shoved the colormap
+   and the checkboxes onto a row that left the viewport as the card grew. */
+.heatmap-toolbar .toggle {
+  margin-left: 0;
 }
 
 .segmented-sm {
@@ -576,17 +586,19 @@ body[data-view="present"] .tile { min-height: 0; }
 .heatmap-canvas-container {
   position: relative;
   width: 100%;
-  min-height: 380px;
+  /* Fixed height. The canvas is position:absolute so it cannot change this. */
+  height: 420px;
+  min-height: 280px;
+  max-height: min(420px, 56vh);
   background: var(--surface-sunken);
   border-radius: var(--radius-sm);
   border: 1px solid var(--hairline);
-  display: flex;
-  align-items: center;
-  justify-content: center;
   overflow: hidden;
 }
 
 #heatmap-canvas {
+  position: absolute;
+  inset: 0;
   display: block;
   width: 100%;
   height: 100%;

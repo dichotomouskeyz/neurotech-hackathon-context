@@ -352,22 +352,47 @@ function renderHrTile() {
   $("hr-note").textContent = stale ? `last value ${Math.round(now - optical.t)} s ago` : "";
 }
 
+function finiteCq(value) {
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
 function cqStatus() {
   if (!latest.cq) return null;
-  const worst = Math.min(latest.cq.left, latest.cq.right);
-  if (worst >= CQ_GOOD) return ["good", "Good contact"];
+  const scores = SIDES.map((side) => finiteCq(latest.cq[side]));
+  const known = scores.filter((v) => v !== null);
+  if (!known.length) return ["unknown", "Contact unknown"];
+  const worst = Math.min(...known);
+  const missing = scores.some((v) => v === null);
+  if (worst >= CQ_GOOD) {
+    return missing ? ["warning", "One side has no contact score"] : ["good", "Good contact"];
+  }
   if (worst >= CQ_WEAK) return ["warning", "Weak contact"];
   return ["critical", "Fix sensor coupling"];
 }
 
 function renderCqTile() {
   if (!latest.cq) return;
-  $("tile-cq").dataset.live = "true";
-  for (const side of SIDES) {
-    const v = latest.cq[side];
-    $(`cq-${side}`).textContent = fmt(v);
-    $(`cq-${side}-fill`).style.width = `${Math.round(v * 100)}%`;
+  const scores = SIDES.map((side) => finiteCq(latest.cq[side]));
+  if (scores.every((v) => v === null)) {
+    $("tile-cq").dataset.live = "false";
+    for (const side of SIDES) {
+      $(`cq-${side}`).textContent = "--";
+      $(`cq-${side}-fill`).style.width = "0%";
+    }
+    setState($("cq-state"), "unknown", "Contact unknown");
+    return;
   }
+  $("tile-cq").dataset.live = "true";
+  SIDES.forEach((side, i) => {
+    const v = scores[i];
+    if (v === null) {
+      $(`cq-${side}`).textContent = "--";
+      $(`cq-${side}-fill`).style.width = "0%";
+    } else {
+      $(`cq-${side}`).textContent = fmt(v);
+      $(`cq-${side}-fill`).style.width = `${Math.round(v * 100)}%`;
+    }
+  });
   const [status, text] = cqStatus();
   setState($("cq-state"), status, text);
 }
@@ -379,7 +404,9 @@ function renderStressTile() {
   $("stress-index").textContent = fmt(s.index);
   const cq = cqStatus();
   $("tile-stress").dataset.alert = String(Boolean(s.alert && (!cq || cq[0] === "good")));
-  if (cq && cq[0] !== "good") {
+  if (cq && cq[0] === "unknown") {
+    setState($("stress-state"), "warning", "No contact score");
+  } else if (cq && cq[0] !== "good") {
     setState($("stress-state"), "warning", "Contact too weak to judge");
   } else if (s.alert) {
     setState($("stress-state"), "critical", s.reason ? `Alert: ${s.reason}` : "Alert");
@@ -783,7 +810,7 @@ if (heatmapCanvas && typeof BrainHeatmap !== "undefined") {
           const now = sharedNow() || (performance.now() / 1000);
           handle({ type: "bfi", t: now, left: leftBfi, right: rightBfi });
           handle({ type: "bvi", t: now, left: leftBvi, right: rightBvi });
-          handle({ type: "cq", t: now, left: 0.94, right: 0.91 });
+          // Demo mode has no contact signal. Do not publish a fake CQ.
           handle({ type: "hr", t: now, source: "optical", bpm: 72 + Math.sin(demoT * 0.1) * 3 });
         }, 25);
       }
