@@ -57,10 +57,7 @@ function quantile(sorted, q) {
 }
 
 function summarize(values) {
-  const v = values.filter((x) => x !== null).sort((a, b) => a - b);
-  if (!v.length) return [null, null, null];
-  const mean = v.reduce((a, b) => a + b, 0) / v.length;
-  return [mean, quantile(v, 0.25), quantile(v, 0.75)];
+  return liveMath.cameraStats(values);
 }
 
 function pushHemo(buf, frame) {
@@ -81,18 +78,25 @@ function pushHemo(buf, frame) {
 
 // Y range that grows at once but only shrinks after it has been too wide for a while,
 // so the traces do not jump on every frame.
+function scaleOrigin() {
+  if (!session.active) return null;
+  if (!["baseline", "hold", "recovery"].includes(session.phase)) return null;
+  return Number.isFinite(session.phase_t) ? session.phase_t : null;
+}
+
 function updateYRange(buf) {
   const yRange = buf.yRange;
-  let lo = Infinity;
-  let hi = -Infinity;
-  const [loKey, hiKey] = showSpread ? ["lo", "hi"] : ["mean", "mean"];
-  for (const side of SIDES) {
-    for (const v of buf[side][loKey]) if (v !== null && v < lo) lo = v;
-    for (const v of buf[side][hiKey]) if (v !== null && v > hi) hi = v;
+  const origin = scaleOrigin();
+  // Refit when the phase changes. A hold that sits lower than baseline would
+  // otherwise stay squashed on the baseline scale for the whole window.
+  if (yRange.origin !== origin) {
+    yRange.lo = null;
+    yRange.hi = null;
+    yRange.shrinkSince = null;
+    yRange.origin = origin;
   }
-  if (!Number.isFinite(lo)) return;
-  const pad = Math.max((hi - lo) * 0.08, 0.1);
-  const target = { lo: Math.floor((lo - pad) * 2) / 2, hi: Math.ceil((hi + pad) * 2) / 2 };
+  const target = liveMath.traceExtent(buf.t, buf.left.mean, buf.right.mean, origin);
+  if (!target) return;
   if (yRange.lo === null || target.lo < yRange.lo || target.hi > yRange.hi) {
     yRange.lo = Math.min(target.lo, yRange.lo ?? target.lo);
     yRange.hi = Math.max(target.hi, yRange.hi ?? target.hi);
@@ -222,7 +226,7 @@ function makeChart(metric) {
       },
       axes: [
         { ...axis, values: (u, ticks) => ticks.map((v) => (v === 0 ? "now" : `${v}s`)) },
-        { ...axis, size: 44, values: (u, ticks) => ticks.map((v) => v.toFixed(1)) },
+        { ...axis, size: 44, values: (u, ticks) => ticks.map((v) => (Number.isFinite(v) ? v.toFixed(1) : "")) },
       ],
       series: [
         {},
@@ -321,12 +325,19 @@ function renderPhaseTile() {
   tile.dataset.phase = phase || "";
   document.body.dataset.loop = loop;
   $("phase-name").textContent = session.active ? phase || "Ready" : "Idle";
-  const running = phase && phase !== "end" && now !== null;
-  $("phase-elapsed").textContent = running ? fmtClock(now - session.phase_t) : "";
-  const timed = session.timer_next && session.timer_ends_t && now !== null;
-  $("phase-next").textContent = timed ? `${session.timer_next} in ${fmtClock(session.timer_ends_t - now)}` : "";
+  const running = phase && phase !== "end" && now !== null && Number.isFinite(session.phase_t);
+  const elapsed = running ? now - session.phase_t : null;
+  $("phase-elapsed").textContent = elapsed !== null && Number.isFinite(elapsed) ? liveMath.safeClock(elapsed) : "";
+  const timed = Boolean(session.timer_next) && Number.isFinite(session.timer_ends_t) && Number.isFinite(now);
+  const remaining = timed ? session.timer_ends_t - now : null;
+  let nextText = "";
+  if (timed && Number.isFinite(remaining)) {
+    nextText = `${session.timer_next} in ${liveMath.safeClock(remaining)}`;
+    if (loop === "coach") nextText += " · or when it settles";
+  }
+  $("phase-next").textContent = nextText;
   let progress = timed
-    ? Math.min(1, (now - session.phase_t) / (session.timer_ends_t - session.phase_t))
+    ? liveMath.phaseFraction(now, session.phase_t, session.timer_ends_t)
     : 0;
   const guided = loop === "coach" ? breathCycle(performance.now() / 1000) : null;
   if (guided) progress = guided.progress;
@@ -416,22 +427,19 @@ function renderStressTile() {
   // The server already gates alert on contact quality. Do not require a
   // stricter "good" band here, or a real elevation is hidden.
   $("tile-stress").dataset.alert = String(Boolean(s.alert));
-  $("stress-index").textContent = uncalibrated ? "--" : `${Math.round(s.index * 100)}%`;
-  if (reason.includes("poor_coupling")) {
-    setState($("stress-state"), "warning", "Poor contact, alert off");
-  } else if (s.alert) {
-    setState($("stress-state"), "critical", "Elevated vs baseline");
-  } else if (reason.includes("resting baseline") || reason.includes("collecting")) {
-    setState($("stress-state"), "good", "Resting baseline");
-  } else if (uncalibrated) {
-    setState($("stress-state"), "warning", "Needs a baseline");
-  } else {
-    setState($("stress-state"), "good", "Near baseline");
-  }
+  const pct = Number.isFinite(s.index) ? `${Math.round(s.index * 100)}%` : "--";
+  $("stress-index").textContent = uncalibrated ? "--" : pct;
+  const phase = session.active ? session.phase : null;
+  const label = liveMath.stressState(s, phase);
+  setState($("stress-state"), label.status, label.text);
   const parts = [];
   if (!uncalibrated && reason && !reason.startsWith("resting baseline")) parts.push(reason);
-  if (s.tau_s !== null && s.tau_s !== undefined) parts.push(`recovery tau ${Math.round(s.tau_s)} s`);
-  if (typeof s.recovery_score === "number") parts.push(`${Math.round(s.recovery_score * 100)}% returned`);
+  if (s.channels) parts.push(`using ${s.channels}`);
+  if (Number.isFinite(s.alert_at)) parts.push(`alert at ${Math.round(s.alert_at * 100)}%`);
+  if (Number.isFinite(s.tau_s)) parts.push(`recovery tau ${Math.round(s.tau_s)} s`);
+  if (typeof s.recovery_score === "number" && Number.isFinite(s.recovery_score)) {
+    parts.push(`${Math.round(s.recovery_score * 100)}% returned`);
+  }
   $("stress-detail").textContent = parts.join(". ");
 }
 
@@ -492,27 +500,35 @@ $("session-stop").addEventListener("click", () => post("/api/session/stop"));
 document.querySelectorAll(".phase-buttons button").forEach((b) => {
   b.addEventListener("click", () => post("/api/phase", { phase: b.dataset.phase }));
 });
+function readProtocolFields() {
+  return {
+    baseline: $("dur-baseline").value,
+    hold: $("dur-hold").value,
+    recovery: $("dur-recovery").value,
+    continue_s: $("dur-continue").value,
+    cycles: $("cycles").value,
+  };
+}
+
+function refreshLoopButton() {
+  const body = liveMath.protocolBody(readProtocolFields());
+  const total = Math.round(liveMath.loopTotalSeconds(body));
+  $("loop-start").textContent = `Closed loop (~${total}s)`;
+}
+
 $("protocol-form").addEventListener("submit", (e) => {
   e.preventDefault();
-  post("/api/protocol/start", {
-    baseline: Number($("dur-baseline").value),
-    hold: Number($("dur-hold").value),
-    recovery: Number($("dur-recovery").value),
-    cycles: Number($("cycles").value),
-  });
+  post("/api/protocol/start", liveMath.protocolBody(readProtocolFields()));
 });
 $("protocol-stop").addEventListener("click", () => post("/api/protocol/stop"));
 $("loop-start").addEventListener("click", () => {
-  post("/api/protocol/start", {
-    baseline: 12,
-    hold: 18,
-    recovery: 20,
-    continue_s: 3,
-    cycles: 1,
-    closed_loop: true,
-    subject_id: $("subject").value,
-  });
+  post("/api/protocol/start", liveMath.protocolBody(readProtocolFields(), {
+    closedLoop: true,
+    subjectId: $("subject").value,
+  }));
 });
+$("protocol-form").addEventListener("input", refreshLoopButton);
+refreshLoopButton();
 
 // Open-Motion device -------------------------------------------------------
 
@@ -618,6 +634,7 @@ function handle(frame) {
       session = frame;
       renderControls();
       renderPhaseTile();
+      renderStressTile();
       renderEvents();
       dirty = true;
       break;

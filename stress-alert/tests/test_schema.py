@@ -59,9 +59,13 @@ def test_stress_tau_and_closed_loop_session_are_in_the_contract():
             "reason": "elevated_stress: BFI 35% >= 20% vs baseline",
             "tau_s": 22.4,
             "recovery_score": 0.8,
+            "alert_at": 0.10,
+            "channels": "BFI L3, L4, R2",
         }
     )
     assert stress.tau_s == pytest.approx(22.4)
+    assert stress.alert_at == pytest.approx(0.10)
+    assert stress.channels == "BFI L3, L4, R2"
     session = frame_adapter.validate_python(
         {
             "type": "session",

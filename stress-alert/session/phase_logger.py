@@ -27,6 +27,9 @@ NEXT: dict[str | None, set[str]] = {
     "end": set(),
 }
 DEFAULT_DURATIONS = {"baseline": 60.0, "hold": 30.0, "recovery": 90.0}
+# A hold that never clears the alert does not run the full recovery window.
+# The countdown uses this same dwell, and the cue says why it is short.
+NO_ELEVATION_DWELL_S = 4.0
 EVENT_FIELDS = ["t", "wall_time", "session_id", "phase", "source"]
 
 Emit = Callable[[list[dict[str, Any]]], None]
@@ -253,33 +256,43 @@ class PhaseLogger:
                 )
 
                 self.timer_next = nxt
-                self.timer_ends_t = self.now() + plan["recovery"]
                 if elevated:
+                    # The countdown is the longest recovery can run. It may end
+                    # sooner once perfusion settles; the cue says so.
+                    recovery_s = plan["recovery"]
                     self.loop = "coach"
                     self.loop_cue = (
-                        "Elevated versus baseline. Pause the hold and breathe with the circle."
+                        "Elevated versus baseline. Pause the hold and breathe with the circle. "
+                        "Recovery ends when perfusion settles, or when this timer ends."
                     )
+                    self.timer_ends_t = self.now() + recovery_s
                     self.mark("recovery", "timer")
                     settled = await self._wait_until(
-                        plan["recovery"], lambda: signals.settled(self.now())
+                        recovery_s, lambda: signals.settled(self.now())
                     )
                     if settled:
                         cue = "Perfusion settled and contact is good. Continue."
                     else:
                         cue = "Recovery window ended before perfusion settled. Continue when ready."
                 else:
+                    dwell = min(NO_ELEVATION_DWELL_S, plan["recovery"])
                     self.loop = "continue"
-                    self.loop_cue = "No sustained elevation versus baseline. Continue."
+                    self.loop_cue = (
+                        "No sustained elevation versus baseline. "
+                        "Recovery is short so the timer matches. Continue when it ends."
+                    )
+                    self.timer_ends_t = self.now() + dwell
                     self.mark("recovery", "timer")
-                    await self._wait(min(4.0, plan["recovery"]))
+                    await self._wait(dwell)
                     cue = "Hold complete. Continue."
 
+                continue_s = float(plan.get("continue", 3.0))
                 self.loop = "continue"
                 self.loop_cue = cue
-                self.timer_next = None
-                self.timer_ends_t = None
+                self.timer_next = nxt
+                self.timer_ends_t = self.now() + continue_s
                 self._emit_state()
-                await self._wait(plan.get("continue", 3.0))
+                await self._wait(continue_s)
             self.loop = "off"
             self.loop_cue = ""
             self.timer_next = self.timer_ends_t = None

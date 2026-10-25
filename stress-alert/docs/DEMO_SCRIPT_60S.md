@@ -11,7 +11,7 @@ No diagnostic, screening, clinical, treatment, or therapeutic claims.
 - **Format**: Live demonstration for judges (Sunday 3:00 to 5:00 pm). The closed-loop button is built to finish in about a minute.
 - **Dry-run target**: Sunday 2:30 pm.
 - **On screen**: Open-Motion on the forehead, dashboard in Present view. BFI and BVI charts, contact quality, the stress label, and a breathing circle.
-- **Stress label**: the larger of the BFI and BVI rises versus the resting baseline, and only when contact quality is at least 0.50. Optical heart rate is the side panel. It does not set the label.
+- **Stress label**: the larger of the BFI and BVI rises versus each camera's own resting median, and only when contact quality is at least 0.50. After the first second of the hold the index uses up to four responsive cameras, so flat cameras do not wash the rise out. The tile names those cameras and shows the raw percent next to the 10% alert line. Optical heart rate is the side panel. It does not set the label.
 - **Backup**: `uv run python -m dashboard --dev-feed` replays `stress-alert/data/sample_scan.csv` and fills contact quality from that file. It does not invent a breath-hold rise. Use the live scan for the pause-and-breathe moment.
 
 ## Before the judges
@@ -34,13 +34,13 @@ Speak to the live numbers. Do not quote a fixed heart rate, tau, or percent unle
 | Elapsed | What to say | What to point at |
 | :- | :- | :- |
 | 0:00 | "This is a research demo on Open-Motion. Forehead blood flow and blood volume, gated on contact quality. Heart rate is only the side panel." | Headband. Green contact. Stress tile: resting baseline. |
-| 0:12 | "Hold a gentle breath." | Banner: challenge. Phase `hold`. The BFI or BVI trace should rise. |
-| when the label crosses 20% | "Perfusion is up versus this person's baseline, and contact is still good, so the task stops." | Red stress tile, "Elevated vs baseline". Banner: pause. Circle says Inhale, then Exhale. |
+| 0:15 | "Hold a gentle breath." | Banner: challenge. Phase `hold`. The BFI or BVI trace should rise. The stress tile then names the responsive cameras. |
+| when the label crosses 10% | "Perfusion is up versus this person's baseline, and contact is still good, so the task stops." | Red stress tile, "Elevated vs baseline". Banner: pause. Circle says Inhale, then Exhale. The countdown on recovery is the maximum. It can end sooner when perfusion settles. |
 | if contact drops under 0.50 | "That swing does not count. Contact is too poor to call it elevation." | Contact tile. Stress label clears. The banner does not treat it as settled. |
 | when the trace returns | "Perfusion is back near baseline and contact is still good, so we continue." | Banner: continue. If recovery lasted long enough, the stress tile shows a recovery tau. |
 | last few seconds | "For research. Not a diagnosis. The loop is baseline, challenge, pause and breathe, continue." | Session is saved under `stress-alert/sessions/`. |
 
-A hold that never rises does not fake the pause. The banner says there was no sustained elevation.
+A hold that never rises does not fake the pause. Recovery is then about 4 seconds, the countdown matches that wait, and the banner says there was no sustained elevation.
 
 ## If the station is not scanning
 

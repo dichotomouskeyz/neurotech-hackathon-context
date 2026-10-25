@@ -1,8 +1,20 @@
 """Turn live BFI, BVI, and contact quality into a CQ-gated stress label.
 
 The stress label is the relative rise in forehead blood flow and blood volume
-against the session baseline. Optical heart rate is estimated from the BFI
-pulse for a side panel. It is never an input to the label.
+against each camera's median during the resting baseline. Optical heart rate
+is estimated from the BFI pulse for a side panel. It is never an input to the label.
+
+Comparison, for research. During baseline, and only while contact quality is
+at least 0.50, each camera stores its own samples. Its baseline is the median
+of those samples. The rise is (current 1 s median - that baseline) / baseline.
+An unweighted mean of every camera lets flat cameras pull the index down.
+After the first second of the hold, the gate ranks cameras by their rise over
+that second and keeps up to four whose rise is at least 3%, when at least two
+clear that floor. The index is the median of those cameras' rises, so one
+spiked camera does not set the alert. If fewer than two cameras clear 3%,
+the index is the median rise of every eligible camera and the tile says all
+cameras. Nothing is added on top of the measured rise. Alert when that index
+stays at or above 10% for 0.8 s and contact is still good.
 
 ``challenge_done`` and ``settled`` are what the closed-loop protocol waits on:
 stop the breath-hold once elevation holds with good contact, and continue once
@@ -16,7 +28,7 @@ from __future__ import annotations
 import math
 from collections import deque
 from collections.abc import Sequence
-from dataclasses import replace
+from dataclasses import dataclass, field, replace
 from typing import Any
 
 from features.pulse_hr import estimate_optical_hr
@@ -24,18 +36,26 @@ from features.stress_index import StressResult, StressTracker
 
 STRESS_HOLD_S = 0.8
 SETTLE_HOLD_S = 2.0
-SETTLE_INDEX = 0.12
+# Below the 10% alert so a hold that comes back near baseline can continue,
+# while a rise that is still almost at the alert line does not count as settled.
+SETTLE_INDEX = 0.05
 SMOOTH_S = 1.0
 STRESS_EVERY_S = 0.25
 HR_EVERY_S = 1.0
 HR_WINDOW_S = 12.0
-
-
-def _finite_mean(values: Sequence[float | None]) -> float | None:
-    nums = [float(v) for v in values if v is not None and math.isfinite(float(v))]
-    if not nums:
-        return None
-    return sum(nums) / len(nums)
+# Rank cameras after this much of the hold, then keep that set through recovery.
+SELECT_AFTER_S = 1.0
+TOP_N = 4
+MIN_MOVERS = 2
+# Cameras under this relative rise are treated as silent and are not used to
+# amplify the index. Fewer than MIN_MOVERS above the floor: score every
+# eligible camera (no amplification).
+RISE_FLOOR = 0.03
+MIN_CHANNEL_BASELINE = 0.2
+MAX_CHANNEL_CV = 0.50
+MIN_CHANNEL_SAMPLES = 5
+MIN_HOLD_SAMPLES = 3
+BASELINE_CAP = 2400
 
 
 def _median(values: Sequence[float]) -> float:
@@ -44,6 +64,237 @@ def _median(values: Sequence[float]) -> float:
     if len(ordered) % 2 == 1:
         return ordered[mid]
     return 0.5 * (ordered[mid - 1] + ordered[mid])
+
+
+def channel_label(side: str, index: int) -> str:
+    """Hardware camera number. Software index 0 is camera 1."""
+    return f"{'L' if side == 'left' else 'R'}{index + 1}"
+
+
+def _cv(values: Sequence[float], center: float) -> float:
+    if len(values) < 2 or center <= 0:
+        return 0.0
+    var = sum((value - center) ** 2 for value in values) / (len(values) - 1)
+    return math.sqrt(var) / center
+
+
+@dataclass(frozen=True)
+class ChannelStat:
+    key: tuple[str, int]
+    baseline: float
+    current: float
+    cv: float
+    n_baseline: int
+    n_current: int
+
+
+def select_responsive(
+    stats: Sequence[ChannelStat],
+    *,
+    top_n: int = TOP_N,
+    min_movers: int = MIN_MOVERS,
+    rise_floor: float = RISE_FLOOR,
+) -> tuple[list[tuple[str, int]], bool]:
+    """Cameras that actually moved, plus whether that set is an amplification.
+
+    Returns ``(keys, amplified)``. ``amplified`` is false when fewer than
+    ``min_movers`` cameras clear ``rise_floor``; the caller then scores every
+    eligible camera instead of a responsive subset.
+    """
+    eligible: list[tuple[tuple[str, int], float]] = []
+    for stat in stats:
+        if stat.n_baseline < MIN_CHANNEL_SAMPLES or stat.n_current < MIN_HOLD_SAMPLES:
+            continue
+        if stat.baseline < MIN_CHANNEL_BASELINE or stat.cv > MAX_CHANNEL_CV:
+            continue
+        rise = (stat.current - stat.baseline) / stat.baseline
+        eligible.append((stat.key, rise))
+    if not eligible:
+        return [], False
+    movers = [item for item in eligible if item[1] >= rise_floor]
+    movers.sort(key=lambda item: (-item[1], channel_label(*item[0])))
+    if len(movers) < min_movers:
+        return [key for key, _rise in eligible], False
+    return [key for key, _rise in movers[:top_n]], True
+
+
+def _camera_values(frame: dict[str, Any]) -> dict[tuple[str, int], float]:
+    """Finite, positive samples keyed by ``(side, index)``."""
+    found: dict[tuple[str, int], float] = {}
+    for side in ("left", "right"):
+        for index, raw in enumerate(frame.get(side) or []):
+            if raw is None:
+                continue
+            try:
+                value = float(raw)
+            except (TypeError, ValueError):
+                continue
+            if math.isfinite(value) and value > 0:
+                found[(side, index)] = value
+    return found
+
+
+@dataclass
+class _Channel:
+    baseline_values: list[float] = field(default_factory=list)
+    hold_values: list[float] = field(default_factory=list)
+    recent: deque[tuple[float, float]] = field(default_factory=deque)
+    baseline: float | None = None
+    cv: float = 0.0
+
+
+class CameraBook:
+    """Per-camera baselines and the responsive subset for one metric."""
+
+    def __init__(self) -> None:
+        self.channels: dict[tuple[str, int], _Channel] = {}
+        self.selected: list[tuple[str, int]] = []
+        self.locked = False
+        self.amplified = False
+        self._hold_t0: float | None = None
+
+    def reset(self) -> None:
+        self.channels.clear()
+        self.selected = []
+        self.locked = False
+        self.amplified = False
+        self._hold_t0 = None
+
+    def _chan(self, key: tuple[str, int]) -> _Channel:
+        chan = self.channels.get(key)
+        if chan is None:
+            chan = _Channel()
+            self.channels[key] = chan
+        return chan
+
+    def observe_baseline(self, values: dict[tuple[str, int], float]) -> None:
+        for key, value in values.items():
+            chan = self._chan(key)
+            chan.baseline_values.append(value)
+            extra = len(chan.baseline_values) - BASELINE_CAP
+            if extra > 0:
+                del chan.baseline_values[:extra]
+
+    def start_hold(self, t: float) -> None:
+        self._hold_t0 = t
+        self.locked = False
+        self.amplified = False
+        self.selected = []
+        for chan in self.channels.values():
+            chan.hold_values.clear()
+            chan.recent.clear()
+            if len(chan.baseline_values) >= MIN_CHANNEL_SAMPLES:
+                chan.baseline = _median(chan.baseline_values)
+                chan.cv = _cv(chan.baseline_values, chan.baseline)
+            else:
+                chan.baseline = None
+                chan.cv = 0.0
+
+    def ensure_started(self, t: float) -> None:
+        if self._hold_t0 is None:
+            self.start_hold(t)
+
+    def observe_hold(
+        self,
+        t: float,
+        values: dict[tuple[str, int], float],
+        *,
+        select_after_s: float,
+    ) -> bool:
+        """Record hold samples. Return True on the frame that locks selection."""
+        self.ensure_started(t)
+        for key, value in values.items():
+            chan = self._chan(key)
+            chan.hold_values.append(value)
+            chan.recent.append((t, value))
+            cutoff = t - SMOOTH_S
+            while chan.recent and chan.recent[0][0] < cutoff:
+                chan.recent.popleft()
+        if self.locked or self._hold_t0 is None or t - self._hold_t0 < select_after_s:
+            return False
+        # Wait until the rank window has more than a single frame, so one
+        # spike at the one-second mark cannot choose the cameras.
+        if not any(len(chan.hold_values) >= MIN_HOLD_SAMPLES for chan in self.channels.values()):
+            return False
+        self._lock()
+        return True
+
+    def _lock(self) -> None:
+        stats: list[ChannelStat] = []
+        for key, chan in self.channels.items():
+            if chan.baseline is None:
+                continue
+            stats.append(
+                ChannelStat(
+                    key,
+                    chan.baseline,
+                    _median(chan.hold_values) if chan.hold_values else chan.baseline,
+                    chan.cv,
+                    len(chan.baseline_values),
+                    len(chan.hold_values),
+                )
+            )
+        self.selected, self.amplified = select_responsive(stats)
+        self.locked = True
+
+    def _live_median(self, chan: _Channel) -> float | None:
+        if chan.recent:
+            return _median([value for _t, value in chan.recent])
+        if chan.hold_values:
+            return _median(chan.hold_values)
+        return None
+
+    def _keys_in_use(self) -> list[tuple[str, int]]:
+        if self.locked and self.selected:
+            return list(self.selected)
+        keys = []
+        for key, chan in self.channels.items():
+            if (
+                chan.baseline is not None
+                and chan.baseline >= MIN_CHANNEL_BASELINE
+                and chan.cv <= MAX_CHANNEL_CV
+            ):
+                keys.append(key)
+        return keys
+
+    def live_index(self) -> tuple[float, float | None]:
+        """Median relative rise of the cameras in use, and their absolute level."""
+        rises: list[float] = []
+        absolutes: list[float] = []
+        for key in self._keys_in_use():
+            chan = self.channels.get(key)
+            if chan is None or chan.baseline is None or chan.baseline <= 0:
+                continue
+            current = self._live_median(chan)
+            if current is None:
+                continue
+            rises.append((current - chan.baseline) / chan.baseline)
+            absolutes.append(current)
+        if not rises:
+            return 0.0, None
+        return max(0.0, _median(rises)), _median(absolutes)
+
+    def baseline_absolute(self) -> float | None:
+        values = []
+        for key in self._keys_in_use():
+            chan = self.channels.get(key)
+            if chan is not None and chan.baseline is not None and chan.baseline > 0:
+                values.append(chan.baseline)
+        if not values:
+            values = [
+                chan.baseline
+                for chan in self.channels.values()
+                if chan.baseline is not None and chan.baseline > 0
+            ]
+        return _median(values) if values else None
+
+    def channel_text(self, metric: str) -> str:
+        if not self.locked:
+            return ""
+        if not self.amplified or not self.selected:
+            return f"{metric} all cameras"
+        names = ", ".join(channel_label(*key) for key in self.selected)
+        return f"{metric} {names}"
 
 
 class LiveGate:
@@ -62,20 +313,22 @@ class LiveGate:
         settle_hold_s: float = SETTLE_HOLD_S,
         settle_index: float = SETTLE_INDEX,
         smooth_s: float = SMOOTH_S,
+        select_after_s: float = SELECT_AFTER_S,
     ) -> None:
         self.stress_hold_s = stress_hold_s
         self.settle_hold_s = settle_hold_s
         self.settle_index = settle_index
         self.smooth_s = smooth_s
+        self.select_after_s = select_after_s
         self.bfi_tracker = StressTracker()
         self.bvi_tracker = StressTracker()
+        self.bfi_book = CameraBook()
+        self.bvi_book = CameraBook()
         self.phase: str | None = None
         self._session_id: str | None = None
         self._cq: float | None = None
         self._bfi_level: float | None = None
         self._bvi_level: float | None = None
-        self._bfi_smooth: deque[tuple[float, float]] = deque()
-        self._bvi_smooth: deque[tuple[float, float]] = deque()
         self._hr_t: deque[float] = deque()
         self._hr_v: deque[float] = deque()
         self._last_t: float | None = None
@@ -96,16 +349,16 @@ class LiveGate:
             elif kind == "cq":
                 self._on_cq(frame)
             elif kind == "bfi":
-                level = self._on_level(self._bfi_smooth, frame)
+                level = self._ingest(self.bfi_book, self.bfi_tracker, frame)
+                sample_t = float(frame["t"])
                 if level is not None:
                     self._bfi_level = level
-                    self._push_hr(float(frame["t"]), _finite_mean([*_sides(frame)]))
-                    sample_t = float(frame["t"])
+                    self._push_hr(sample_t, level)
             elif kind == "bvi":
-                level = self._on_level(self._bvi_smooth, frame)
+                level = self._ingest(self.bvi_book, self.bvi_tracker, frame)
+                sample_t = float(frame["t"])
                 if level is not None:
                     self._bvi_level = level
-                    sample_t = float(frame["t"])
         if sample_t is None:
             return []
         return self._maybe_emit(sample_t)
@@ -135,17 +388,37 @@ class LiveGate:
         if sid != self._session_id:
             self._reset_trackers()
             self._session_id = sid
+        phase = frame.get("phase")
+        if sid and phase in ("baseline", "hold", "recovery", "end") and phase != self.phase:
+            raw_t = frame.get("t")
+            t = float(raw_t) if isinstance(raw_t, (int, float)) else 0.0
+            self._apply_phase(str(phase), t)
 
     def _on_phase(self, frame: dict[str, Any]) -> None:
         if frame.get("session_id") != self._session_id:
             return
-        phase = str(frame["phase"])
-        t = float(frame["t"])
+        self._apply_phase(str(frame["phase"]), float(frame["t"]))
+
+    def _apply_phase(self, phase: str, t: float) -> None:
+        if phase == self.phase:
+            return
         self.phase = phase
         self._stressed_since = None
         self._settled_since = None
         self.bfi_tracker.on_phase(phase, t)
         self.bvi_tracker.on_phase(phase, t)
+        if phase == "hold":
+            self.bfi_book.start_hold(t)
+            self.bvi_book.start_hold(t)
+        elif phase == "baseline":
+            self.bfi_book.locked = False
+            self.bvi_book.locked = False
+            self.bfi_book.selected = []
+            self.bvi_book.selected = []
+            self.bfi_book.amplified = False
+            self.bvi_book.amplified = False
+            self.bfi_book._hold_t0 = None
+            self.bvi_book._hold_t0 = None
 
     def _on_cq(self, frame: dict[str, Any]) -> None:
         vals = []
@@ -158,11 +431,29 @@ class LiveGate:
                 vals.append(value)
         self._cq = min(vals) if vals else None
 
-    def _on_level(self, window: deque[tuple[float, float]], frame: dict[str, Any]) -> float | None:
-        mean = _finite_mean([*_sides(frame)])
-        if mean is None or mean <= 0:
+    def _contact_ok(self) -> bool:
+        return self._cq is not None and self._cq >= self.bfi_tracker.cq_threshold
+
+    def _ingest(
+        self, book: CameraBook, tracker: StressTracker, frame: dict[str, Any]
+    ) -> float | None:
+        """Update per-camera state. Return the absolute level fed to the tracker."""
+        t = float(frame["t"])
+        values = _camera_values(frame)
+        if values and self._contact_ok():
+            if self.phase == "baseline":
+                book.observe_baseline(values)
+            elif self.phase in ("hold", "recovery"):
+                locked_before = book.locked
+                book.observe_hold(t, values, select_after_s=self.select_after_s)
+                if book.locked and not locked_before:
+                    base = book.baseline_absolute()
+                    if base is not None and base > 0:
+                        tracker.set_baseline(base)
+        # Heart rate needs the per-frame level, not the 1 s selection median.
+        if not values:
             return None
-        return self._smooth(window, float(frame["t"]), mean)
+        return _median(list(values.values()))
 
     def _push_hr(self, t: float, mean: float | None) -> None:
         if mean is None:
@@ -175,15 +466,6 @@ class LiveGate:
         while self._hr_t and self._hr_t[0] < cutoff:
             self._hr_t.popleft()
             self._hr_v.popleft()
-
-    def _smooth(self, window: deque[tuple[float, float]], t: float, value: float) -> float:
-        if window and t < window[-1][0]:
-            window.clear()
-        window.append((t, value))
-        cutoff = t - self.smooth_s
-        while window and window[0][0] < cutoff:
-            window.popleft()
-        return _median([v for _, v in window])
 
     # Scoring
 
@@ -217,23 +499,71 @@ class LiveGate:
                 "alert": False,
                 "reason": "baseline_uncalibrated: start baseline to score perfusion",
             }
-        bfi = self._sample(self.bfi_tracker, t, self._bfi_level)
-        bvi = self._sample(self.bvi_tracker, t, self._bvi_level)
+        bfi = self._sample(self.bfi_tracker, self.bfi_book, t, self._bfi_level)
+        bvi = self._sample(self.bvi_tracker, self.bvi_book, t, self._bvi_level)
         if bfi is None and bvi is None:
             return None
         shown = self._present(bfi, bvi)
         self._latch(t, shown)
         frame = shown.to_frame()
+        frame["alert_at"] = self.bfi_tracker.alert_threshold
+        if self.phase != "baseline":
+            channels = self._channel_text()
+            if channels:
+                frame["channels"] = channels
         if self.phase == "recovery":
             tau = self._tau()
             if tau is not None:
                 frame["tau_s"] = tau
         return frame
 
-    def _sample(self, tracker: StressTracker, t: float, level: float | None) -> StressResult | None:
+    def _sample(
+        self,
+        tracker: StressTracker,
+        book: CameraBook,
+        t: float,
+        level: float | None,
+    ) -> StressResult | None:
         if level is None:
             return None
-        return tracker.on_sample(t, level, self._cq)
+        feed = level
+        if self.phase in ("hold", "recovery") and book.locked:
+            _rise, absolute = book.live_index()
+            if absolute is not None:
+                feed = absolute
+        raw = tracker.on_sample(t, feed, self._cq)
+        if self.phase not in ("hold", "recovery"):
+            return raw
+        if raw.reason.startswith(("poor_coupling", "invalid_sample")):
+            return raw
+        index, _absolute = book.live_index()
+        base = book.baseline_absolute()
+        if base is None and raw.baseline is None:
+            return raw
+        # The tracker's own index compares one blended level. Scoring uses the
+        # median of per-camera rises so flat cameras do not wash the hold out.
+        alert = index >= tracker.alert_threshold
+        reason = raw.reason
+        if reason.startswith("baseline_uncalibrated"):
+            reason = "nominal: cameras have a baseline"
+        return replace(
+            raw,
+            index=index,
+            alert=alert,
+            reason=reason,
+            baseline=base if base is not None else raw.baseline,
+        )
+
+    def _channel_text(self) -> str:
+        parts = [
+            text
+            for text in (
+                self.bfi_book.channel_text("BFI"),
+                self.bvi_book.channel_text("BVI"),
+            )
+            if text
+        ]
+        return " · ".join(parts)
 
     def _present(self, bfi: StressResult | None, bvi: StressResult | None) -> StressResult:
         combined = _combine(bfi, bvi, self.bfi_tracker.alert_threshold)
@@ -274,7 +604,9 @@ class LiveGate:
         for tracker in (self.bfi_tracker, self.bvi_tracker):
             recovery = tracker.last_recovery_result
             if recovery is not None and recovery.ok and recovery.tau_s is not None:
-                return float(recovery.tau_s)
+                tau = float(recovery.tau_s)
+                if math.isfinite(tau):
+                    return tau
         return None
 
     def _hr_frame(self, t: float) -> dict[str, Any] | None:
@@ -296,6 +628,8 @@ class LiveGate:
     def _reset_trackers(self) -> None:
         self.bfi_tracker.reset()
         self.bvi_tracker.reset()
+        self.bfi_book.reset()
+        self.bvi_book.reset()
         self.phase = None
         self._stressed_since = None
         self._settled_since = None
@@ -303,14 +637,8 @@ class LiveGate:
         self._last_hr_t = None
         self._bfi_level = None
         self._bvi_level = None
-        self._bfi_smooth.clear()
-        self._bvi_smooth.clear()
         self._hr_t.clear()
         self._hr_v.clear()
-
-
-def _sides(frame: dict[str, Any]) -> list[float | None]:
-    return [*frame.get("left", []), *frame.get("right", [])]
 
 
 def _usable(result: StressResult) -> bool:

@@ -25,7 +25,11 @@ from dataclasses import dataclass
 from typing import Any
 
 DEFAULT_CQ_THRESHOLD = 0.50
-DEFAULT_ALERT_THRESHOLD = 0.20  # 20% elevation over baseline
+# 10% above each camera's baseline median. Forehead BFI on a partial set of
+# cameras often rises about this much in a breath hold; 20% left real holds
+# on the no-elevation path. The live gate smooths for 1 s and holds the
+# alert for 0.8 s, so the cardiac pulse does not clear this bar.
+DEFAULT_ALERT_THRESHOLD = 0.10
 DEFAULT_MIN_SAMPLES = 5
 
 
@@ -99,7 +103,7 @@ def compute_stress_frame(
         baseline_value: Mean or median metric during resting baseline.
         cq: Mean contact quality score, 0.0 to 1.0.
         cq_threshold: Minimum acceptable CQ to evaluate stress (default 0.5).
-        alert_threshold: Relative elevation (e.g. 0.20 for 20%) to trigger alert.
+        alert_threshold: Relative elevation (0.10 for 10%) to trigger alert.
         recovery_score: Optional recovery metric during recovery phase.
 
     Returns:
@@ -364,7 +368,7 @@ def compute_recovery_tau(
     fraction_recovered = max(0.0, min(1.0, 1.0 - (y_end - baseline_value) / excess_peak))
 
     # Slope must be negative for physical decay back to baseline
-    if slope >= 0.0:
+    if not math.isfinite(slope) or slope >= 0.0:
         return RecoveryResult(
             tau_s=None,
             r_squared=r_squared,
@@ -377,6 +381,17 @@ def compute_recovery_tau(
         )
 
     tau_s = -1.0 / slope
+    if not math.isfinite(tau_s):
+        return RecoveryResult(
+            tau_s=None,
+            r_squared=r_squared,
+            n_samples=len(pairs),
+            duration_s=duration_s,
+            y_peak=y_peak,
+            y_baseline=baseline_value,
+            fraction_recovered=fraction_recovered,
+            note="decay fit was not finite",
+        )
 
     # Reject unphysically long or short tau (< 1s or > 300s)
     if tau_s < 1.0 or tau_s > 300.0:
