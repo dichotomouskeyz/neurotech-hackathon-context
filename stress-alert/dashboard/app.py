@@ -14,7 +14,7 @@ from collections.abc import AsyncIterator
 from pathlib import Path
 from typing import Any
 
-from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi import Body, FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field, ValidationError
@@ -25,6 +25,11 @@ from dashboard.device import DeviceError, DeviceManager
 from dashboard.hub import Hub, drain
 from dashboard.live_gate import LiveGate
 from dashboard.schema import PhaseName, frame_adapter
+from features.recovery_gate import (
+    BFI_RECOVERED_BELOW,
+    RECOVERED_WITHIN_PCT_MAX,
+    RECOVERED_WITHIN_PCT_MIN,
+)
 from session.phase_logger import (
     LONG_BASELINE_S,
     LONG_HOLD_S,
@@ -66,7 +71,26 @@ class ProtocolStart(BaseModel):
     cycles: int = Field(default=1, ge=1, le=10)
     closed_loop: bool = False
     work_until_end: bool = False
+    # Percent of baseline. 5 means the gate opens when the BFI rise is under 5%.
+    recovered_within_pct: float = Field(
+        default=BFI_RECOVERED_BELOW * 100.0,
+        ge=RECOVERED_WITHIN_PCT_MIN,
+        le=RECOVERED_WITHIN_PCT_MAX,
+    )
     subject_id: str = Field(default="", max_length=64)
+
+
+class DemoStart(BaseModel):
+    """Optional body. An empty post keeps the gate's current recovery boundary."""
+
+    recovered_within_pct: float | None = Field(
+        default=None,
+        ge=RECOVERED_WITHIN_PCT_MIN,
+        le=RECOVERED_WITHIN_PCT_MAX,
+    )
+
+
+_DEMO_START = Body(default_factory=DemoStart)
 
 
 def create_app(
@@ -208,14 +232,25 @@ def create_app(
             "work": work,
             "continue": work,
         }
-        return guarded(
-            lambda: logger.start_timer(
-                durations,
-                body.cycles,
-                closed_loop=body.closed_loop,
-                signals=gate if body.closed_loop else None,
-            )
-        )
+        previous = gate.recovered_below
+
+        def begin() -> None:
+            # Apply the line first so the timer's samples use it, and put the
+            # old line back if the protocol cannot start.
+            gate.set_recovered_within_pct(body.recovered_within_pct)
+            try:
+                logger.start_timer(
+                    durations,
+                    body.cycles,
+                    closed_loop=body.closed_loop,
+                    signals=gate if body.closed_loop else None,
+                )
+            except Exception:
+                gate.recovered_below = previous
+                gate.settle_index = previous
+                raise
+
+        return guarded(begin)
 
     @app.post("/api/protocol/stop")
     async def protocol_stop() -> dict[str, Any]:
@@ -272,7 +307,7 @@ def create_app(
         return {"running": _demo_running()}
 
     @app.post("/api/demo/start")
-    async def demo_start() -> dict[str, Any]:
+    async def demo_start(body: DemoStart = _DEMO_START) -> dict[str, Any]:
         nonlocal demo_task
         if device.state().get("scanning"):
             raise HTTPException(
@@ -286,6 +321,8 @@ def create_app(
             if logger.session is not None:
                 logger.stop_session()
             logger.start_session("demo")
+            if body.recovered_within_pct is not None:
+                gate.set_recovered_within_pct(body.recovered_within_pct)
             logger.start_timer(dict(DEMO_DURATIONS), 1, closed_loop=True, signals=gate)
 
         state = guarded(begin)

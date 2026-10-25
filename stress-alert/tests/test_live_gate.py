@@ -178,6 +178,56 @@ def test_recovery_tau_is_attached_when_perfusion_decays():
     frame_adapter.validate_python(last)
 
 
+def test_operator_percent_is_the_line_the_work_gate_compares():
+    """12% treats an 8% rise as back. 5% coaches it. Poor contact still locks."""
+    gate = LiveGate(select_after_s=0.4)
+    assert gate.recovered_below == pytest.approx(0.05)
+    with pytest.raises(ValueError):
+        gate.set_recovered_within_pct(0)
+    assert gate.recovered_below == pytest.approx(0.05)
+    assert gate.set_recovered_within_pct(12) == pytest.approx(0.12)
+
+    _session(gate)
+    _phase(gate, "baseline", 1.0)
+    _rest(gate)
+    _phase(gate, "hold", 20.0)
+    for t in (20.5, 20.9, 21.3):
+        gate.observe(_batch(t, 2.16, 5.0, 0.9))
+    _phase(gate, "work", 22.0)
+    opened = []
+    for t in (22.4, 22.8, 23.2):
+        opened.extend(gate.observe(_batch(t, 2.16, 5.0, 0.9)))
+    stresses = _stresses(opened)
+    assert stresses
+    assert stresses[-1]["gate"] == "open"
+    assert stresses[-1]["task"] in {"advance", "hold"}
+    assert stresses[-1]["index"] == pytest.approx(0.08, abs=0.02)
+
+    gate.set_recovered_within_pct(5)
+    instant = _stresses(gate.observe(_batch(24.0, 2.16, 5.0, 0.9)))
+    assert instant[-1]["gate"] == "locked"
+    assert instant[-1]["task"] != "coach"
+    assert instant[-1]["gate_reason"] == "locked_bfi"
+    held = []
+    for i in range(1, 18):
+        held.extend(gate.observe(_batch(24.0 + i * 0.25, 2.16, 5.0, 0.9)))
+    coached = _stresses(held)
+    assert coached[-1]["gate"] == "locked"
+    assert coached[-1]["task"] == "coach"
+    assert coached[-1]["gate_reason"] == "locked_bfi"
+
+    quiet = []
+    for i in range(6):
+        quiet.extend(gate.observe(_batch(28.5 + i * 0.25, 2.0, 5.0, 0.9)))
+    assert quiet[-1]["gate"] == "open"
+    assert quiet[-1]["task"] == "coach"
+
+    poor = _stresses(gate.observe(_batch(30.25, 2.0, 5.0, 0.2)))
+    assert poor[-1]["gate"] == "locked"
+    assert poor[-1]["task"] == "coach"
+    assert poor[-1]["gate_reason"] == "locked_cq"
+
+
 def test_ten_percent_rise_completes_the_challenge_and_five_percent_does_not():
     quiet = LiveGate(stress_hold_s=0.5)
     _session(quiet)

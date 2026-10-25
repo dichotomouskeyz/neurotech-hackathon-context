@@ -258,9 +258,10 @@ class PhaseLogger:
         recovery run only when hold is above zero. The task stays locked
         through calibration. Work is the application and can run for many
         minutes, or until the operator ends it. During work the breath coach
-        follows the gate on each sample: off baseline with good contact, or a
-        slow recovery tau. The hold ends early when elevation has lasted and
-        contact is good enough to score. A hold that never rises still reaches
+        follows the trailing mean of forehead BFI, not the sample that locks
+        the gate. A slow recovery tau coaches too. The hold ends early when
+        elevation has lasted and contact is good enough to score. A hold that
+        never rises still reaches
         work, and without a task snapshot that work stays locked.
         """
         try:

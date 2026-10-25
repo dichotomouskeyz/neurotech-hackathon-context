@@ -11,6 +11,7 @@ test("long session defaults skip the hold and run 20 minutes of work", () => {
     recovery: 20,
     continue_s: 1200,
     cycles: 1,
+    recovered_within_pct: 5,
   });
   // Hold 0 skips the breath-hold and the recovery window.
   assert.equal(liveMath.loopTotalSeconds(body), 1220);
@@ -33,6 +34,9 @@ test("long session defaults skip the hold and run 20 minutes of work", () => {
   assert.equal(loop.work_until_end, true);
   assert.equal(liveMath.loopTotalSeconds(loop), 77);
   assert.equal(liveMath.loopButtonLabel({ continue_s: 32, baseline: 8, hold: 8, recovery: 12 }), "Closed loop (~60s)");
+  assert.equal(liveMath.protocolBody({ recovered_within_pct: "" }).recovered_within_pct, 5);
+  assert.equal(liveMath.protocolBody({ recovered_within_pct: "12" }).recovered_within_pct, 12);
+  assert.equal(liveMath.protocolBody({ recovered_within_pct: "0" }).recovered_within_pct, 0);
 });
 
 test("phase progress and clocks stay finite when the timer is missing", () => {
@@ -74,6 +78,15 @@ test("recovery gate stays locked until the server opens it", () => {
   assert.equal(open.headline, "Step 2");
   const coach = liveMath.gateState({ gate: "open", difficulty: 1, task: "coach" });
   assert.equal(coach.status, "warning");
+  assert.equal(coach.text, "Open, slow recovery");
+  const settling = liveMath.gateState({
+    gate: "open",
+    difficulty: 1,
+    task: "coach",
+    gate_reason: "coach_mean",
+  });
+  assert.equal(settling.text, "Open, breath");
+  assert.equal(settling.status, "warning");
   const readout = liveMath.gateReadout(
     { gate: "open", difficulty: 2, task: "advance" },
     { left: 0.76, right: 0.74 },

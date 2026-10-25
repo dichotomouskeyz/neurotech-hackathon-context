@@ -623,6 +623,7 @@ function readProtocolFields() {
     recovery: $("dur-recovery").value,
     continue_s: $("dur-continue").value,
     cycles: $("cycles").value,
+    recovered_within_pct: $("recovered-within").value,
   };
 }
 
@@ -666,13 +667,18 @@ function setDemoRunning(on) {
 
 async function toggleDemo() {
   const running = document.body.dataset.demo === "on";
+  const payload = running ? {} : {
+    recovered_within_pct: liveMath.protocolBody(readProtocolFields()).recovered_within_pct,
+  };
   const res = await fetch(running ? "/api/demo/stop" : "/api/demo/start", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
   });
   const data = await res.json().catch(() => ({}));
   if (!res.ok) {
-    const msg = data.detail || "Demo mode did not start";
+    const detail = Array.isArray(data.detail) ? data.detail[0].msg : data.detail;
+    const msg = detail || "Demo mode did not start";
     $("session-error").textContent = msg;
     const statusText = $("heatmap-status-text");
     if (statusText) statusText.textContent = msg;

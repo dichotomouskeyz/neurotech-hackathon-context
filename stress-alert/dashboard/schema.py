@@ -57,11 +57,14 @@ class Stress(_Frame):
     ``tau_s`` is the recovery time constant, in seconds, once a decay fit succeeds.
     ``gate`` is the work-phase policy: ``open`` only when forehead BFI has
     returned and contact quality passed. Calibration (baseline, optional hold,
-    recovery) stays locked. ``task`` is what that policy does to the step
-    (locked, advance, ease, break, coach, or hold). During work, ``coach``
-    starts when BFI is off that baseline and contact is still good, and also
-    when recovery tau is 18 s or slower. Bad contact stays ``locked`` and does
-    not start a breath. ``difficulty`` is the step. ``alert`` stays secondary
+    recovery) stays locked.     ``task`` is what that policy does to the step
+    (locked, advance, ease, break, coach, or hold). ``gate`` follows the latest
+    sample. During work, ``coach`` starts when the 4 second trailing mean of
+    the BFI rise is still over the recovery boundary, at least three quarters
+    of that window is too, and contact is good. It stays until that mean is
+    under half the boundary. A slow recovery tau
+    (18 s or more) also coaches while the gate is open. Bad contact stays
+    ``locked`` and does not start a breath. ``difficulty`` is the step. ``alert`` stays secondary
     telemetry and does not unlock the task. It is not a stressed-or-not score.
     """
 

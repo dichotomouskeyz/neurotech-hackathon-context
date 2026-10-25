@@ -72,6 +72,14 @@ def test_task_advances_once_when_the_gate_opens_and_holds():
     assert second.difficulty == 2
 
 
+def _over(task, bfi, *, seconds, step=0.25, t0=0.0, **kwargs):
+    view = None
+    count = int(round(seconds / step))
+    for i in range(count + 1):
+        view = task.update(bfi_index=bfi, t=t0 + i * step, **kwargs)
+    return view
+
+
 def test_bad_contact_or_a_new_bfi_rise_locks_and_eases():
     task = TaskController()
     task.update(bfi_index=0.01, bvi_index=0.01, cq=0.82, tau_s=None, phase="work")
@@ -82,13 +90,26 @@ def test_bad_contact_or_a_new_bfi_rise_locks_and_eases():
     assert blocked.difficulty == 1
 
     task.update(bfi_index=0.01, bvi_index=0.01, cq=0.8, tau_s=None, phase="work")
-    risen = task.update(bfi_index=0.2, bvi_index=0.01, cq=0.8, tau_s=None, phase="work")
+    risen = task.update(bfi_index=0.2, bvi_index=0.01, cq=0.8, tau_s=None, phase="work", t=0.0)
     assert risen.gate_open is False
-    assert risen.action == "coach"
+    assert risen.action == "locked"
     assert risen.reason == "locked_bfi"
-    assert "stays locked" in risen.cue
-    assert "breathe" in risen.cue.lower()
-    assert risen.difficulty == 1
+    held = _over(
+        task,
+        0.2,
+        seconds=4.0,
+        t0=0.25,
+        bvi_index=0.01,
+        cq=0.8,
+        tau_s=None,
+        phase="work",
+    )
+    assert held.gate_open is False
+    assert held.action == "coach"
+    assert held.reason == "locked_bfi"
+    assert "stays locked" in held.cue
+    assert "breathe" in held.cue.lower()
+    assert held.difficulty == 1
 
 
 def test_slow_tau_coaches_a_breath_and_eases_without_closing_a_recovered_gate():
@@ -138,28 +159,173 @@ def test_blood_volume_dynamics_ease_or_break_while_bfi_stays_recovered():
     assert "break" in paused.cue.lower()
 
 
+def test_operator_boundary_decides_ready_versus_breath_coach():
+    """The tile uses the sample. The breath uses the same line on the mean."""
+    tight = TaskController()
+    instant = tight.update(
+        bfi_index=0.08,
+        bvi_index=0.01,
+        cq=0.8,
+        tau_s=None,
+        phase="work",
+        recovered_below=0.05,
+        t=0.0,
+    )
+    assert instant.gate_open is False
+    assert instant.action == "locked"
+    coached = _over(
+        tight,
+        0.08,
+        seconds=4.0,
+        t0=0.25,
+        bvi_index=0.01,
+        cq=0.8,
+        tau_s=None,
+        phase="work",
+        recovered_below=0.05,
+    )
+    assert coached.gate_open is False
+    assert coached.action == "coach"
+    loose = TaskController()
+    opened = loose.update(
+        bfi_index=0.08,
+        bvi_index=0.01,
+        cq=0.8,
+        tau_s=None,
+        phase="work",
+        recovered_below=0.10,
+        t=0.0,
+    )
+    assert opened.gate_open is True
+    assert opened.action == "advance"
+    still_open = _over(
+        loose,
+        0.08,
+        seconds=4.0,
+        t0=0.25,
+        bvi_index=0.01,
+        cq=0.8,
+        tau_s=None,
+        phase="work",
+        recovered_below=0.10,
+    )
+    assert still_open.gate_open is True
+    assert still_open.action != "coach"
+    blocked = TaskController()
+    poor = blocked.update(
+        bfi_index=0.0,
+        bvi_index=0.0,
+        cq=0.2,
+        tau_s=None,
+        phase="work",
+        recovered_below=0.20,
+    )
+    assert poor.gate_open is False
+    assert poor.action == "locked"
+    assert poor.reason == "locked_cq"
+
+
+def test_recovery_boundary_rejects_values_that_would_stick_the_gate():
+    from features.recovery_gate import parse_recovered_below, parse_recovered_within_pct
+
+    assert parse_recovered_within_pct(5) == pytest.approx(0.05)
+    assert parse_recovered_within_pct(1) == pytest.approx(0.01)
+    assert parse_recovered_within_pct(25) == pytest.approx(0.25)
+    for bad in (0, -1, 26, 100, float("nan")):
+        with pytest.raises(ValueError):
+            parse_recovered_within_pct(bad)
+    with pytest.raises(ValueError):
+        parse_recovered_below(0)
+
+
 def test_off_baseline_with_good_contact_coaches_without_a_slow_tau():
-    """A long work bout offers a breath as soon as flow leaves baseline."""
+    """A blip locks the tile. The breath waits for the 4 s mean, then holds."""
     task = TaskController()
-    view = task.update(bfi_index=0.22, bvi_index=0.02, cq=0.81, tau_s=None, phase="work")
+    blip = None
+    for i in range(8):
+        blip = task.update(
+            bfi_index=0.22,
+            bvi_index=0.02,
+            cq=0.81,
+            tau_s=None,
+            phase="work",
+            t=i * 0.25,
+        )
+    assert blip is not None
+    assert blip.gate_open is False
+    assert blip.action == "locked"
+    assert blip.reason == "locked_bfi"
+    view = _over(
+        task,
+        0.22,
+        seconds=2.25,
+        t0=2.0,
+        bvi_index=0.02,
+        cq=0.81,
+        tau_s=None,
+        phase="work",
+    )
     assert view.gate_open is False
     assert view.action == "coach"
     assert view.reason == "locked_bfi"
     assert "calibrated baseline" in view.cue
-    back = task.update(bfi_index=0.02, bvi_index=0.01, cq=0.81, tau_s=4.0, phase="work")
+    # One sample back inside the line opens the tile and keeps the breath.
+    quiet = task.update(bfi_index=0.0, bvi_index=0.01, cq=0.81, tau_s=4.0, phase="work", t=4.5)
+    assert quiet.gate_open is True
+    assert quiet.action == "coach"
+    assert quiet.reason == "coach_mean"
+    back = _over(
+        task,
+        0.0,
+        seconds=4.0,
+        t0=4.75,
+        bvi_index=0.01,
+        cq=0.81,
+        tau_s=4.0,
+        phase="work",
+    )
     assert back.gate_open is True
     assert back.action == "advance"
-    poor = task.update(bfi_index=0.02, bvi_index=0.01, cq=0.22, tau_s=None, phase="work")
+    poor = task.update(bfi_index=0.02, bvi_index=0.01, cq=0.22, tau_s=None, phase="work", t=9.0)
     assert poor.action == "locked"
     assert poor.reason == "locked_cq"
 
 
 def test_a_slow_tau_while_bfi_is_still_up_coaches_without_unlocking():
     task = TaskController()
-    view = task.update(bfi_index=0.25, bvi_index=0.04, cq=0.8, tau_s=30.0, phase="work")
+    instant = task.update(bfi_index=0.25, bvi_index=0.04, cq=0.8, tau_s=30.0, phase="work", t=0.0)
+    assert instant.gate_open is False
+    assert instant.action == "locked"
+    view = _over(
+        task,
+        0.25,
+        seconds=4.0,
+        t0=0.25,
+        bvi_index=0.04,
+        cq=0.8,
+        tau_s=30.0,
+        phase="work",
+    )
     assert view.gate_open is False
     assert view.action == "coach"
     assert "stays locked" in view.cue
+
+
+def test_contact_blip_does_not_cancel_a_breath_already_underway():
+    task = TaskController()
+    _over(
+        task,
+        0.2,
+        seconds=4.0,
+        bvi_index=0.01,
+        cq=0.8,
+        tau_s=None,
+        phase="work",
+    )
+    blip = task.update(bfi_index=0.2, bvi_index=0.01, cq=0.2, tau_s=None, phase="work", t=4.25)
+    assert blip.gate_open is False
+    assert blip.reason == "locked_cq"
+    assert blip.action == "coach"
 
 
 def test_difficulty_does_not_fall_before_it_has_advanced():

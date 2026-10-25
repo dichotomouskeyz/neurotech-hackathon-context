@@ -315,8 +315,17 @@ async def test_long_work_coaches_when_flow_leaves_baseline_then_unlocks(tmp_path
     assert opened
     assert log.session.phase == "work"
 
-    for i in range(10):
-        emit(_batch(30.0 + i * 0.08, 3.2, 0.86))
+    early = []
+    for i in range(6):
+        batch = _batch(30.0 + i * 0.2, 3.2, 0.86)
+        extra = gate.observe(batch)
+        frames.extend(batch)
+        frames.extend(extra)
+        early.extend(extra)
+    assert any(frame.get("type") == "stress" for frame in early)
+    assert all(frame.get("task") != "coach" for frame in early if frame.get("type") == "stress")
+    for i in range(6, 28):
+        emit(_batch(30.0 + i * 0.2, 3.2, 0.86))
     coached = False
     for _ in range(40):
         if any(
@@ -332,8 +341,8 @@ async def test_long_work_coaches_when_flow_leaves_baseline_then_unlocks(tmp_path
     assert log.session.phase == "work"
     assert any("calibrated baseline" in cue for cue in _cues(frames))
 
-    for i in range(8):
-        emit(_batch(40.0 + i * 0.08, 2.0, 0.86))
+    for i in range(28):
+        emit(_batch(35.6 + i * 0.2, 2.0, 0.86))
     reopened = False
     for _ in range(40):
         if any(

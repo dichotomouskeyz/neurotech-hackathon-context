@@ -14,6 +14,9 @@ def test_page_defaults_are_a_long_work_bout_after_a_short_baseline():
     assert 'id="dur-recovery" value="20"' in html
     assert 'id="dur-continue" value="1200"' in html
     assert 'id="work-until-end"' in html
+    assert 'id="recovered-within" value="5"' in html
+    assert 'min="1" max="25"' in html
+    assert "BFI within baseline (%)" in html
     assert 'id="present-hint"' in html
     assert "Long session (20 min work)" in html
     assert "Hold at 0 skips" in html

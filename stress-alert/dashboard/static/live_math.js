@@ -10,6 +10,7 @@ const LOOP_DEFAULTS = {
   recovery: 20,
   continue_s: 1200,
   cycles: 1,
+  recovered_within_pct: 5,
 };
 
 function quantile(sorted, q) {
@@ -94,6 +95,13 @@ function nonNegativeNumber(value, fallback) {
   return Number.isFinite(number) && number >= 0 ? number : fallback;
 }
 
+function recoveredWithinPct(value, fallback) {
+  if (value === "" || value == null) return fallback;
+  const number = typeof value === "number" ? value : Number(value);
+  if (!Number.isFinite(number)) return fallback;
+  return number;
+}
+
 function protocolBody(fields, options = {}) {
   const src = fields || {};
   const body = {
@@ -103,6 +111,10 @@ function protocolBody(fields, options = {}) {
     recovery: positiveNumber(src.recovery, LOOP_DEFAULTS.recovery),
     continue_s: positiveNumber(src.continue_s, LOOP_DEFAULTS.continue_s),
     cycles: Math.min(10, Math.max(1, Math.round(positiveNumber(src.cycles, LOOP_DEFAULTS.cycles)))),
+    recovered_within_pct: recoveredWithinPct(
+      src.recovered_within_pct,
+      LOOP_DEFAULTS.recovered_within_pct,
+    ),
   };
   if (options.closedLoop) {
     body.closed_loop = true;
@@ -164,7 +176,13 @@ function gateState(stress, cq) {
   if (gate === "open") {
     const step = stress.difficulty || 1;
     const task = stress.task || "hold";
-    if (task === "coach") return { status: "warning", text: "Open, slow recovery", headline: `Step ${step}` };
+    if (task === "coach") {
+      const why = (stress && stress.gate_reason) || "";
+      if (why.includes("bfi") || why === "coach_mean") {
+        return { status: "warning", text: "Open, breath", headline: `Step ${step}` };
+      }
+      return { status: "warning", text: "Open, slow recovery", headline: `Step ${step}` };
+    }
     if (task === "break") return { status: "warning", text: "Open, take a break", headline: `Step ${step}` };
     if (task === "ease") return { status: "warning", text: "Open, easing", headline: `Step ${step}` };
     return { status: "good", text: "Perfusion-ready", headline: `Step ${step}` };
