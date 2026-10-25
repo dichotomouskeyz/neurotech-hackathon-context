@@ -47,6 +47,15 @@ CAMERA_ENABLE_WAIT_S = 8.0
 # so mask 0xFF (8 cameras a side) is about 2 minutes. The bloodflow flash
 # watchdog is 250 s; this waits the same order of time before failing.
 CAMERA_CONFIGURE_TIMEOUT_S = 240.0
+# A SRAM load that returns faster than this did not program the camera. The
+# SDK's program_fpga waits on the firmware (timeout 60 s) and is about 14 s.
+CAMERA_PROGRAM_MIN_S = 2.0
+# enable_camera only ACKs the stream command. Wait this long for a finite
+# BFI or BVI value before treating the scan as running.
+CAMERA_FRAME_WAIT_S = 12.0
+FRAME_WAIT_STATUS = "Waiting for the first BFI/BVI frame."
+# get_camera_status bits: 0 READY, 1 firmware programmed, 2 registers configured.
+CAMERA_STATUS_FLASHED = (1 << 0) | (1 << 1) | (1 << 2)
 
 Emit = Callable[[list[dict[str, Any]]], None]
 
@@ -200,9 +209,15 @@ class LiveSink:
 
     channels = {"live"}
 
-    def __init__(self, publish: Emit, now: Callable[[], float] = clock.now) -> None:
+    def __init__(
+        self,
+        publish: Emit,
+        now: Callable[[], float] = clock.now,
+        on_sample: Callable[[], None] | None = None,
+    ) -> None:
         self._publish = publish
         self._now = now
+        self._on_sample = on_sample
         self._t0 = 0.0
         self._current: int | None = None
         self._t: float = 0.0
@@ -251,8 +266,12 @@ class LiveSink:
             self._t = self._t0 + float(batch.timestamp_s[i])
             for side, cam in cells:
                 if 0 <= side < 2 and 0 <= cam < 8:
-                    self._bfi[side][cam] = _value(float(batch.bfi_live[i, side, cam]))
-                    self._bvi[side][cam] = _value(float(batch.bvi_live[i, side, cam]))
+                    bfi = _value(float(batch.bfi_live[i, side, cam]))
+                    bvi = _value(float(batch.bvi_live[i, side, cam]))
+                    self._bfi[side][cam] = bfi
+                    self._bvi[side][cam] = bvi
+                    if (bfi is not None or bvi is not None) and self._on_sample is not None:
+                        self._on_sample()
                     self._note_contact(batch, i, side, cam, frame_type)
         if frames:
             self._publish(frames)
@@ -315,6 +334,8 @@ class DeviceManager:
         camera_power_settle_s: float = CAMERA_POWER_SETTLE_S,
         camera_enable_wait_s: float = CAMERA_ENABLE_WAIT_S,
         camera_configure_timeout_s: float = CAMERA_CONFIGURE_TIMEOUT_S,
+        camera_program_min_s: float = CAMERA_PROGRAM_MIN_S,
+        camera_frame_wait_s: float = CAMERA_FRAME_WAIT_S,
     ) -> None:
         self._emit = emit
         self._data_dir = data_dir
@@ -323,6 +344,9 @@ class DeviceManager:
         self._camera_power_settle_s = camera_power_settle_s
         self._camera_enable_wait_s = camera_enable_wait_s
         self._camera_configure_timeout_s = camera_configure_timeout_s
+        self._camera_program_min_s = camera_program_min_s
+        self._camera_frame_wait_s = camera_frame_wait_s
+        self._frame_seen = threading.Event()
         self._config_pct = 0
         self._config_note = ""
         self._loop: asyncio.AbstractEventLoop | None = None
@@ -420,6 +444,7 @@ class DeviceManager:
             raise DeviceError(self._found_message() or "No sensor connected.")
         if self.scanning:
             return self.state()
+        self._frame_seen.clear()
 
         left_mask = CAMERA_MASK_ALL if self.left else 0x00
         right_mask = CAMERA_MASK_ALL if self.right else 0x00
@@ -444,7 +469,7 @@ class DeviceManager:
             duration_sec=SCAN_SECONDS,
             left_camera_mask=left_mask,
             right_camera_mask=right_mask,
-            sinks=[LiveSink(self._publish, self._now)],
+            sinks=[LiveSink(self._publish, self._now, on_sample=self._frame_seen.set)],
             on_error=on_error,
         )
         # start_scan returns True once its worker is spawned. That worker calls
@@ -467,6 +492,7 @@ class DeviceManager:
             self._require_sdk_enable(watch)
         finally:
             self._disarm_enable_watch(watch)
+        self._require_live_frame()
         self.scanning = True
         self.status = ""
         self.error = ""
@@ -593,40 +619,173 @@ class DeviceManager:
             holder["result"] = result
             done.set()
 
+        self._reject_demo_mode(left_mask, right_mask)
         self._config_pct = 0
         self._config_note = "Programming camera FPGAs and registers"
         self._publish_config_status()
+        watch = self._arm_program_watch(left_mask, right_mask)
         try:
-            started = bool(
-                start(
-                    _configure_request(left_mask, right_mask),
-                    on_progress_fn=on_progress,
-                    on_log_fn=on_log,
-                    on_complete_fn=on_complete,
+            try:
+                started = bool(
+                    start(
+                        _configure_request(left_mask, right_mask),
+                        on_progress_fn=on_progress,
+                        on_log_fn=on_log,
+                        on_complete_fn=on_complete,
+                    )
                 )
-            )
-        except DeviceError:
-            self.status = ""
-            raise
-        except Exception as exc:
-            self.status = ""
-            raise DeviceError(f"Camera configure failed: {exc}. The scan was not started.") from exc
-        if not started:
-            self.status = ""
-            raise DeviceError("Camera configure could not start. The scan was not started.")
-        if not done.wait(self._camera_configure_timeout_s):
-            _cancel_configure(self._iface)
-            self.status = ""
-            raise DeviceError(
-                "Camera configure timed out after "
-                f"{int(self._camera_configure_timeout_s)} s. The scan was not started."
-            )
+            except DeviceError:
+                self.status = ""
+                raise
+            except Exception as exc:
+                self.status = ""
+                raise DeviceError(
+                    f"Camera configure failed: {exc}. The scan was not started."
+                ) from exc
+            if not started:
+                self.status = ""
+                raise DeviceError("Camera configure could not start. The scan was not started.")
+            if not done.wait(self._camera_configure_timeout_s):
+                _cancel_configure(self._iface)
+                self.status = ""
+                raise DeviceError(
+                    "Camera configure timed out after "
+                    f"{int(self._camera_configure_timeout_s)} s. The scan was not started."
+                )
+        finally:
+            self._disarm_program_watch(watch)
         result = holder.get("result")
         ok = bool(getattr(result, "ok", False))
         err = str(getattr(result, "error", "") or "no result")
         self.status = ""
         if not ok:
             raise DeviceError(f"Camera configure failed: {err}. The scan was not started.")
+        # result.ok only means every program_fpga call returned True. In
+        # demo_mode, and on any path that ACKs without loading SRAM, that
+        # return is immediate. A real load is about 14 s per camera.
+        self._require_real_program(watch)
+        self._require_programmed_status(left_mask, right_mask)
+
+    def _reject_demo_mode(self, left_mask: int, right_mask: int) -> None:
+        """``demo_mode`` makes program_fpga and enable_camera return True immediately."""
+        for side, mask in (("left", left_mask), ("right", right_mask)):
+            if not mask:
+                continue
+            sensor = self._sensor(side)
+            if getattr(sensor, "demo_mode", False):
+                raise DeviceError(
+                    f"Open-Motion {side} sensor is in demo_mode, which does not program "
+                    "cameras or emit BFI/BVI. The scan was not started."
+                )
+
+    def _arm_program_watch(self, left_mask: int, right_mask: int) -> dict[str, Any]:
+        """Time each ``program_fpga`` while configure runs. Restored by the caller."""
+        records: list[tuple[str, int, float]] = []
+        originals: list[tuple[Any, Any]] = []
+        if self._camera_program_min_s <= 0:
+            return {"records": records, "originals": originals}
+        for side, mask in (("left", left_mask), ("right", right_mask)):
+            if not mask:
+                continue
+            sensor = self._sensor(side)
+            original = getattr(sensor, "program_fpga", None)
+            if not callable(original):
+                raise DeviceError("Open-Motion SDK is missing program_fpga; cannot start a scan.")
+
+            def program_fpga(*args, _side=side, _orig=original, **kwargs):
+                position = kwargs.get("camera_position", args[0] if args else 0)
+                started = time.monotonic()
+                try:
+                    return _orig(*args, **kwargs)
+                finally:
+                    records.append((_side, int(position), time.monotonic() - started))
+
+            sensor.program_fpga = program_fpga
+            originals.append((sensor, original))
+        return {"records": records, "originals": originals}
+
+    def _disarm_program_watch(self, watch: dict[str, Any]) -> None:
+        for sensor, original in watch["originals"]:
+            sensor.program_fpga = original
+
+    def _require_real_program(self, watch: dict[str, Any]) -> None:
+        """Refuse a configure that did not spend real time inside ``program_fpga``."""
+        if self._camera_program_min_s <= 0:
+            return
+        records: list[tuple[str, int, float]] = watch["records"]
+        if not records:
+            raise DeviceError(
+                "Camera configure reported success without calling program_fpga. "
+                "The scan was not started."
+            )
+        for side, mask, elapsed in records:
+            if elapsed < self._camera_program_min_s:
+                raise DeviceError(
+                    f"program_fpga on {side} (mask {_mask_label(mask)}) returned in "
+                    f"{elapsed:.2f} s. A camera FPGA SRAM load takes about 14 s. "
+                    "The scan was not started."
+                )
+
+    def _require_programmed_status(self, left_mask: int, right_mask: int) -> None:
+        """READY + programmed + configured, for every camera in the scan mask."""
+        for side, mask in (("left", left_mask), ("right", right_mask)):
+            if not mask:
+                continue
+            sensor = self._sensor(side)
+            read = getattr(sensor, "get_camera_status", None)
+            if not callable(read):
+                raise DeviceError(
+                    "Open-Motion SDK is missing get_camera_status; cannot start a scan."
+                )
+            try:
+                status_map = read(mask)
+            except Exception as exc:
+                raise DeviceError(
+                    f"Could not read camera status on {side} after configure: {exc}. "
+                    "The scan was not started."
+                ) from exc
+            if not status_map:
+                raise DeviceError(
+                    f"Could not read camera status on {side} after configure. "
+                    "The scan was not started."
+                )
+            for pos in range(8):
+                if not (mask & (1 << pos)):
+                    continue
+                status = status_map.get(pos)
+                if status is None or (int(status) & CAMERA_STATUS_FLASHED) != CAMERA_STATUS_FLASHED:
+                    shown = "missing" if status is None else _mask_label(int(status))
+                    raise DeviceError(
+                        f"{side.capitalize()} camera {pos + 1} is not programmed after "
+                        f"configure (status {shown}). The scan was not started."
+                    )
+
+    def _require_live_frame(self) -> None:
+        """Do not report scanning until a finite BFI or BVI value has arrived.
+
+        ``enable_camera`` only acknowledges the stream command. ``start_scan``
+        then returns while its worker is still starting the trigger. An empty
+        histogram pipe still looks like a running scan.
+        """
+        if self._camera_frame_wait_s <= 0:
+            return
+        self.status = FRAME_WAIT_STATUS
+        self.error = ""
+        self._emit_state()
+        if self._frame_seen.wait(self._camera_frame_wait_s):
+            return
+        try:
+            self._iface.cancel_scan()
+        except Exception:
+            pass
+        self.scanning = False
+        self.status = ""
+        self.error = (
+            f"No BFI/BVI frame arrived within {int(self._camera_frame_wait_s)} s "
+            "after the scan started. The scan was not started."
+        )
+        self._emit_state()
+        raise DeviceError(self.error)
 
     def _publish_config_status(self) -> None:
         note = self._config_note or "Programming camera FPGAs and registers"

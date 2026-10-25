@@ -698,10 +698,16 @@ function renderDevice() {
   const scan = $("scan-start");
   const scanning = Boolean(d.scanning);
   const bringingUp = Boolean(d.status);
-  const writingLaser = typeof d.status === "string" && d.status.startsWith("Writing laser");
+  const statusText = typeof d.status === "string" ? d.status : "";
+  const writingLaser = statusText.startsWith("Writing laser");
+  const waitingFrame = statusText.startsWith("Waiting for");
   setModeButton(scan, scanning, scanning ? "Stop scan" : "Start scan");
   if (scan && scan.dataset.busy === "true" && bringingUp) {
-    scan.textContent = writingLaser ? "Writing laser…" : "Configuring…";
+    scan.textContent = writingLaser
+      ? "Writing laser…"
+      : waitingFrame
+        ? "Waiting for frames…"
+        : "Configuring…";
   }
   if (scan && scan.dataset.busy !== "true") {
     const canScan = d.connected && d.console && (d.left || d.right);
@@ -712,9 +718,11 @@ function renderDevice() {
     ? "open-motion scanning"
     : writingLaser
       ? "writing laser registers"
-      : bringingUp
-        ? "configuring cameras"
-        : "open-motion";
+      : waitingFrame
+        ? "waiting for frames"
+        : bringingUp
+          ? "configuring cameras"
+          : "open-motion";
   setChip("chip-device", chip, ready, d.error || d.status);
 }
 

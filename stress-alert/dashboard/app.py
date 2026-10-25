@@ -100,6 +100,8 @@ def create_app(
     lsl_markers: bool = True,
     device_factory: Any = None,
     camera_power_settle_s: float | None = None,
+    camera_program_min_s: float | None = None,
+    camera_frame_wait_s: float | None = None,
 ) -> FastAPI:
     """Build the app. With ``dev_feed_url`` set, replay sample data into it on startup.
 
@@ -131,6 +133,10 @@ def create_app(
         device_kwargs["factory"] = device_factory
     if camera_power_settle_s is not None:
         device_kwargs["camera_power_settle_s"] = camera_power_settle_s
+    if camera_program_min_s is not None:
+        device_kwargs["camera_program_min_s"] = camera_program_min_s
+    if camera_frame_wait_s is not None:
+        device_kwargs["camera_frame_wait_s"] = camera_frame_wait_s
     device = DeviceManager(publish, sessions_dir / "device-scans", **device_kwargs)
 
     @contextlib.asynccontextmanager

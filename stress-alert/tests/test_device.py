@@ -16,15 +16,20 @@ class FakeRequest:
 class FakeSensor:
     """One side of MotionInterface. Records power and stream commands."""
 
-    def __init__(self, side, log, *, connected=True, power_ok=True, enable_ok=True):
+    def __init__(
+        self, side, log, *, connected=True, power_ok=True, enable_ok=True, status_byte=0x07
+    ):
         self.side = side
         self.log = log
         self.connected = connected
         self.power_ok = power_ok
         self.enable_ok = enable_ok
+        self.status_byte = status_byte
+        self.demo_mode = False
         self.power_calls = []
         self.enable_calls = []
         self.disable_calls = []
+        self.program_calls = []
 
     def is_connected(self):
         return self.connected
@@ -44,6 +49,16 @@ class FakeSensor:
         self.log.append(("disable", self.side, mask))
         return True
 
+    def program_fpga(self, camera_position, manual_process=False):
+        self.program_calls.append(camera_position)
+        self.log.append(("program_fpga", self.side, camera_position, manual_process))
+        return True
+
+    def get_camera_status(self, mask):
+        if self.status_byte is None:
+            return None
+        return {i: self.status_byte for i in range(8) if (mask >> i) & 1}
+
 
 class FakeInterface:
     """Stands in for omotion.MotionInterface."""
@@ -59,6 +74,8 @@ class FakeInterface:
         finish_configure=True,
         laser_ok=True,
         laser_error=None,
+        call_program=False,
+        emit_frame=False,
     ):
         self.flags = flags
         self.accept_scan = accept_scan
@@ -67,6 +84,8 @@ class FakeInterface:
         self.finish_configure = finish_configure
         self.laser_ok = laser_ok
         self.laser_error = laser_error
+        self.call_program = call_program
+        self.emit_frame = emit_frame
         self.laser_calls = []
         self.configure_request = None
         self.configure_canceled = False
@@ -104,6 +123,13 @@ class FakeInterface:
     ):
         self.configure_request = request
         self.log.append(("configure", request.left_camera_mask, request.right_camera_mask))
+        if self.call_program:
+            for side_name in ("left", "right"):
+                sensor = getattr(self, side_name)
+                if sensor.is_connected() and (
+                    request.left_camera_mask if side_name == "left" else request.right_camera_mask
+                ):
+                    sensor.program_fpga(camera_position=0x01, manual_process=False)
         if not self.accept_configure:
             return False
         if on_log_fn:
@@ -138,6 +164,8 @@ class FakeInterface:
             if mask and sensor.is_connected():
                 sensor.enable_camera(mask)
         self.scan_workflow.running = True
+        if self.emit_frame and request.sinks:
+            request.sinks[0].consume("live", live_batch([(1, 0, 0, 0.0, 2.0, 6.0, "light")]))
         return True
 
     def cancel_scan(self, **kwargs):
@@ -145,13 +173,19 @@ class FakeInterface:
         self.scan_workflow.running = False
 
 
-def manager(tmp_path, iface):
+def manager(tmp_path, iface, **kwargs):
     frames = []
+    options = {
+        "camera_power_settle_s": 0.0,
+        "camera_program_min_s": 0.0,
+        "camera_frame_wait_s": 0.0,
+    }
+    options.update(kwargs)
     mgr = DeviceManager(
         frames.extend,
         tmp_path,
         factory=lambda d: (iface, FakeRequest, "1.12.0"),
-        camera_power_settle_s=0.0,
+        **options,
     )
     mgr.frames = frames
     return mgr
@@ -384,6 +418,103 @@ def test_configure_refused_does_not_start_scanning(tmp_path):
     assert iface.left.enable_calls == []
 
 
+def test_configure_without_program_fpga_does_not_start_scanning(tmp_path):
+    """result.ok is not a flash. The SDK must actually call program_fpga."""
+    iface = FakeInterface()
+    mgr = manager(tmp_path, iface, camera_program_min_s=2.0)
+    mgr.connect()
+    with pytest.raises(DeviceError, match="without calling program_fpga"):
+        mgr.start_scan("s1")
+    assert mgr.state()["scanning"] is False
+    assert mgr.state()["status"] == ""
+    assert iface.request is None
+    assert iface.left.enable_calls == []
+
+
+def test_instant_program_fpga_does_not_start_scanning(tmp_path):
+    """A sub-second program_fpga ACK is not an SRAM load (about 14 s)."""
+    iface = FakeInterface(call_program=True)
+    mgr = manager(tmp_path, iface, camera_program_min_s=2.0)
+    mgr.connect()
+    with pytest.raises(DeviceError, match="returned in"):
+        mgr.start_scan("s1")
+    assert mgr.state()["scanning"] is False
+    assert "14 s" in mgr.state()["error"]
+    assert iface.request is None
+    assert iface.left.program_calls == [0x01]
+    assert iface.right.program_calls == [0x01]
+
+
+def test_unprogrammed_status_does_not_start_scanning(tmp_path):
+    iface = FakeInterface()
+    iface.left.status_byte = 0x01  # READY only: not programmed, not configured
+    mgr = manager(tmp_path, iface)
+    mgr.connect()
+    with pytest.raises(DeviceError, match="Left camera 1 is not programmed"):
+        mgr.start_scan("s1")
+    assert mgr.state()["scanning"] is False
+    assert "status 0x01" in mgr.state()["error"]
+    assert iface.request is None
+
+
+def test_demo_mode_sensor_does_not_start_scanning(tmp_path):
+    iface = FakeInterface()
+    iface.left.demo_mode = True
+    mgr = manager(tmp_path, iface)
+    mgr.connect()
+    with pytest.raises(DeviceError, match="demo_mode"):
+        mgr.start_scan("s1")
+    assert mgr.state()["scanning"] is False
+    assert iface.configure_request is None
+    assert iface.request is None
+
+
+def test_no_live_frame_cancels_and_is_not_scanning(tmp_path):
+    iface = FakeInterface()
+    mgr = manager(tmp_path, iface, camera_frame_wait_s=0.05)
+    mgr.connect()
+    with pytest.raises(DeviceError, match="No BFI/BVI frame arrived"):
+        mgr.start_scan("s1")
+    assert mgr.state()["scanning"] is False
+    assert mgr.state()["status"] == ""
+    assert iface.canceled
+    assert iface.request is not None
+
+
+def test_live_frame_allows_scanning(tmp_path):
+    iface = FakeInterface(emit_frame=True)
+    mgr = manager(tmp_path, iface, camera_frame_wait_s=1.0)
+    mgr.connect()
+    state = mgr.start_scan("s1")
+    assert state["scanning"] is True
+    assert state["status"] == ""
+    assert state["error"] == ""
+    assert any(
+        frame.get("type") == "device" and frame.get("status", "").startswith("Waiting for")
+        for frame in mgr.frames
+    )
+
+
+def test_device_api_instant_configure_is_not_scanning(tmp_path):
+    iface = FakeInterface()
+    app = create_app(
+        sessions_dir=tmp_path,
+        lsl_markers=False,
+        device_factory=lambda d: (iface, FakeRequest, "1.12.0"),
+        camera_power_settle_s=0.0,
+        camera_program_min_s=2.0,
+        camera_frame_wait_s=0.0,
+    )
+    with TestClient(app) as client:
+        assert client.post("/api/device/connect").status_code == 200
+        response = client.post("/api/device/scan/start")
+        assert response.status_code == 409
+        assert "without calling program_fpga" in response.json()["detail"]
+        state = client.get("/api/device").json()
+        assert state["scanning"] is False
+        assert iface.request is None
+
+
 def test_configure_timeout_cancels_and_is_not_scanning(tmp_path):
     iface = FakeInterface(finish_configure=False)
     frames = []
@@ -392,6 +523,7 @@ def test_configure_timeout_cancels_and_is_not_scanning(tmp_path):
         tmp_path,
         factory=lambda d: (iface, FakeRequest, "1.12.0"),
         camera_power_settle_s=0.0,
+        camera_program_min_s=0.0,
         camera_configure_timeout_s=0.05,
     )
     mgr.connect()
@@ -484,6 +616,7 @@ def test_sdk_enable_timeout_is_not_scanning(tmp_path):
         tmp_path,
         factory=lambda d: (iface, FakeRequest, "1.12.0"),
         camera_power_settle_s=0.0,
+        camera_program_min_s=0.0,
         camera_enable_wait_s=0.05,
     )
     mgr.connect()
@@ -649,6 +782,8 @@ def test_live_sink_frames_are_scored_by_the_gate(tmp_path):
         factory=lambda d: (iface, FakeRequest, "1.12.0"),
         now=lambda: 1000.0,
         camera_power_settle_s=0.0,
+        camera_program_min_s=0.0,
+        camera_frame_wait_s=0.0,
     )
     mgr.connect()
     mgr.start_scan("scan")
@@ -810,6 +945,8 @@ def test_device_api_streams_scan_frames_to_browser(tmp_path):
         lsl_markers=False,
         device_factory=lambda d: (iface, FakeRequest, "1.12.0"),
         camera_power_settle_s=0.0,
+        camera_program_min_s=0.0,
+        camera_frame_wait_s=0.0,
     )
     with TestClient(app) as client, client.websocket_connect("/ws") as browser:
         assert client.post("/api/device/scan/start").status_code == 409
@@ -835,6 +972,7 @@ def test_device_api_enable_failure_is_not_scanning(tmp_path):
         lsl_markers=False,
         device_factory=lambda d: (iface, FakeRequest, "1.12.0"),
         camera_power_settle_s=0.0,
+        camera_program_min_s=0.0,
     )
     with TestClient(app) as client:
         assert client.post("/api/device/connect").status_code == 200
