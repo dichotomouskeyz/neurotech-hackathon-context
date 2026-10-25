@@ -167,6 +167,16 @@ def create_app(
         await _stop_dev_feed()
 
     app = FastAPI(title="stress-alert dashboard", lifespan=lifespan)
+
+    @app.middleware("http")
+    async def dashboard_assets_not_cached(request, call_next):
+        """Keep Operator on the files from this process after a restart."""
+        response = await call_next(request)
+        path = request.url.path
+        if path == "/" or path.startswith("/static/"):
+            response.headers["Cache-Control"] = "no-store"
+        return response
+
     app.state.hub = hub
     app.state.logger = logger
     app.state.device = device
@@ -318,7 +328,9 @@ def create_app(
 
     @app.get("/api/replay/sessions")
     async def replay_sessions() -> dict[str, Any]:
-        return {"sessions": list_recordings(sessions_dir, DATA)}
+        # Header and tail only. A full CSV parse here blocks the dashboard.
+        sessions = await asyncio.to_thread(list_recordings, sessions_dir, DATA)
+        return {"sessions": sessions}
 
     @app.get("/api/replay")
     async def replay_state() -> dict[str, Any]:

@@ -15,6 +15,45 @@ ROOT = Path(__file__).resolve().parents[1]
 SAMPLE = ROOT / "data" / "sample_scan.csv"
 
 
+def test_list_empty_skips_phase_logs_and_stays_fast(tmp_path):
+    assert list_recordings(tmp_path) == []
+    for index in range(40):
+        session = tmp_path / f"20261024-15{index:04d}_anon"
+        session.mkdir()
+        (session / "meta.json").write_text(
+            f'{{"session_id": "{session.name}", "subject_id": "anon"}}'
+        )
+        (session / "events.csv").write_text(
+            "t,wall_time,session_id,phase,source\n1,2026,s,baseline,manual\n"
+        )
+    scans = tmp_path / "device-scans"
+    scans.mkdir()
+    (scans / "scan99_anon.csv").write_text(
+        "frame_id,timestamp_s,bfi_l1\n1,0.025,1.5\n400,10.0,1.6\n"
+    )
+    import time
+
+    started = time.perf_counter()
+    listed = list_recordings(tmp_path)
+    assert time.perf_counter() - started < 1.0
+    assert len(listed) == 1
+    assert listed[0]["path"].endswith("scan99_anon.csv")
+    assert listed[0]["duration_s"] == 10.0
+    assert listed[0]["frames"] == 2
+
+
+def test_replay_page_does_not_stick_on_loading():
+    html = (ROOT / "dashboard/static/index.html").read_text()
+    js = (ROOT / "dashboard/static/app.js").read_text()
+    assert "Loading…" not in html
+    assert "Restart dashboard, then refresh" in html
+    assert "No recordings found" in js
+    assert "Could not list recordings" in js
+    assert "Restart dashboard, then refresh" in js
+    assert "AbortSignal.timeout" in js
+    assert "/api/replay/sessions" in js
+
+
 def test_list_recordings_includes_bundled_scan(tmp_path):
     listed = list_recordings(tmp_path, ROOT / "data")
     paths = {item["path"] for item in listed}

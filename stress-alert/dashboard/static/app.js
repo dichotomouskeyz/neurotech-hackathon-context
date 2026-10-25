@@ -680,24 +680,53 @@ function setReplayTimeLabel(seconds) {
   $("replay-time").textContent = fmtClock(seconds);
 }
 
+const REPLAY_LIST_MS = 4000;
+
+function showReplayPick(label) {
+  const pick = $("replay-pick");
+  pick.replaceChildren(new Option(label, ""));
+  pick.disabled = true;
+}
+
 async function refreshReplayCatalog() {
   const pick = $("replay-pick");
+  const timer = setTimeout(() => {
+    const current = pick.options[0] && pick.options[0].textContent;
+    if (pick.options.length === 1 && current && current.startsWith("Restart dashboard")) {
+      showReplayPick("Could not list recordings");
+      $("replay-error").textContent =
+        "Listing timed out. Stop the dashboard, start it again on this branch, then hard-refresh.";
+    }
+  }, REPLAY_LIST_MS);
   try {
-    const { sessions } = await (await fetch("/api/replay/sessions")).json();
-    replayCatalog = sessions || [];
+    const res = await fetch("/api/replay/sessions", { signal: AbortSignal.timeout(REPLAY_LIST_MS) });
+    if (!res.ok) {
+      const restart = res.status === 404;
+      showReplayPick(restart ? "Restart dashboard, then refresh" : "Could not list recordings");
+      $("replay-error").textContent = restart
+        ? "This server has no replay list (it was started before this branch). Stop it, run uv run python -m dashboard, then hard-refresh."
+        : "Could not list recordings.";
+      return;
+    }
+    const body = await res.json();
+    replayCatalog = body.sessions || [];
     pick.replaceChildren();
     if (!replayCatalog.length) {
-      pick.append(new Option("No recordings found", ""));
-      pick.disabled = true;
+      showReplayPick("No recordings found");
       return;
     }
     pick.disabled = false;
     replayCatalog.forEach((item) => {
-      pick.append(new Option(`${item.label} (${fmtClock(item.duration_s)})`, item.path));
+      const seconds = Number.isFinite(item.duration_s) ? ` (${fmtClock(item.duration_s)})` : "";
+      pick.append(new Option(`${item.label}${seconds}`, item.path));
     });
+    $("replay-error").textContent = "";
   } catch {
-    pick.replaceChildren(new Option("Could not list recordings", ""));
-    pick.disabled = true;
+    showReplayPick("Could not list recordings");
+    $("replay-error").textContent =
+      "Could not list recordings. Restart the dashboard on this branch and hard-refresh.";
+  } finally {
+    clearTimeout(timer);
   }
 }
 

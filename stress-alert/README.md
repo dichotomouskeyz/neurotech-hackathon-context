@@ -13,6 +13,8 @@ uv run python -m dashboard --dev-feed
 
 Open http://127.0.0.1:8765. `--dev-feed` replays `data/sample_scan.csv` so the charts move without hardware. Without it, the dashboard waits for producers on `/ws/ingest`.
 
+Session replay (Operator view) lists corrected scan CSVs under `sessions/` (including `sessions/device-scans/` and `sessions/<id>/scan.csv`) and `data/`. If the recording menu says to restart, the process was started before that route existed: stop it and run `uv run python -m dashboard` again, then hard-refresh the page.
+
 ```
 ws://<dashboard-host>:8765/ws/ingest?source=<your-name>
 ```

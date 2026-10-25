@@ -4,29 +4,78 @@ from __future__ import annotations
 
 import csv
 import json
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
 
 from dashboard import clock, dev_feed
 from dashboard.live_gate import LiveGate
 
 WINDOW_S = 30.0
 SCAN_MARKERS = ("timestamp_s", "bfi_l1")
+# Header probe and the last data row. Listing must not read a whole scan.
+_HEADER_BYTES = 8192
+_TAIL_BYTES = 65536
+# Exact row counts only for modest files. Larger scans report duration only.
+_COUNT_ROWS_MAX_BYTES = 8_000_000
+
+
+def _header_fields(path: Path) -> list[str] | None:
+    try:
+        with path.open("rb") as handle:
+            chunk = handle.read(_HEADER_BYTES)
+    except OSError:
+        return None
+    line = chunk.split(b"\n", 1)[0].decode("utf-8", errors="replace").strip("\r")
+    if not line:
+        return None
+    return next(csv.reader([line]), None)
 
 
 def is_scan_csv(path: Path) -> bool:
     if not path.is_file() or path.suffix.lower() != ".csv":
         return False
-    try:
-        with path.open(newline="") as handle:
-            reader = csv.reader(handle)
-            header = next(reader, None)
-    except OSError:
-        return False
+    header = _header_fields(path)
     if not header:
         return False
     return all(marker in header for marker in SCAN_MARKERS)
+
+
+def _last_timestamp_s(path: Path) -> float | None:
+    """Last ``timestamp_s`` (column 2) from the end of the file."""
+    try:
+        size = path.stat().st_size
+        with path.open("rb") as handle:
+            handle.seek(max(0, size - _TAIL_BYTES))
+            chunk = handle.read()
+    except OSError:
+        return None
+    text = chunk.decode("utf-8", errors="replace")
+    lines = [line.strip("\r") for line in text.splitlines() if line.strip()]
+    # A mid-file seek starts on a partial row.
+    if size > _TAIL_BYTES and lines:
+        lines = lines[1:]
+    for line in reversed(lines):
+        parts = line.split(",")
+        if len(parts) < 2:
+            continue
+        try:
+            return float(parts[1])
+        except ValueError:
+            continue
+    return None
+
+
+def _row_count(path: Path) -> int | None:
+    try:
+        if path.stat().st_size > _COUNT_ROWS_MAX_BYTES:
+            return None
+        with path.open("rb") as handle:
+            count = sum(1 for _ in handle)
+    except OSError:
+        return None
+    return max(0, count - 1)
 
 
 def _session_label(directory: Path) -> str | None:
@@ -56,13 +105,10 @@ def list_recordings(*roots: Path) -> list[dict[str, Any]]:
             key = str(path.resolve())
             if key in seen:
                 continue
-            rows = dev_feed.load_rows(path)
-            if not rows:
+            duration_s = _last_timestamp_s(path)
+            if duration_s is None:
                 continue
-            try:
-                duration_s = float(rows[-1]["timestamp_s"])
-            except (KeyError, TypeError, ValueError):
-                continue
+            frames = _row_count(path)
             label = path.name
             session_dir = path.parent if (path.parent / "meta.json").is_file() else None
             if session_dir is not None:
@@ -74,7 +120,7 @@ def list_recordings(*roots: Path) -> list[dict[str, Any]]:
                 "path": key,
                 "label": label,
                 "duration_s": duration_s,
-                "frames": len(rows),
+                "frames": frames,
             }
     return sorted(seen.values(), key=lambda item: item["path"], reverse=True)
 
