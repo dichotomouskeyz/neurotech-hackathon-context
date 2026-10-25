@@ -1,4 +1,8 @@
-"""Demo Mode calibrates, then runs a work loop, and never publishes CQ of 1.00."""
+"""Recovery-gate stimulus: a scripted curve, not the dashboard Demo Mode.
+
+Demo Mode replays ``data/sample_scan.csv``. These tests keep the old script as
+a known BFI/BVI/CQ input. That stimulus never publishes CQ of 1.00.
+"""
 
 import itertools
 
@@ -185,7 +189,7 @@ def test_demo_start_refuses_a_live_scan_and_stop_is_safe(app):
     with TestClient(app) as client:
         refused = client.post("/api/demo/start")
         assert refused.status_code == 409
-        assert "contact" in refused.json()["detail"].lower()
+        assert "scan" in refused.json()["detail"].lower()
         assert client.get("/api/demo").json()["running"] is False
 
 
@@ -197,14 +201,16 @@ def app(tmp_path):
 
 
 def test_demo_start_and_stop_round_trip(app):
+    """The button starts the replay and does not open or close a session."""
     with TestClient(app) as client:
+        assert client.post("/api/session/start", json={"subject_id": "judge"}).status_code == 200
         started = client.post("/api/demo/start")
         assert started.status_code == 200
-        body = started.json()
-        assert body["running"] is True
-        assert body["subject_id"] == "demo"
-        assert body["gate"] == "locked"
+        assert started.json() == {"running": True}
+        assert client.get("/api/session").json()["active"] is True
+        assert client.get("/api/session").json()["subject_id"] == "judge"
         stopped = client.post("/api/demo/stop")
         assert stopped.status_code == 200
-        assert stopped.json()["running"] is False
-        assert stopped.json()["active"] is False
+        assert stopped.json() == {"running": False}
+        assert client.get("/api/session").json()["active"] is True
+        assert client.post("/api/session/stop").status_code == 200

@@ -30,7 +30,6 @@
         <button type="button" data-view="operator" aria-pressed="true">Operator</button>
         <button type="button" data-view="present" aria-pressed="false">Present</button>
       </div>
-      <button type="button" class="quiet" id="pause" aria-pressed="false">Pause</button>
     </div>
   </header>
 
@@ -139,7 +138,7 @@
         <h2 class="card-title">Timed protocol
           <span class="info">
             <button type="button" class="info-btn" aria-label="About the timed protocol" aria-describedby="loop-hint">ⓘ</button>
-            <span class="info-tip" id="loop-hint" role="tooltip">Run timed is the live path. Calibrate is a 20 second baseline sit. Work then runs 20 minutes. A hold above 0 runs that breath-hold, then recovery. The gate locks as soon as forehead flow crosses the boundary. The breath starts only after about 4 seconds when the average rise, and most of that window, are still over the boundary. It stays on until the average is under half the boundary. BFI within baseline is the recovery boundary for that check, applied when Run timed or Demo Mode starts. It stays fixed until you stop and start again. Default 5, allowed 1 to 25. Contact quality stays at least 0.50. Demo Mode is the short offline fallback: it will not start during a live scan, and its contact scores stay below 1.00.</span>
+            <span class="info-tip" id="loop-hint" role="tooltip">Run timed is the live path. Calibrate is a 20 second baseline sit. Work then runs 20 minutes. A hold above 0 runs that breath-hold, then recovery. The gate locks as soon as forehead flow crosses the boundary. The breath starts only after about 4 seconds when the average rise, and most of that window, are still over the boundary. It stays on until the average is under half the boundary. BFI within baseline is the recovery boundary for that check, applied when Run timed starts. It stays fixed until you stop and start again. Default 5, allowed 1 to 25. Contact quality stays at least 0.50. Demo Mode replays the 16-channel sample scan, the same feed as --dev-feed, with the laser off. It will not start during a live scan.</span>
           </span>
         </h2>
         <div class="row">

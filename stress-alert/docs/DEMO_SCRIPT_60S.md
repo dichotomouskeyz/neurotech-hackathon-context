@@ -12,10 +12,10 @@ Three beats. Calibrate is a short baseline sit: learn resting forehead blood flo
 
 ## Overview
 
-- **Format**: Live long session for judges (Sunday 3:00 to 5:00 pm). Demo Mode is only the offline fallback.
+- **Format**: Live long session for judges (Sunday 3:00 to 5:00 pm). Demo Mode is the offline 16-channel replay, the same feed as `--dev-feed`.
 - **On screen**: Present view. The info control by the title says calibrate, then work, then an automatic breath. The top row is phase, heart rate, contact quality, and perfusion. The task line sits on the phase tile. The coach card stays on Operator. Neither view shows a recovery-gate card. Below the top row, the heatmap is on the left and the BFI and BVI charts are stacked on the right.
 - **Live contact**: light and dark digital numbers on the Open-Motion `live` batch, the same thresholds as `features/cq_score.py`. A bad score blocks the gate.
-- **Demo contact**, if you must fall back: graded scores such as 0.82, 0.78, 0.76, and 0.32. Demo Mode never publishes 1.00, and it will not start while a live scan is running.
+- **Demo replay**, if the console is down: **Demo Mode** loops `data/sample_scan.csv` (16-channel BFI and BVI). Contact on that file is the recorded quality label. Demo Mode will not start while a live scan is running, and starting a scan stops the replay.
 
 ## What to say
 
@@ -44,7 +44,7 @@ A hold that never rises does not fake an unlock. Calibration says there was no s
 
 ## Demo Mode (no laser)
 
-Short fallback only. Leave this path if the console is up.
+Same 16-channel replay as `--dev-feed`. Leave this path if the console is up.
 
 ```bash
 cd stress-alert
@@ -52,4 +52,4 @@ uv sync --locked
 uv run python -m dashboard
 ```
 
-Open http://127.0.0.1:8765. Leave the laser off. Press **Demo Mode**. Switch to **Present**. The script is a short calibrate, then a short work loop, about 28 seconds in all. The heart rate tile stays empty because the script has no pulse. While flow is up at the start of that work window, the same breath coach runs, then the step unlocks, blood volume can ask for a break, and a contact dip locks the gate. Say it is the offline stand-in for the long session, then use the same three sentences: calibrate, work, automatic breath.
+Open http://127.0.0.1:8765. Leave the laser off. Press **Demo Mode** (or start with `uv run python -m dashboard --dev-feed`, which turns that replay on immediately). Switch to **Present**. Charts, the heatmap, contact, and optical heart rate move from `data/sample_scan.csv`. The replay does not start a session. To walk calibrate, work, and the automatic breath without the console, press **Run timed** while the replay is on, then use the table above. For research. Not a diagnosis.

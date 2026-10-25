@@ -33,8 +33,7 @@ def test_gate_opens_only_when_bfi_recovered_and_contact_is_good():
     assert closed.open is False
     assert opened.open is True
     assert opened.reason == "open"
-    # Missing measurements fail closed. A real 1.0 pass is allowed; Demo Mode
-    # must not use it as a filler.
+    # Missing measurements fail closed. A score of 1.0 is a real pass.
     assert evaluate_gate(0.0, None, phase="work").open is False
     assert evaluate_gate(None, 0.9, phase="work").open is False
     assert evaluate_gate(0.0, 1.0, phase="work").open is True

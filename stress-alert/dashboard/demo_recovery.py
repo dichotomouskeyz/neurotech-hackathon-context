@@ -1,13 +1,11 @@
-"""Scripted calibration, then a work loop, for Demo Mode.
+"""Scripted BFI, BVI, and contact stimulus for recovery-gate tests.
 
-Calibration is a short baseline, breath-hold, and recovery. It learns resting
-forehead blood flow. The task stays locked. The work phase is the application:
-flow is up as if the person has been working, the next step stays locked until
-BFI returns and contact is good, blood volume can ask for a break, and a
-contact dip locks the gate again.
+Not the dashboard Demo Mode. Demo Mode and ``--dev-feed`` both replay
+``data/sample_scan.csv`` through :func:`dashboard.dev_feed.replay`.
 
-Contact quality here is a graded score below 1.00. A live scan is a different
-path: light and dark digital numbers, and this script must not run over it.
+This curve is a short baseline, breath-hold, and recovery, then a work window.
+Contact quality stays below 1.00 so the gate tests can tell a real miss from a
+filled-in perfect score. Nothing in the server calls it.
 """
 
 from __future__ import annotations
@@ -52,7 +50,7 @@ DEMO_DURATIONS = {
 def demo_sample(phase: str | None, elapsed: float) -> tuple[float, float, float]:
     """Return ``(bfi, bvi, cq)`` for one moment of the script.
 
-    ``cq`` is always in ``[0, 1)``. Demo Mode does not publish 1.00.
+    ``cq`` is always in ``[0, 1)``. This stimulus does not publish 1.00.
     """
     elapsed = max(0.0, float(elapsed))
     if phase == "hold":
@@ -111,8 +109,9 @@ async def run_recovery_demo(
 ) -> str:
     """Publish the script until the session ends, the task is cancelled, or a scan starts.
 
-    Returns ``"end"`` or ``"scan"``. A live scan stops the script so Demo Mode
-    cannot overwrite headset contact quality. Cancellation propagates.
+    Returns ``"end"`` or ``"scan"``. A live scan stops the script so it cannot
+    overwrite headset contact quality. Cancellation propagates. The dashboard
+    does not call this; Demo Mode uses ``dashboard.dev_feed.replay``.
     """
     period = 1.0 / hz
     phase_t0: float | None = None

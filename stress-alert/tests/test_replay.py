@@ -1,6 +1,5 @@
 """Session replay: list recordings, seek, and hub frames."""
 
-import json
 from pathlib import Path
 
 import pytest
@@ -129,16 +128,52 @@ def test_replay_api_list_load_seek(app, tmp_path):
     assert not client.post("/api/replay/stop").json()["active"]
 
 
-def test_demo_start_writes_session_scan_copy(app):
+def test_demo_start_does_not_open_a_session(app):
+    """Demo Mode is the sample replay. It does not write a session scan copy."""
     client = TestClient(app)
-    client.post("/api/demo/start", json={})
+    started = client.post("/api/demo/start")
+    assert started.status_code == 200
+    assert started.json() == {"running": True}
+    assert client.get("/api/session").json()["active"] is False
     root = app.state.logger.root
-    sessions = list(root.glob("*"))
-    assert sessions
-    session_dir = sessions[0]
-    assert (session_dir / "scan.csv").is_file()
-    meta = json.loads((session_dir / "meta.json").read_text())
-    assert meta.get("scan_csv") == "scan.csv"
+    if root.exists():
+        assert not any(path.is_dir() and path.name != "device-scans" for path in root.iterdir())
+    assert client.post("/api/demo/stop").json() == {"running": False}
+
+
+def test_replay_load_stops_demo_and_dev_feed_resumes(tmp_path):
+    data = tmp_path / "data"
+    data.mkdir()
+    scan = data / "sample_scan.csv"
+    scan.write_bytes(SAMPLE.read_bytes())
+    app = create_app(
+        sessions_dir=tmp_path / "sessions",
+        data_dir=data,
+        lsl_markers=False,
+        dev_feed=True,
+    )
+    with TestClient(app) as client:
+        assert client.get("/api/demo").json()["running"] is True
+        listed = client.get("/api/replay/sessions").json()["sessions"]
+        path = next(item["path"] for item in listed if item["path"].endswith("sample_scan.csv"))
+        loaded = client.post("/api/replay/load", json={"path": path})
+        assert loaded.status_code == 200
+        assert loaded.json()["active"] is True
+        assert client.get("/api/demo").json()["running"] is False
+        stopped = client.post("/api/replay/stop").json()
+        assert stopped["active"] is False
+        assert client.get("/api/demo").json()["running"] is True
+
+
+def test_demo_start_stops_session_replay(app):
+    with TestClient(app) as client:
+        loaded = client.post("/api/replay/load", json={"path": str(SAMPLE)})
+        assert loaded.status_code == 200
+        assert client.get("/api/replay").json()["active"] is True
+        assert client.post("/api/demo/start").status_code == 200
+        assert client.get("/api/replay").json()["active"] is False
+        assert client.get("/api/demo").json()["running"] is True
+        assert client.post("/api/demo/stop").json()["running"] is False
 
 
 def test_meta_only_sessions_still_list_data_scans(tmp_path):

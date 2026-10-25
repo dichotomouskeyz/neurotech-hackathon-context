@@ -36,7 +36,7 @@ We built a perfusion-ready gate on that signal:
 
 ## What It Does
 
-The dashboard has two parts. Calibration is a short baseline sit that learns resting forehead BFI. The breath-hold is optional. Work is the application: a long bout gated by the recovery policy, with a breath that starts when flow leaves baseline and contact is good. Demo Mode is a short offline fallback and plays both without a laser. Its contact scores stay below 1.00, and Demo Mode will not start during a live scan.
+The dashboard has two parts. Calibration is a short baseline sit that learns resting forehead BFI. The breath-hold is optional. Work is the application: a long bout gated by the recovery policy, with a breath that starts when flow leaves baseline and contact is good. Demo Mode replays the 16-channel sample scan without a laser, the same feed as `--dev-feed`. It will not start during a live scan.
 
 1. **Calibration**
    - Baseline breathing sets a per-camera BFI and BVI baseline, and only while contact quality is at least 0.50.

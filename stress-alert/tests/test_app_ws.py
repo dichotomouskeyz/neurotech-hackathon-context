@@ -183,21 +183,135 @@ def test_protocol_start_without_a_boundary_keeps_five_percent(app):
     client.post("/api/session/stop")
 
 
-def test_demo_empty_post_starts_and_keeps_the_default_boundary(app):
+def test_demo_start_does_not_change_the_recovery_boundary(app):
+    """The boundary is a Run timed control. Demo Mode only starts the replay."""
     with TestClient(app) as client:
         empty = client.post("/api/demo/start")
         assert empty.status_code == 200
         assert app.state.gate.recovered_below == pytest.approx(0.05)
         assert client.post("/api/demo/stop").status_code == 200
 
-
-def test_demo_start_applies_the_operator_recovery_boundary(app):
-    with TestClient(app) as client:
-        rejected = client.post("/api/demo/start", json={"recovered_within_pct": 0})
-        assert rejected.status_code == 422
-        assert app.state.gate.recovered_below == pytest.approx(0.05)
-
         started = client.post("/api/demo/start", json={"recovered_within_pct": 8})
         assert started.status_code == 200
-        assert app.state.gate.recovered_below == pytest.approx(0.08)
+        assert app.state.gate.recovered_below == pytest.approx(0.05)
+        assert client.get("/api/session").json()["active"] is False
         assert client.post("/api/demo/stop").status_code == 200
+
+
+def _first_bfi(browser, limit=40):
+    for _ in range(limit):
+        for frame in browser.receive_json():
+            if frame.get("type") == "bfi":
+                return frame
+    return None
+
+
+def test_take_batch_is_sixteen_varied_channels():
+    rows = dev_feed.load_rows()
+    batch, index = dev_feed.take_batch(rows, 0)
+    assert index == dev_feed.BATCH
+    bfi = [frame for frame in batch if frame["type"] == "bfi"]
+    assert len(bfi) == dev_feed.BATCH
+    expected = next(frame for frame in dev_feed.frames_for(rows[0], 0.0) if frame["type"] == "bfi")
+    assert bfi[0]["left"] == expected["left"]
+    assert bfi[0]["right"] == expected["right"]
+    assert len(bfi[0]["left"]) == 8 and len(bfi[0]["right"]) == 8
+    assert len(set(bfi[0]["left"])) > 1
+    assert len(set(bfi[0]["right"])) > 1
+
+
+async def test_replay_stops_before_publishing_over_a_scan():
+    calls = {"n": 0}
+
+    def scanning() -> bool:
+        calls["n"] += 1
+        return calls["n"] > 1
+
+    published: list[list[dict]] = []
+    reason = await dev_feed.replay(published.append, scanning=scanning)
+    assert reason == "scan"
+    assert len(published) == 1
+    kinds = [frame["type"] for frame in published[0]]
+    assert kinds[0] == "bfi" and "bvi" in kinds and "cq" in kinds
+
+
+def test_demo_mode_replays_the_same_sample_as_dev_feed(app):
+    rows = dev_feed.load_rows()
+    sample = dev_feed.frames_for(rows[0], 0.0)
+    expected = next(frame for frame in sample if frame["type"] == "bfi")
+    expected_cq = next(frame for frame in sample if frame["type"] == "cq")
+    with TestClient(app) as client, client.websocket_connect("/ws") as browser:
+        assert client.post("/api/demo/start").status_code == 200
+        assert client.get("/api/demo").json() == {"running": True}
+        seen = []
+        bfi = None
+        for _ in range(40):
+            batch = browser.receive_json()
+            seen.extend(batch)
+            if bfi is None:
+                bfi = next((frame for frame in seen if frame.get("type") == "bfi"), None)
+            if bfi is not None and any(frame.get("type") == "stress" for frame in seen):
+                break
+        assert bfi is not None
+        assert bfi["left"] == expected["left"]
+        assert bfi["right"] == expected["right"]
+        assert len(set(bfi["left"])) > 1
+        cq = next(frame for frame in seen if frame.get("type") == "cq" and frame["t"] == bfi["t"])
+        assert cq["left"] == expected_cq["left"]
+        assert cq["right"] == expected_cq["right"]
+        assert any(frame.get("type") == "stress" for frame in seen)
+        assert client.post("/api/demo/start").status_code == 409
+        assert client.post("/api/demo/stop").json() == {"running": False}
+        assert client.get("/api/demo").json()["running"] is False
+
+
+def test_dev_feed_flag_is_demo_mode(tmp_path):
+    app = create_app(sessions_dir=tmp_path, lsl_markers=False, dev_feed=True)
+    rows = dev_feed.load_rows()
+    sample = {
+        (tuple(frame["left"]), tuple(frame["right"]))
+        for row in rows
+        for frame in dev_feed.frames_for(row, 0.0)
+        if frame["type"] == "bfi"
+    }
+    with TestClient(app) as client, client.websocket_connect("/ws") as browser:
+        assert client.get("/api/demo").json()["running"] is True
+        bfi = _first_bfi(browser)
+        assert bfi is not None
+        assert (tuple(bfi["left"]), tuple(bfi["right"])) in sample
+        assert len(set(bfi["left"])) > 1
+        assert client.post("/api/demo/stop").json()["running"] is False
+        assert client.get("/api/demo").json()["running"] is False
+
+
+def test_protocol_stop_leaves_the_demo_feed_running(app):
+    with TestClient(app) as client:
+        assert client.post("/api/demo/start").status_code == 200
+        assert client.post("/api/session/start", json={"subject_id": "judge"}).status_code == 200
+        started = client.post(
+            "/api/protocol/start",
+            json={
+                "baseline": 30,
+                "hold": 0,
+                "recovery": 20,
+                "continue_s": 30,
+                "closed_loop": True,
+            },
+        )
+        assert started.status_code == 200
+        assert client.get("/api/demo").json()["running"] is True
+        assert client.post("/api/protocol/stop").status_code == 200
+        assert client.get("/api/demo").json()["running"] is True
+        assert client.get("/api/session").json()["active"] is True
+        assert client.post("/api/demo/stop").status_code == 200
+        assert client.get("/api/session").json()["active"] is True
+        client.post("/api/session/stop")
+
+
+def test_scan_start_stops_demo_before_the_device_is_used(app):
+    with TestClient(app) as client:
+        assert client.post("/api/demo/start").status_code == 200
+        refused = client.post("/api/device/scan/start")
+        assert refused.status_code == 409
+        assert client.get("/api/demo").json()["running"] is False
+        assert "connect" in refused.json()["detail"].lower()

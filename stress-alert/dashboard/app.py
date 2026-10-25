@@ -14,13 +14,13 @@ from collections.abc import AsyncIterator
 from pathlib import Path
 from typing import Any
 
-from fastapi import Body, FastAPI, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field, ValidationError
 
-from dashboard import clock, dev_feed
-from dashboard.demo_recovery import DEMO_DURATIONS, run_recovery_demo
+from dashboard import clock
+from dashboard import dev_feed as sample_replay
 from dashboard.device import DeviceError, DeviceManager
 from dashboard.hub import Hub, drain
 from dashboard.live_gate import LiveGate
@@ -52,7 +52,6 @@ log = logging.getLogger(__name__)
 STATIC = Path(__file__).resolve().parent / "static"
 SESSIONS = Path(__file__).resolve().parent.parent / "sessions"
 DATA = Path(__file__).resolve().parent.parent / "data"
-DEMO_SCAN = DATA / "sample_scan.csv"
 
 
 class SessionStart(BaseModel):
@@ -69,7 +68,7 @@ class ProtocolStart(BaseModel):
 
     Hold at 0 skips the breath-hold and its recovery. ``work_until_end`` keeps
     Work running until the operator presses End. Demo Mode does not use this
-    body; it keeps the short offline durations.
+    body; it only starts the sample replay.
     """
 
     baseline: float = Field(default=LONG_BASELINE_S, gt=0, le=600)
@@ -88,16 +87,6 @@ class ProtocolStart(BaseModel):
     subject_id: str = Field(default="", max_length=64)
 
 
-class DemoStart(BaseModel):
-    """Optional body. An empty post keeps the gate's current recovery boundary."""
-
-    recovered_within_pct: float | None = Field(
-        default=None,
-        ge=RECOVERED_WITHIN_PCT_MIN,
-        le=RECOVERED_WITHIN_PCT_MAX,
-    )
-
-
 class ReplayLoad(BaseModel):
     path: str = Field(min_length=1, max_length=4096)
 
@@ -106,41 +95,33 @@ class ReplaySeek(BaseModel):
     t_s: float = Field(ge=0.0)
 
 
-_DEMO_START = Body(default_factory=DemoStart)
-
-
 def create_app(
     *,
-    dev_feed_url: str | None = None,
+    dev_feed: bool = False,
     sessions_dir: Path = SESSIONS,
     data_dir: Path = DATA,
     lsl_markers: bool = True,
     device_factory: Any = None,
 ) -> FastAPI:
-    """Build the app. With ``dev_feed_url`` set, replay sample data into it on startup.
+    """Build the app.
 
-    ``device_factory`` replaces the openmotion-sdk constructor (tests use a fake).
+    ``dev_feed=True`` starts Demo Mode immediately. That is the same 16-channel
+    replay of ``data/sample_scan.csv`` as the Demo Mode button. ``device_factory``
+    replaces the openmotion-sdk constructor (tests use a fake).
     """
     hub = Hub()
     gate = LiveGate()
     replay = ReplayEngine()
     demo_task: asyncio.Task[None] | None = None
-    dev_feed_task: asyncio.Task[None] | None = None
 
-    def publish(frames: list[dict[str, Any]], *, heart_rate: bool = True) -> None:
+    def publish(frames: list[dict[str, Any]]) -> None:
         """Broadcast ``frames`` and any stress or heart-rate frames derived from them."""
         extra: list[dict[str, Any]] = []
         try:
             extra = gate.observe(frames)
         except Exception:
             log.exception("hemodynamic gate failed")
-        if not heart_rate:
-            extra = [frame for frame in extra if frame.get("type") != "hr"]
         hub.publish([*frames, *extra])
-
-    def publish_demo(frames: list[dict[str, Any]]) -> None:
-        # The demo script has no pulse, so any optical heart rate from it is noise.
-        publish(frames, heart_rate=False)
 
     markers = MarkerOutlet() if lsl_markers else None
     logger = PhaseLogger(sessions_dir, emit=publish, markers=markers)
@@ -162,15 +143,13 @@ def create_app(
             )
         publish([logger.state(), device.state()])
         device.start_polling(asyncio.get_running_loop())
-        nonlocal dev_feed_task
-        if dev_feed_url:
-            dev_feed_task = asyncio.create_task(dev_feed.run_forever(dev_feed_url))
+        if dev_feed:
+            _start_feed()
         yield
-        await _cancel_demo(stop_protocol=False)
+        await _cancel_demo()
         replay.stop()
         logger.stop_session()
         await asyncio.to_thread(device.shutdown)
-        await _stop_dev_feed()
 
     app = FastAPI(title="stress-alert dashboard", lifespan=lifespan)
 
@@ -217,11 +196,9 @@ def create_app(
 
     @app.post("/api/device/scan/start")
     async def device_scan_start() -> dict[str, Any]:
-        # A live scan owns contact quality. Stop Demo Mode before the laser path
-        # so the script cannot publish a stand-in CQ over the headset.
-        await _cancel_demo(stop_protocol=True)
-        if logger.session is not None and logger.session.subject_id == "demo":
-            logger.stop_session()
+        # A live scan owns the samples. Stop the replay before the laser path
+        # so Demo Mode cannot publish the sample CSV over the headset.
+        await _cancel_demo()
         subject = logger.session.subject_id if logger.session else ""
         return await device_call(device.start_scan, subject)
 
@@ -300,28 +277,30 @@ def create_app(
 
     @app.post("/api/protocol/stop")
     async def protocol_stop() -> dict[str, Any]:
-        await _cancel_demo(stop_protocol=False)
         return guarded(logger.cancel_timer)
 
     def _demo_running() -> bool:
         return demo_task is not None and not demo_task.done()
 
-    async def _stop_dev_feed() -> None:
-        nonlocal dev_feed_task
-        task = dev_feed_task
-        dev_feed_task = None
-        if task is not None and not task.done():
-            task.cancel()
-            with contextlib.suppress(asyncio.CancelledError):
-                await task
-
-    async def _start_dev_feed() -> None:
-        nonlocal dev_feed_task
-        if not dev_feed_url or dev_feed_task is not None:
+    def _log_feed_stop(task: asyncio.Task[None]) -> None:
+        nonlocal demo_task
+        if demo_task is task:
+            demo_task = None
+        if task.cancelled():
             return
-        dev_feed_task = asyncio.create_task(dev_feed.run_forever(dev_feed_url))
+        exc = task.exception()
+        if exc is not None:
+            log.error("demo feed stopped: %s", exc)
 
-    async def _cancel_demo(*, stop_protocol: bool) -> None:
+    def _start_feed() -> None:
+        nonlocal demo_task
+        if _demo_running():
+            return
+        task = asyncio.create_task(_run_feed())
+        task.add_done_callback(_log_feed_stop)
+        demo_task = task
+
+    async def _cancel_demo() -> None:
         nonlocal demo_task
         running = demo_task
         demo_task = None
@@ -329,16 +308,30 @@ def create_app(
             running.cancel()
             with contextlib.suppress(asyncio.CancelledError):
                 await running
-        if stop_protocol:
-            logger.cancel_timer()
+
+    def _stop_replay() -> None:
+        if not replay.active:
+            return
+        replay.stop()
+        publish(
+            [
+                {
+                    "type": "status",
+                    "source": "replay",
+                    "connected": False,
+                    "detail": "",
+                }
+            ]
+        )
 
     async def _begin_replay(path: Path) -> dict[str, Any]:
-        await _cancel_demo(stop_protocol=True)
-        await _stop_dev_feed()
+        # Session replay and the sample feed both publish BFI. One of them runs.
+        await _cancel_demo()
         try:
             loaded = replay.load(path)
         except ValueError as exc:
-            await _start_dev_feed()
+            if dev_feed:
+                _start_feed()
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         replay.seek(0.0, gate=gate, publish=publish)
         return loaded
@@ -368,45 +361,33 @@ def create_app(
 
     @app.post("/api/replay/stop")
     async def replay_stop() -> dict[str, Any]:
-        replay.stop()
-        publish(
-            [
-                {
-                    "type": "status",
-                    "source": "replay",
-                    "connected": False,
-                    "detail": "",
-                }
-            ]
-        )
-        await _start_dev_feed()
+        _stop_replay()
+        if dev_feed:
+            _start_feed()
         return replay.state()
 
-    async def _run_demo() -> None:
+    async def _run_feed() -> None:
         publish(
             [
                 {
                     "type": "status",
-                    "source": "demo",
+                    "source": "dev_feed",
                     "connected": True,
-                    "detail": "Simulated calibration, then work. Contact quality stays below 1.00.",
+                    "detail": "Replaying sample_scan.csv. 16-channel BFI and BVI, for research.",
                 }
             ]
         )
         try:
-            reason = await run_recovery_demo(
-                publish_demo,
-                lambda: logger.session.phase if logger.session else None,
-                lambda: bool(device.state().get("scanning")),
+            await sample_replay.replay(
+                publish,
+                scanning=lambda: bool(device.state().get("scanning")),
             )
-            if reason == "scan":
-                logger.cancel_timer()
         finally:
             publish(
                 [
                     {
                         "type": "status",
-                        "source": "demo",
+                        "source": "dev_feed",
                         "connected": False,
                         "detail": "",
                     }
@@ -418,36 +399,22 @@ def create_app(
         return {"running": _demo_running()}
 
     @app.post("/api/demo/start")
-    async def demo_start(body: DemoStart = _DEMO_START) -> dict[str, Any]:
-        nonlocal demo_task
+    async def demo_start() -> dict[str, Any]:
         if device.state().get("scanning"):
             raise HTTPException(
                 status_code=409,
-                detail="A live scan is running. Demo mode does not replace contact quality.",
+                detail="A live scan is running. Demo mode does not replace headset samples.",
             )
         if _demo_running():
             raise HTTPException(status_code=409, detail="Demo mode is already running.")
-
-        def begin() -> None:
-            if logger.session is not None:
-                logger.stop_session()
-            logger.start_session("demo")
-            if body.recovered_within_pct is not None:
-                gate.set_recovered_within_pct(body.recovered_within_pct)
-            logger.start_timer(dict(DEMO_DURATIONS), 1, closed_loop=True, signals=gate)
-
-        state = guarded(begin)
-        if logger.session is not None and DEMO_SCAN.is_file():
-            ensure_session_scan_copy(logger.session.directory, DEMO_SCAN)
-        demo_task = asyncio.create_task(_run_demo())
-        return {"running": True, **state}
+        _stop_replay()
+        _start_feed()
+        return {"running": True}
 
     @app.post("/api/demo/stop")
     async def demo_stop() -> dict[str, Any]:
-        await _cancel_demo(stop_protocol=True)
-        if logger.session is not None:
-            guarded(logger.stop_session)
-        return {"running": False, **logger.state()}
+        await _cancel_demo()
+        return {"running": False}
 
     @app.websocket("/ws")
     async def browser(ws: WebSocket) -> None:

@@ -48,7 +48,6 @@ const makeBuffer = () => ({
   yRange: { lo: null, hi: null, shrinkSince: null },
 });
 const bufs = { bfi: makeBuffer(), bvi: makeBuffer() };
-let paused = false;
 let dirty = false;
 let framesThisSecond = 0;
 
@@ -319,7 +318,7 @@ function resizeCharts() {
 
 function draw() {
   animateBreath();
-  if (dirty && !paused) {
+  if (dirty) {
     for (const metric of METRICS) {
       updateYRange(bufs[metric], metric);
       charts[metric].setData(chartData(bufs[metric]));
@@ -650,14 +649,7 @@ function setDemoRunning(on) {
 
 async function toggleDemo() {
   const running = document.body.dataset.demo === "on";
-  const payload = running ? {} : {
-    recovered_within_pct: liveMath.protocolBody(readProtocolFields()).recovered_within_pct,
-  };
-  const res = await fetch(running ? "/api/demo/stop" : "/api/demo/start", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(payload),
-  });
+  const res = await fetch(running ? "/api/demo/stop" : "/api/demo/start", { method: "POST" });
   const data = await res.json().catch(() => ({}));
   if (!res.ok) {
     const detail = Array.isArray(data.detail) ? data.detail[0].msg : data.detail;
@@ -784,14 +776,19 @@ async function seekReplay(tS) {
   setReplayTimeLabel(tS);
 }
 
-$("replay-load").addEventListener("click", () => { loadReplay(); });
-$("replay-stop").addEventListener("click", async () => {
-  await fetch("/api/replay/stop", { method: "POST" });
+function clearReplayScrub() {
   replayDuration = 0;
   const scrub = $("replay-scrub");
+  if (!scrub) return;
   scrub.disabled = true;
   scrub.value = "0";
   setReplayTimeLabel(0);
+}
+
+$("replay-load").addEventListener("click", () => { loadReplay(); });
+$("replay-stop").addEventListener("click", async () => {
+  await fetch("/api/replay/stop", { method: "POST" });
+  clearReplayScrub();
 });
 $("replay-scrub").addEventListener("input", (e) => {
   setReplayTimeLabel(Number(e.target.value));
@@ -864,12 +861,6 @@ function setView(view) {
     b.setAttribute("aria-pressed", String(b.dataset.view === view));
   });
   try { localStorage.setItem("stress-alert:view", view); } catch { /* storage unavailable */ }
-  if (view === "present" && paused) {
-    paused = false;
-    const pause = $("pause");
-    pause.setAttribute("aria-pressed", "false");
-    pause.textContent = "Pause";
-  }
   if (charts.bfi) requestAnimationFrame(resizeCharts);
 }
 document.querySelectorAll(".segmented button").forEach((b) => {
@@ -925,7 +916,6 @@ function handle(frame) {
       // Keep the last session's bands after it stops; clear them when a new one starts.
       if (frame.session_id && frame.session_id !== session.session_id) phases = [];
       session = frame;
-      if (frame.loop === "off" && frame.phase === "end") setDemoRunning(false);
       renderControls();
       renderPhaseTile();
       renderStressTile();
@@ -944,6 +934,8 @@ function handle(frame) {
       break;
     case "status":
       setChip(`chip-src-${frame.source.replace(/\W+/g, "-")}`, frame.source, frame.connected, frame.detail);
+      if (frame.source === "dev_feed") setDemoRunning(Boolean(frame.connected));
+      if (frame.source === "replay" && !frame.connected) clearReplayScrub();
       break;
     default:
       break;
@@ -1110,11 +1102,6 @@ $("spread").addEventListener("change", (event) => {
   }
 });
 
-$("pause").addEventListener("click", (event) => {
-  paused = !paused;
-  event.currentTarget.setAttribute("aria-pressed", String(paused));
-  event.currentTarget.textContent = paused ? "Resume" : "Pause";
-});
 window.addEventListener("resize", resizeCharts);
 matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () => {
   METRICS.forEach(makeChart);

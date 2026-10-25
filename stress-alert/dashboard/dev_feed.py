@@ -1,14 +1,17 @@
-"""Development-only producer: replays an Open-Motion corrected CSV into /ws/ingest.
+"""16-channel sample replay used by Demo Mode and ``--dev-feed``.
 
-Stands in for the ingest lane until real producers connect. Loops the file forever
-and stamps frames with the shared clock (``dashboard.clock``). Run standalone with
-``uv run python -m dashboard.dev_feed``.
+Loops ``data/sample_scan.csv`` and stamps frames with the shared clock
+(``dashboard.clock``). The dashboard plays it in-process. The standalone module
+still pushes the same batches to ``/ws/ingest``:
+
+``uv run python -m dashboard.dev_feed``
 """
 
 import asyncio
 import csv
 import json
 import time
+from collections.abc import Callable
 from pathlib import Path
 
 from websockets.asyncio.client import connect
@@ -68,6 +71,41 @@ def frames_for(row: dict[str, str], t: float) -> list[dict]:
     return frames
 
 
+def take_batch(rows: list[dict[str, str]], index: int) -> tuple[list[dict], int]:
+    """Next ``BATCH`` rows as ingest frames, each stamped with ``clock.now``."""
+    batch: list[dict] = []
+    for _ in range(BATCH):
+        batch.extend(frames_for(rows[index % len(rows)], clock.now()))
+        index += 1
+    return batch, index
+
+
+async def replay(
+    publish: Callable[[list[dict]], None],
+    path: Path = DEFAULT_CSV,
+    *,
+    scanning: Callable[[], bool] | None = None,
+) -> str:
+    """Publish the sample scan until cancelled or a live scan starts.
+
+    Returns ``"scan"`` when ``scanning`` becomes true, before the next batch.
+    Cancellation propagates. This is the playback Demo Mode and ``--dev-feed`` share.
+    """
+    rows = load_rows(path)
+    if not rows:
+        raise ValueError(f"no rows in {path}")
+    period = 1.0 / RATE_HZ
+    index = 0
+    next_send = time.monotonic()
+    while True:
+        if scanning is not None and scanning():
+            return "scan"
+        batch, index = take_batch(rows, index)
+        publish(batch)
+        next_send += period * BATCH
+        await asyncio.sleep(max(0.0, next_send - time.monotonic()))
+
+
 async def run(url: str, path: Path = DEFAULT_CSV) -> None:
     rows = load_rows(path)
     period = 1.0 / RATE_HZ
@@ -75,11 +113,7 @@ async def run(url: str, path: Path = DEFAULT_CSV) -> None:
         index = 0
         next_send = time.monotonic()
         while True:
-            batch = []
-            for _ in range(BATCH):
-                t = clock.now()
-                batch.extend(frames_for(rows[index % len(rows)], t))
-                index += 1
+            batch, index = take_batch(rows, index)
             await ws.send(json.dumps(batch))
             next_send += period * BATCH
             await asyncio.sleep(max(0.0, next_send - time.monotonic()))

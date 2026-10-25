@@ -6,7 +6,7 @@ Prompt: **How can neurotechnology expand human cognitive potential?**
 
 The repo holds two things:
 
-- **`stress-alert/`**: the app. Open-Motion (forehead blood flow, blood volume, optical heart rate) feeds a live dashboard. Lane 1 replays recorded CSVs offline. A short calibrate learns resting forehead BFI. The live path is then a long work bout: the next step unlocks when BFI has returned and contact quality is good, and a breath starts on its own when flow leaves that baseline with contact still good. Demo Mode is the short offline fallback. See `stress-alert/README.md`.
+- **`stress-alert/`**: the app. Open-Motion (forehead blood flow, blood volume, optical heart rate) feeds a live dashboard. Lane 1 replays recorded CSVs offline. A short calibrate learns resting forehead BFI. The live path is then a long work bout: the next step unlocks when BFI has returned and contact quality is good, and a breath starts on its own when flow leaves that baseline with contact still good. Demo Mode replays the 16-channel sample scan, the same feed as `--dev-feed`. See `stress-alert/README.md`.
 - **`docs/` and `sources/`**: event context, including rules, tracks, Openwater platform notes, and snapshots of the planning documents.
 
 ## Layout
