@@ -87,16 +87,16 @@ Phase markers must match what the dashboard annotates:
    - If a subject swallows or moves during the hold, data from that window is labeled as an artifact rather than true stress.
    - If recovery does not follow a monotonic decline (e.g. subject was speaking or moving during recovery), the pipeline returns an honest null for tau (`tau_s = None`, `note = "positive slope indicates signal was rising rather than recovering"`).
 
-## Closed loop demo (about 60 seconds)
+## Long session (live default)
 
-For research. **Demo Mode** plays calibration, then a work loop, with contact quality below 1.00, and it will not start during a live scan. **Closed loop (~60s)** runs the same two parts on a live scan. The button reads the duration fields. The defaults below sum to 60 seconds. Typing 60 / 30 / 90 still runs the full calibration sitting if work is set to match. The recovery gate controls the work step. The perfusion tile is secondary and does not unlock a step.
+For research. **Long session** is the live path. **Demo Mode** is a short offline fallback: calibration, then a short work loop, contact quality below 1.00, and it will not start during a live scan. The button reads the duration fields. Defaults are a 20 second baseline, hold 0, and 20 minutes of work (1200 s). Hold at 0 skips the breath-hold and recovery. Typing a hold above 0 runs that hold and the recovery field as calibration proof. **Until End** keeps work going until the operator presses End. The full 60 / 30 / 90 sitting is still the manual breath-hold protocol above, not this default. The recovery gate controls the work step. The perfusion tile is secondary and does not unlock a step. It is not a stressed-or-not score.
 
 | Step | Duration | What the screen does |
 | :- | :- | :- |
-| Calibration baseline | 8 s | "Breathe normally." Each camera stores its own median while contact quality is at least 0.50. The task stays locked. |
-| Calibration breath-hold | up to 8 s | Setup only. The gate stays locked while forehead BFI is up. After the first second, up to four cameras with at least a 3% rise are kept when at least two clear that floor. The secondary perfusion index is the median of those rises. |
-| Calibration recovery | up to 12 s | "Learning how forehead blood flow returns. The task stays locked." The gate does not open here. A contact drop below 0.50 does not count as returned. |
-| Work | 32 s | The application. The next step unlocks when BFI is back under 5% and contact is still at least 0.50. If BVI is still high, the step eases or the banner asks for a break. If recovery tau is 18 s or slower, the breath coach runs and the step eases. Bad contact locks the gate. |
+| Calibration baseline | 20 s | "Breathe normally." Each camera stores its own median while contact quality is at least 0.50. The task stays locked. |
+| Calibration breath-hold | off unless Hold is above 0 | Optional setup. The gate stays locked while forehead BFI is up. After the first second, up to four cameras with at least a 3% rise are kept when at least two clear that floor. The secondary perfusion index is the median of those rises. |
+| Calibration recovery | only after a hold, default field 20 s | "Learning how forehead blood flow returns. The task stays locked." The gate does not open here. A contact drop below 0.50 does not count as returned. |
+| Work | 20 min, or until End | The session. The next step unlocks when BFI is back under 5% and contact is still at least 0.50. While the bout is running, BFI off that baseline with contact still good starts the breath coach, and the coach stops when flow returns. If BVI is still high, the step eases or the banner asks for a break. If recovery tau is 18 s or slower, the breath coach runs and the step eases. Bad contact locks the gate and does not start a breath. |
 
 If the hold ends without that elevation, recovery runs for about 4 seconds (or the typed recovery, whichever is shorter). The cue says there was no sustained elevation, and the work step does not unlock. Optical heart rate stays on the side panel and is not an input.
 

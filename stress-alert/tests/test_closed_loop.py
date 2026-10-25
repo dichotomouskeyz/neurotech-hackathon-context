@@ -232,6 +232,139 @@ class _UnlockThenCoach:
         )
 
 
+async def test_skipped_hold_goes_to_a_long_work_bout(tmp_path):
+    """Hold 0 is a baseline sit, then work, with no breath-hold phase."""
+    frames = []
+    log = PhaseLogger(tmp_path, emit=frames.extend)
+    log.start_session("sit")
+    log.start_timer(
+        {"baseline": 0.05, "hold": 0, "recovery": 20, "work": 0.08, "continue": 0.08},
+        closed_loop=True,
+        signals=_Quiet(),
+    )
+    for _ in range(40):
+        if log.session is not None and log.session.phase == "end":
+            break
+        await asyncio.sleep(0.02)
+    phases = [event["phase"] for event in log.session.events]
+    assert phases == ["baseline", "work", "end"]
+    assert not any("No sustained elevation" in cue for cue in _cues(frames))
+    assert any("breath starts on its own" in cue for cue in _cues(frames))
+
+
+async def test_work_until_end_does_not_auto_finish(tmp_path):
+    frames = []
+    log = PhaseLogger(tmp_path, emit=frames.extend)
+    log.start_session("open")
+    log.start_timer(
+        {"baseline": 0.04, "hold": 0, "work": None, "continue": None},
+        closed_loop=True,
+        signals=_Quiet(),
+    )
+    work = None
+    for _ in range(40):
+        await asyncio.sleep(0.02)
+        if log.session is not None and log.session.phase == "work":
+            work = log.state()
+            break
+    assert work is not None
+    assert work["timer_next"] is None
+    assert work["timer_ends_t"] is None
+    assert "until you press End" in work["loop_cue"]
+    await asyncio.sleep(0.12)
+    assert log.session.phase == "work"
+    task = log._timer
+    log.cancel_timer()
+    if task is not None:
+        with contextlib.suppress(asyncio.CancelledError):
+            await task
+
+
+async def test_long_work_coaches_when_flow_leaves_baseline_then_unlocks(tmp_path):
+    """The breath coach fires in the middle of work, not when the bout ends."""
+    gate = LiveGate(stress_hold_s=0.2, settle_hold_s=0.2)
+    frames = []
+
+    def emit(batch):
+        frames.extend(batch)
+        frames.extend(gate.observe(batch))
+
+    log = PhaseLogger(tmp_path, emit=emit)
+    log.start_session("wear")
+    log.start_timer(
+        {"baseline": 0.12, "hold": 0, "recovery": 5, "work": None, "continue": None},
+        closed_loop=True,
+        signals=gate,
+    )
+    while log.session.phase != "baseline":
+        await asyncio.sleep(0.01)
+    for i in range(8):
+        emit(_batch(10.0 + i * 0.05, 2.0, 0.9))
+    while log.session.phase != "work":
+        await asyncio.sleep(0.01)
+    assert [event["phase"] for event in log.session.events] == ["baseline", "work"]
+
+    for i in range(8):
+        emit(_batch(20.0 + i * 0.08, 2.0, 0.9))
+    opened = False
+    for _ in range(40):
+        if any(frame.get("phase") == "work" and frame.get("gate") == "open" for frame in frames):
+            opened = True
+            break
+        await asyncio.sleep(0.02)
+    assert opened
+    assert log.session.phase == "work"
+
+    early = []
+    for i in range(6):
+        batch = _batch(30.0 + i * 0.2, 3.2, 0.86)
+        extra = gate.observe(batch)
+        frames.extend(batch)
+        frames.extend(extra)
+        early.extend(extra)
+    assert any(frame.get("type") == "stress" for frame in early)
+    assert all(frame.get("task") != "coach" for frame in early if frame.get("type") == "stress")
+    for i in range(6, 28):
+        emit(_batch(30.0 + i * 0.2, 3.2, 0.86))
+    coached = False
+    for _ in range(40):
+        if any(
+            frame.get("type") == "session"
+            and frame.get("loop") == "coach"
+            and frame.get("phase") == "work"
+            for frame in frames
+        ):
+            coached = True
+            break
+        await asyncio.sleep(0.02)
+    assert coached
+    assert log.session.phase == "work"
+    assert any("calibrated baseline" in cue for cue in _cues(frames))
+
+    for i in range(28):
+        emit(_batch(35.6 + i * 0.2, 2.0, 0.86))
+    reopened = False
+    for _ in range(40):
+        if any(
+            frame.get("type") == "session"
+            and frame.get("phase") == "work"
+            and frame.get("gate") == "open"
+            and frame.get("loop") == "task"
+            for frame in frames
+        ):
+            reopened = True
+            break
+        await asyncio.sleep(0.02)
+    assert reopened
+    assert log.session.phase == "work"
+
+    task = log._timer
+    log.cancel_timer()
+    if task is not None:
+        with contextlib.suppress(asyncio.CancelledError):
+            await task
+
+
 async def test_task_window_follows_unlock_then_breath_coach(tmp_path):
     frames = []
     log = PhaseLogger(tmp_path, emit=frames.extend)

@@ -9,7 +9,7 @@ const BREATH_IN_S = 4;
 const BREATH_OUT_S = 6;
 const NEXT = {
   null: ["baseline", "end"],
-  baseline: ["hold", "end"],
+  baseline: ["hold", "work", "end"],
   hold: ["recovery", "end"],
   recovery: ["work", "baseline", "end"],
   work: ["baseline", "end"],
@@ -356,15 +356,16 @@ function renderPhaseTile() {
   let nextText = "";
   if (timed && Number.isFinite(remaining)) {
     nextText = `${session.timer_next} in ${liveMath.safeClock(remaining)}`;
-    if (phase === "work" && (loop === "coach" || loop === "locked")) {
-      nextText += " · until the gate opens";
-    }
+  } else if (phase === "work" && loop !== "off") {
+    nextText = "until End";
   }
   $("phase-next").textContent = nextText;
   let progress = timed
     ? liveMath.phaseFraction(now, session.phase_t, session.timer_ends_t)
     : 0;
-  const guided = loop === "coach" || loop === "locked" ? breathCycle(performance.now() / 1000) : null;
+  // The inhale/exhale guide is the breath coach only. A locked gate (bad
+  // contact, or still calibrating) keeps the phase clock.
+  const guided = loop === "coach" ? breathCycle(performance.now() / 1000) : null;
   if (guided) progress = guided.progress;
   $("phase-progress").style.width = `${(progress * 100).toFixed(1)}%`;
   $("breath-phase").textContent = phaseTitle(phase);
@@ -384,7 +385,7 @@ function breathTarget(seconds) {
   const loop = session.loop || "off";
   const wave = (period, amp) =>
     reduceMotion.matches ? 0 : amp * Math.sin((2 * Math.PI * seconds) / period);
-  if (loop === "coach" || loop === "locked") return breathCycle(seconds).scale;
+  if (loop === "coach") return breathCycle(seconds).scale;
   if (loop === "challenge" || phase === "hold") return 1;
   if (loop === "baseline" || phase === "baseline") return 0.84 + wave(5, 0.05);
   if (loop === "continue" || phase === "recovery") return 0.88 + wave(3.5, 0.07);
@@ -593,6 +594,7 @@ function renderControls() {
   $("loop-start").disabled = !idlePhase || timerRunning;
   $("protocol-stop").disabled = !timerRunning;
   document.querySelectorAll("#protocol-form input").forEach((i) => { i.disabled = timerRunning; });
+  refreshLoopButton();
 }
 
 function renderEvents() {
@@ -636,13 +638,22 @@ function readProtocolFields() {
     recovery: $("dur-recovery").value,
     continue_s: $("dur-continue").value,
     cycles: $("cycles").value,
+    recovered_within_pct: $("recovered-within").value,
   };
 }
 
+function workUntilEndChecked() {
+  const box = $("work-until-end");
+  return Boolean(box && box.checked);
+}
+
 function refreshLoopButton() {
+  const untilEnd = workUntilEndChecked();
+  const timerRunning = Boolean(session.timer_next) || ["baseline", "challenge", "coach", "continue", "locked", "task", "ease", "break"].includes(session.loop);
+  const workField = $("dur-continue");
+  if (workField && !timerRunning) workField.disabled = untilEnd;
   const body = liveMath.protocolBody(readProtocolFields());
-  const total = Math.round(liveMath.loopTotalSeconds(body));
-  $("loop-start").textContent = `Closed loop (~${total}s)`;
+  $("loop-start").textContent = liveMath.loopButtonLabel(body, { workUntilEnd: untilEnd });
 }
 
 $("protocol-form").addEventListener("submit", (e) => {
@@ -654,6 +665,7 @@ $("loop-start").addEventListener("click", () => {
   post("/api/protocol/start", liveMath.protocolBody(readProtocolFields(), {
     closedLoop: true,
     subjectId: $("subject").value,
+    workUntilEnd: workUntilEndChecked(),
   }));
 });
 
@@ -670,13 +682,18 @@ function setDemoRunning(on) {
 
 async function toggleDemo() {
   const running = document.body.dataset.demo === "on";
+  const payload = running ? {} : {
+    recovered_within_pct: liveMath.protocolBody(readProtocolFields()).recovered_within_pct,
+  };
   const res = await fetch(running ? "/api/demo/stop" : "/api/demo/start", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
   });
   const data = await res.json().catch(() => ({}));
   if (!res.ok) {
-    const msg = data.detail || "Demo mode did not start";
+    const detail = Array.isArray(data.detail) ? data.detail[0].msg : data.detail;
+    const msg = detail || "Demo mode did not start";
     $("session-error").textContent = msg;
     const statusText = $("heatmap-status-text");
     if (statusText) statusText.textContent = msg;

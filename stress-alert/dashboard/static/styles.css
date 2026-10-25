@@ -374,6 +374,13 @@ body[data-loop="ease"] .tile-phase { box-shadow: var(--shadow), 0 0 0 1.5px var(
 .coach-step:empty { display: none; }
 .coach-note { margin: 0; color: var(--ink-muted); font-size: var(--text-sm); }
 .hint { margin: 0; flex: 1; min-width: 220px; font-size: var(--text-sm); color: var(--ink-2); }
+.present-only { display: none; }
+.present-hint {
+  margin: 0 0 var(--space-3);
+  color: var(--ink-2);
+  font-size: var(--text-sm);
+  line-height: 1.45;
+}
 .phase-meta { display: flex; justify-content: space-between; gap: var(--space-3); }
 .phase-elapsed { font-family: var(--font-mono); font-size: var(--text-lg); font-weight: 500; }
 .progress {
@@ -496,6 +503,7 @@ body[data-view="present"] .chart-head .meta { margin-left: auto; }
 /* Present view: controls out of the way, the state and signal larger */
 
 body[data-view="present"] .operator-only { display: none; }
+body[data-view="present"] .present-only { display: block; }
 body[data-view="present"] { --text-hero: 3.5rem; }
 body[data-view="present"] .strip {
   grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr);
