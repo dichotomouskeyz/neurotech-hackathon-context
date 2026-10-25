@@ -713,6 +713,8 @@ async function refreshReplayCatalog() {
     pick.replaceChildren();
     if (!replayCatalog.length) {
       showReplayPick("No recordings found");
+      $("replay-error").textContent =
+        "Needs a corrected scan CSV (timestamp_s and bfi_l1) in stress-alert/data/, such as sample_scan.csv. A session with only meta.json and events.csv cannot be replayed.";
       return;
     }
     pick.disabled = false;

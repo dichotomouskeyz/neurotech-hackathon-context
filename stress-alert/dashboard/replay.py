@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import csv
 import json
+import os
+import shutil
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
@@ -17,8 +19,6 @@ SCAN_MARKERS = ("timestamp_s", "bfi_l1")
 # Header probe and the last data row. Listing must not read a whole scan.
 _HEADER_BYTES = 8192
 _TAIL_BYTES = 65536
-# Exact row counts only for modest files. Larger scans report duration only.
-_COUNT_ROWS_MAX_BYTES = 8_000_000
 
 
 def _header_fields(path: Path) -> list[str] | None:
@@ -27,10 +27,13 @@ def _header_fields(path: Path) -> list[str] | None:
             chunk = handle.read(_HEADER_BYTES)
     except OSError:
         return None
-    line = chunk.split(b"\n", 1)[0].decode("utf-8", errors="replace").strip("\r")
+    line = chunk.split(b"\n", 1)[0].decode("utf-8", errors="replace").strip("\r\ufeff")
     if not line:
         return None
-    return next(csv.reader([line]), None)
+    fields = next(csv.reader([line]), None)
+    if not fields:
+        return None
+    return [field.strip().lstrip("\ufeff") for field in fields]
 
 
 def is_scan_csv(path: Path) -> bool:
@@ -43,7 +46,11 @@ def is_scan_csv(path: Path) -> bool:
 
 
 def _last_timestamp_s(path: Path) -> float | None:
-    """Last ``timestamp_s`` (column 2) from the end of the file."""
+    """Last ``timestamp_s`` from the end of the file. Does not read the whole scan."""
+    header = _header_fields(path)
+    if not header or "timestamp_s" not in header:
+        return None
+    index = header.index("timestamp_s")
     try:
         size = path.stat().st_size
         with path.open("rb") as handle:
@@ -57,25 +64,14 @@ def _last_timestamp_s(path: Path) -> float | None:
     if size > _TAIL_BYTES and lines:
         lines = lines[1:]
     for line in reversed(lines):
-        parts = line.split(",")
-        if len(parts) < 2:
+        parts = next(csv.reader([line]), None)
+        if not parts or len(parts) <= index:
             continue
         try:
-            return float(parts[1])
+            return float(parts[index])
         except ValueError:
             continue
     return None
-
-
-def _row_count(path: Path) -> int | None:
-    try:
-        if path.stat().st_size > _COUNT_ROWS_MAX_BYTES:
-            return None
-        with path.open("rb") as handle:
-            count = sum(1 for _ in handle)
-    except OSError:
-        return None
-    return max(0, count - 1)
 
 
 def _session_label(directory: Path) -> str | None:
@@ -93,36 +89,77 @@ def _session_label(directory: Path) -> str | None:
     return str(sid)
 
 
+def _describe(path: Path) -> dict[str, Any]:
+    """One catalog row. Header match is enough; duration is best-effort."""
+    label = path.name
+    session_dir = path.parent if (path.parent / "meta.json").is_file() else None
+    if session_dir is not None:
+        session_label = _session_label(session_dir)
+        if session_label:
+            label = f"{session_label} — {path.name}"
+    try:
+        duration_s = _last_timestamp_s(path)
+    except OSError:
+        duration_s = None
+    resolved = str(path.resolve())
+    return {
+        "id": resolved,
+        "path": resolved,
+        "label": label,
+        "duration_s": duration_s,
+        "frames": None,
+    }
+
+
 def list_recordings(*roots: Path) -> list[dict[str, Any]]:
-    """Scan CSV files under ``roots``, newest first."""
+    """Corrected scan CSVs under ``roots``, newest path first.
+
+    A session folder that only has ``meta.json`` and ``events.csv`` is not a
+    recording. ``events.csv`` fails the scan header check and is skipped.
+    One bad file does not drop the rest of the catalog.
+    """
     seen: dict[str, dict[str, Any]] = {}
     for root in roots:
         if not root.is_dir():
             continue
-        for path in sorted(root.rglob("*.csv")):
-            if not is_scan_csv(path):
+        try:
+            paths = sorted(root.rglob("*.csv"))
+        except OSError:
+            continue
+        for path in paths:
+            try:
+                if not is_scan_csv(path):
+                    continue
+                key = str(path.resolve())
+                if key in seen:
+                    continue
+                seen[key] = _describe(path)
+            except OSError:
                 continue
-            key = str(path.resolve())
-            if key in seen:
-                continue
-            duration_s = _last_timestamp_s(path)
-            if duration_s is None:
-                continue
-            frames = _row_count(path)
-            label = path.name
-            session_dir = path.parent if (path.parent / "meta.json").is_file() else None
-            if session_dir is not None:
-                session_label = _session_label(session_dir)
-                if session_label:
-                    label = session_label
-            seen[key] = {
-                "id": key,
-                "path": key,
-                "label": label,
-                "duration_s": duration_s,
-                "frames": frames,
-            }
     return sorted(seen.values(), key=lambda item: item["path"], reverse=True)
+
+
+def newest_scan_csv(directory: Path, since: float | None = None) -> Path | None:
+    """Newest corrected scan CSV in ``directory`` (not nested), optionally after ``since``."""
+    if not directory.is_dir():
+        return None
+    best: tuple[float, Path] | None = None
+    try:
+        paths = list(directory.glob("*.csv"))
+    except OSError:
+        return None
+    for path in paths:
+        try:
+            mtime = path.stat().st_mtime
+        except OSError:
+            continue
+        if since is not None and mtime < since:
+            continue
+        if not is_scan_csv(path):
+            continue
+        if best is None or mtime >= best[0]:
+            best = (mtime, path)
+    return None if best is None else best[1]
 
 
 @dataclass
@@ -218,11 +255,19 @@ class ReplayEngine:
 
 
 def ensure_session_scan_copy(session_dir: Path, source: Path) -> Path:
-    """Write the smallest replay artifact for a session (used after Demo Mode)."""
+    """Link or copy a playable scan into the session folder.
+
+    Hard link when the scan already sits on the same volume (live SDK output
+    under ``sessions/device-scans``). Copy when a link is not possible.
+    """
     session_dir.mkdir(parents=True, exist_ok=True)
     dest = session_dir / "scan.csv"
-    if not dest.is_file():
-        dest.write_bytes(source.read_bytes())
+    source = source.resolve()
+    if not dest.exists():
+        try:
+            os.link(source, dest)
+        except OSError:
+            shutil.copyfile(source, dest)
     meta_path = session_dir / "meta.json"
     meta: dict[str, Any] = {}
     if meta_path.is_file():

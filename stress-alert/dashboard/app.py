@@ -24,7 +24,12 @@ from dashboard.demo_recovery import DEMO_DURATIONS, run_recovery_demo
 from dashboard.device import DeviceError, DeviceManager
 from dashboard.hub import Hub, drain
 from dashboard.live_gate import LiveGate
-from dashboard.replay import ReplayEngine, ensure_session_scan_copy, list_recordings
+from dashboard.replay import (
+    ReplayEngine,
+    ensure_session_scan_copy,
+    list_recordings,
+    newest_scan_csv,
+)
 from dashboard.schema import PhaseName, frame_adapter
 from features.recovery_gate import (
     BFI_RECOVERED_BELOW,
@@ -108,6 +113,7 @@ def create_app(
     *,
     dev_feed_url: str | None = None,
     sessions_dir: Path = SESSIONS,
+    data_dir: Path = DATA,
     lsl_markers: bool = True,
     device_factory: Any = None,
 ) -> FastAPI:
@@ -219,9 +225,19 @@ def create_app(
         subject = logger.session.subject_id if logger.session else ""
         return await device_call(device.start_scan, subject)
 
+    def _keep_scan_with_session() -> None:
+        """Link the SDK scan CSV into the open session so replay can find it later."""
+        if logger.session is None or device.scan_started_at is None:
+            return
+        source = newest_scan_csv(sessions_dir / "device-scans", since=device.scan_started_at - 1.0)
+        if source is not None:
+            ensure_session_scan_copy(logger.session.directory, source)
+
     @app.post("/api/device/scan/stop")
     async def device_scan_stop() -> dict[str, Any]:
-        return await device_call(device.stop_scan)
+        state = await device_call(device.stop_scan)
+        _keep_scan_with_session()
+        return state
 
     @app.get("/")
     async def index() -> FileResponse:
@@ -241,6 +257,7 @@ def create_app(
 
     @app.post("/api/session/stop")
     async def session_stop() -> dict[str, Any]:
+        _keep_scan_with_session()
         return guarded(logger.stop_session)
 
     @app.post("/api/phase")
@@ -329,8 +346,8 @@ def create_app(
     @app.get("/api/replay/sessions")
     async def replay_sessions() -> dict[str, Any]:
         # Header and tail only. A full CSV parse here blocks the dashboard.
-        sessions = await asyncio.to_thread(list_recordings, sessions_dir, DATA)
-        return {"sessions": sessions}
+        sessions = await asyncio.to_thread(list_recordings, data_dir, sessions_dir)
+        return {"sessions": sessions, "data_dir": str(data_dir)}
 
     @app.get("/api/replay")
     async def replay_state() -> dict[str, Any]:
