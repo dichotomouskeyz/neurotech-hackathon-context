@@ -46,8 +46,9 @@ async def test_closed_loop_coaches_on_elevation_then_continues(tmp_path):
         "end",
     ]
     cues = _cues(frames)
-    assert any("Pause the hold" in cue for cue in cues)
-    assert any("settled" in cue for cue in cues)
+    assert any("Task locked" in cue for cue in cues)
+    assert any("Breathe with the circle" in cue for cue in cues)
+    assert any("Perfusion-ready" in cue for cue in cues)
     assert log.loop == "off"
 
 
@@ -119,8 +120,8 @@ async def test_elevated_recovery_countdown_is_the_full_window(tmp_path):
         if recovery is not None:
             break
     assert recovery is not None
-    assert "Pause the hold" in recovery["loop_cue"]
-    assert "settles" in recovery["loop_cue"]
+    assert "Task locked" in recovery["loop_cue"]
+    assert "Breathe with the circle" in recovery["loop_cue"]
     span = recovery["timer_ends_t"] - recovery["phase_t"]
     assert span == pytest.approx(15.0, abs=0.05)
     for _ in range(30):
@@ -128,7 +129,7 @@ async def test_elevated_recovery_countdown_is_the_full_window(tmp_path):
             break
         await asyncio.sleep(0.02)
     assert log.session.phase == "end"
-    assert any("settled" in cue for cue in _cues(frames))
+    assert any("Perfusion-ready" in cue for cue in _cues(frames))
 
 
 def _batch(t, level, cq):
@@ -165,7 +166,8 @@ async def test_gate_stops_the_hold_and_continues_when_settled(tmp_path):
         gate.observe(_batch(30.0 + i * 0.4, 3.0, 0.95))
     while log.session.phase != "recovery":
         await asyncio.sleep(0.01)
-    assert any("Pause the hold" in cue for cue in _cues(frames))
+    assert any("Task locked" in cue for cue in _cues(frames))
+    assert any("Breathe with the circle" in cue for cue in _cues(frames))
     for i in range(6):
         gate.observe(_batch(40.0 + i * 0.4, 2.02, 0.95))
     for _ in range(40):
@@ -173,4 +175,60 @@ async def test_gate_stops_the_hold_and_continues_when_settled(tmp_path):
             break
         await asyncio.sleep(0.05)
     assert log.session.phase == "end"
-    assert any("settled" in cue for cue in _cues(frames))
+    assert any("unlocked" in cue or "Perfusion-ready" in cue for cue in _cues(frames))
+
+
+class _View:
+    def __init__(self, action, difficulty, gate_open, cue):
+        self.action = action
+        self.difficulty = difficulty
+        self.gate_open = gate_open
+        self.cue = cue
+
+
+class _UnlockThenCoach:
+    """Gate snapshot: unlock, then a slow tau asks for the breath coach."""
+
+    def __init__(self):
+        self.reads = 0
+
+    def challenge_done(self, now):
+        return True
+
+    def settled(self, now):
+        return True
+
+    def task_snapshot(self):
+        self.reads += 1
+        if self.reads < 4:
+            return _View(
+                "advance",
+                2,
+                True,
+                "Perfusion-ready. BFI is back and contact is good. Task step 2 unlocked.",
+            )
+        return _View(
+            "coach",
+            1,
+            True,
+            "Recovery is slow. Ease the task and breathe with the circle.",
+        )
+
+
+async def test_task_window_follows_unlock_then_breath_coach(tmp_path):
+    frames = []
+    log = PhaseLogger(tmp_path, emit=frames.extend)
+    log.start_session("coach")
+    log.start_timer(
+        {"baseline": 0.02, "hold": 0.02, "recovery": 0.05, "continue": 0.35},
+        closed_loop=True,
+        signals=_UnlockThenCoach(),
+    )
+    for _ in range(40):
+        if log.session is not None and log.session.phase == "end":
+            break
+        await asyncio.sleep(0.03)
+    cues = _cues(frames)
+    assert any("unlocked" in cue for cue in cues)
+    assert any("Recovery is slow" in cue for cue in cues)
+    assert any(frame.get("loop") == "coach" and frame.get("difficulty") == 1 for frame in frames)

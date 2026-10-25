@@ -42,7 +42,11 @@ class LoopSignals(Protocol):
         """Elevation versus baseline has held, with contact good enough to score."""
 
     def settled(self, now: float) -> bool:
-        """Perfusion is back near baseline and contact is still good."""
+        """Recovery gate has stayed open: BFI returned and contact still good."""
+
+    # Optional. When present, ``task_snapshot()`` returns an object with
+    # ``action``, ``difficulty``, ``gate_open``, and ``cue``. The loop follows
+    # it after a real rise. A hold that never rises does not ask.
 
 
 class PhaseError(ValueError):
@@ -99,6 +103,8 @@ class PhaseLogger:
         self.timer_ends_t: float | None = None
         self.loop = "off"
         self.loop_cue = ""
+        self.gate = "off"
+        self.difficulty = 1
         self._timer: asyncio.Task[None] | None = None
 
     # Sessions
@@ -132,6 +138,8 @@ class PhaseLogger:
         self.cancel_timer()
         self.loop = "off"
         self.loop_cue = ""
+        self.gate = "off"
+        self.difficulty = 1
         if self.session.phase != "end":
             self.mark("end", "manual")
         self.session = None
@@ -187,6 +195,10 @@ class PhaseLogger:
         plan = {**DEFAULT_DURATIONS, **(durations or {})}
         if closed_loop:
             assert signals is not None
+            # The task step is locked as soon as the loop is armed, before the
+            # baseline phase is written. Callers can show that on the response.
+            self.gate = "locked"
+            self.difficulty = 1
             self._timer = asyncio.get_running_loop().create_task(
                 self._run_closed_loop(plan, cycles, signals)
             )
@@ -201,6 +213,7 @@ class PhaseLogger:
             task.cancel()
             self.loop = "off"
             self.loop_cue = ""
+            self.gate = "off"
         pending = self.timer_next is not None
         if pending:
             self.timer_next = self.timer_ends_t = None
@@ -221,12 +234,13 @@ class PhaseLogger:
     async def _run_closed_loop(
         self, plan: dict[str, float], cycles: int, signals: LoopSignals
     ) -> None:
-        """Baseline, breath-hold, then breathe until perfusion settles.
+        """Baseline, breath-hold, then unlock the task only through the recovery gate.
 
-        The hold ends early when the gate reports a sustained elevation. That
-        is the pause: the task stops and the cue switches to the breathing
-        guide. Recovery ends early when perfusion is back near baseline and
-        contact is still good. A hold that never elevates does not pretend it did.
+        The hold ends early when elevation has lasted and contact is good enough
+        to score. That locks the next step. Recovery coaches a breath until
+        forehead BFI has returned and contact is still good. The task then
+        follows BFI, BVI, and tau: advance, ease, break, or breathe. A hold
+        that never rises does not pretend the gate unlocked.
         """
         try:
             # Let a stop that arrived before this task ran cancel it cleanly,
@@ -240,14 +254,23 @@ class PhaseLogger:
                 last = cycle + 1 == cycles
                 nxt = "end" if last else "baseline"
                 self.loop = "baseline"
-                self.loop_cue = "Breathe normally. This sets the resting baseline."
+                self.gate = "locked"
+                self.difficulty = 1
+                self.loop_cue = (
+                    "Breathe normally. This sets the resting blood-flow baseline. "
+                    "The task stays locked."
+                )
                 self.timer_next = "hold"
                 self.timer_ends_t = self.now() + plan["baseline"]
                 self.mark("baseline", "timer")
                 await self._wait(plan["baseline"])
 
                 self.loop = "challenge"
-                self.loop_cue = "Hold a gentle breath. The challenge is underway."
+                self.gate = "locked"
+                self.loop_cue = (
+                    "Hold a gentle breath. The next step stays locked until "
+                    "forehead BFI returns and contact is good."
+                )
                 self.timer_next = "recovery"
                 self.timer_ends_t = self.now() + plan["hold"]
                 self.mark("hold", "timer")
@@ -256,45 +279,70 @@ class PhaseLogger:
                 )
 
                 self.timer_next = nxt
+                settled = False
                 if elevated:
-                    # The countdown is the longest recovery can run. It may end
-                    # sooner once perfusion settles; the cue says so.
+                    # The countdown is the longest the lock can run. It ends
+                    # sooner once the recovery gate stays open.
                     recovery_s = plan["recovery"]
-                    self.loop = "coach"
+                    self.loop = "locked"
+                    self.gate = "locked"
                     self.loop_cue = (
-                        "Elevated versus baseline. Pause the hold and breathe with the circle. "
-                        "Recovery ends when perfusion settles, or when this timer ends."
+                        "Task locked until forehead BFI returns toward baseline. "
+                        "Breathe with the circle."
                     )
                     self.timer_ends_t = self.now() + recovery_s
                     self.mark("recovery", "timer")
                     settled = await self._wait_until(
-                        recovery_s, lambda: signals.settled(self.now())
+                        recovery_s,
+                        lambda: signals.settled(self.now()),
+                        signals,
+                        follow=True,
                     )
-                    if settled:
-                        cue = "Perfusion settled and contact is good. Continue."
-                    else:
-                        cue = "Recovery window ended before perfusion settled. Continue when ready."
+                    if not settled:
+                        self.loop = "locked"
+                        self.gate = "locked"
+                        self.loop_cue = (
+                            "Recovery window ended before BFI returned with good contact. "
+                            "The task stays locked."
+                        )
+                        self._emit_state()
                 else:
                     dwell = min(NO_ELEVATION_DWELL_S, plan["recovery"])
-                    self.loop = "continue"
+                    self.loop = "locked"
+                    self.gate = "locked"
                     self.loop_cue = (
                         "No sustained elevation versus baseline. "
-                        "Recovery is short so the timer matches. Continue when it ends."
+                        "The task stays locked. Recovery is short so the timer matches."
                     )
                     self.timer_ends_t = self.now() + dwell
                     self.mark("recovery", "timer")
                     await self._wait(dwell)
-                    cue = "Hold complete. Continue."
+                    self.loop_cue = "Hold complete. The task stays locked because flow never rose."
+                    self._emit_state()
 
                 continue_s = float(plan.get("continue", 3.0))
-                self.loop = "continue"
-                self.loop_cue = cue
                 self.timer_next = nxt
                 self.timer_ends_t = self.now() + continue_s
-                self._emit_state()
-                await self._wait(continue_s)
+                # Only a hold that actually rose, and then cleared the recovery
+                # gate, gets a task step. A flat hold does not follow the gate
+                # into an unlock.
+                opened = elevated and settled
+                if opened and self._task_view(signals) is not None:
+                    self._maybe_follow(signals, None)
+                elif opened:
+                    self.loop = "task"
+                    self.gate = "open"
+                    self.loop_cue = "Perfusion-ready. BFI is back and contact is good. Continue."
+                    self._emit_state()
+                await self._wait_until(
+                    continue_s,
+                    lambda: False,
+                    signals if opened else None,
+                    follow=opened,
+                )
             self.loop = "off"
             self.loop_cue = ""
+            self.gate = "off"
             self.timer_next = self.timer_ends_t = None
             self._timer = None
             self.mark("end", "timer")
@@ -306,21 +354,62 @@ class PhaseLogger:
             if self.loop != "off":
                 self.loop = "off"
                 self.loop_cue = ""
+                self.gate = "off"
                 if self.session is not None:
                     self._emit_state()
 
     async def _wait(self, seconds: float) -> None:
         await self._wait_until(seconds, lambda: False)
 
-    async def _wait_until(self, seconds: float, done: Callable[[], bool]) -> bool:
+    async def _wait_until(
+        self,
+        seconds: float,
+        done: Callable[[], bool],
+        signals: LoopSignals | None = None,
+        *,
+        follow: bool = False,
+    ) -> bool:
         deadline = asyncio.get_running_loop().time() + max(0.0, seconds)
+        last: tuple[Any, ...] | None = None
         while True:
+            if follow and signals is not None:
+                last = self._maybe_follow(signals, last)
             if done():
                 return True
             remaining = deadline - asyncio.get_running_loop().time()
             if remaining <= 0:
                 return False
             await asyncio.sleep(min(0.05, remaining))
+
+    def _task_view(self, signals: LoopSignals) -> Any:
+        fn = getattr(signals, "task_snapshot", None)
+        if fn is None:
+            return None
+        return fn()
+
+    def _maybe_follow(
+        self, signals: LoopSignals, last: tuple[Any, ...] | None
+    ) -> tuple[Any, ...] | None:
+        view = self._task_view(signals)
+        if view is None:
+            return last
+        signature = (view.action, view.difficulty, view.gate_open, view.cue)
+        if signature != last:
+            self._apply_task_view(view)
+        return signature
+
+    def _apply_task_view(self, view: Any) -> None:
+        self.loop = {
+            "advance": "task",
+            "hold": "task",
+            "coach": "coach",
+            "ease": "ease",
+            "break": "break",
+        }.get(view.action, "locked")
+        self.loop_cue = view.cue
+        self.difficulty = int(view.difficulty)
+        self.gate = "open" if view.gate_open else "locked"
+        self._emit_state()
 
     # State
 
@@ -338,6 +427,8 @@ class PhaseLogger:
             "timer_ends_t": self.timer_ends_t,
             "loop": self.loop,
             "loop_cue": self.loop_cue,
+            "gate": self.gate,
+            "difficulty": self.difficulty,
         }
 
     def _emit_state(self) -> None:

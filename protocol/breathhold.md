@@ -88,15 +88,8 @@ Phase markers must match what the dashboard annotates:
 
 ## Closed loop demo (about 60 seconds)
 
-For research. The dashboard button **Closed loop (~60s)** runs a short form of this protocol and acts on the stress label:
+For research. The live copy of this section is `stress-alert/protocol/breathhold.md`. **Demo Mode** and **Closed loop (~60s)** share one policy: the next task step stays locked until forehead BFI has returned toward baseline and contact quality is at least 0.50. Bad contact locks the gate. BVI and a slow recovery tau ease the step, ask for a break, or coach a breath. The perfusion tile does not unlock the task. Demo Mode keeps contact quality below 1.00 and will not start during a live scan.
 
-| Step | Duration | What the screen does |
-| :- | :- | :- |
-| Baseline | 12 s | "Breathe normally." Resting median of smoothed BFI and BVI. The label stays off. |
-| Breath-hold | up to 18 s | "Hold a gentle breath." If either index stays at least 20% above baseline for about 0.8 s, and contact quality is at least 0.50, the hold stops. |
-| Breathing guide | up to 20 s | "Pause the hold and breathe with the circle." Inhale 4 s, exhale 6 s. A contact drop below 0.50 clears the label and does not count as settled. |
-| Continue | about 3 s | When the index is back under 12% and contact is still good, "Perfusion settled and contact is good. Continue." |
-
-If the hold ends without that elevation, the screen says so and does not show the pause. Optical heart rate stays on the side panel and is not an input to the label. The longer timed protocol (60 / 30 / 90) is still on the same card.
+If the hold ends without a rise, the screen says so and does not unlock the task. Optical heart rate stays on the side panel and is not an input.
 
 Laser light still comes only from **Start scan (laser on)**.

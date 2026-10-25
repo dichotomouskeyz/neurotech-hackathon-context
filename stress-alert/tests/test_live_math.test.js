@@ -49,6 +49,39 @@ test("hold never keeps the resting baseline subtitle", () => {
   assert.equal(rest.text, "Resting baseline");
 });
 
+test("recovery gate stays locked until the server opens it", () => {
+  const waiting = liveMath.gateState(null);
+  assert.equal(waiting.headline, "Locked");
+  const contact = liveMath.gateState({ gate: "locked", gate_reason: "locked_cq", reason: "poor_coupling" });
+  assert.equal(contact.status, "critical");
+  assert.equal(contact.headline, "Locked");
+  const flow = liveMath.gateState({ gate: "locked", gate_reason: "locked_bfi" });
+  assert.equal(flow.text, "Locked, BFI");
+  const open = liveMath.gateState({ gate: "open", difficulty: 2, task: "advance" });
+  assert.equal(open.status, "good");
+  assert.equal(open.headline, "Step 2");
+  const coach = liveMath.gateState({ gate: "open", difficulty: 1, task: "coach" });
+  assert.equal(coach.status, "warning");
+  const readout = liveMath.gateReadout(
+    { gate: "open", difficulty: 2, task: "advance" },
+    { left: 0.76, right: 0.74 },
+  );
+  assert.equal(readout, "Gate open · step 2 · CQ 0.74");
+  const blocked = liveMath.gateReadout(
+    { gate: "locked", gate_reason: "locked_cq", reason: "poor_coupling" },
+    { left: 0.32, right: 0.4 },
+  );
+  assert.equal(blocked, "Gate locked · contact · CQ 0.32");
+  assert.equal(liveMath.gateReadout({ gate: "locked", gate_reason: "locked_bfi" }, { left: 1, right: 0.8 }).includes("1.00"), false);
+  const staleOpen = liveMath.gateState({ gate: "open", difficulty: 2, task: "advance" }, { left: 0.32, right: 0.4 });
+  assert.equal(staleOpen.headline, "Locked");
+  assert.equal(staleOpen.status, "critical");
+  assert.equal(
+    liveMath.gateReadout({ gate: "open", difficulty: 2, task: "advance" }, { left: 0.32, right: 0.4 }),
+    "Gate locked · contact · CQ 0.32",
+  );
+});
+
 test("chart scale ignores a minority of zeros and a baseline level shift", () => {
   const [mid] = liveMath.cameraStats([0, 0, 2, 2.2, 2.4, 2.1, 1.9, 2]);
   assert.ok(mid > 1.5);

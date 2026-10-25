@@ -20,6 +20,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field, ValidationError
 
 from dashboard import clock, dev_feed
+from dashboard.demo_recovery import DEMO_DURATIONS, run_recovery_demo
 from dashboard.device import DeviceError, DeviceManager
 from dashboard.hub import Hub, drain
 from dashboard.live_gate import LiveGate
@@ -64,6 +65,7 @@ def create_app(
     """
     hub = Hub()
     gate = LiveGate()
+    demo_task: asyncio.Task[None] | None = None
 
     def publish(frames: list[dict[str, Any]]) -> None:
         """Broadcast ``frames`` and any stress or heart-rate frames derived from them."""
@@ -96,6 +98,7 @@ def create_app(
         device.start_polling(asyncio.get_running_loop())
         task = asyncio.create_task(dev_feed.run_forever(dev_feed_url)) if dev_feed_url else None
         yield
+        await _cancel_demo(stop_protocol=False)
         logger.stop_session()
         await asyncio.to_thread(device.shutdown)
         if task:
@@ -138,6 +141,11 @@ def create_app(
 
     @app.post("/api/device/scan/start")
     async def device_scan_start() -> dict[str, Any]:
+        # A live scan owns contact quality. Stop Demo Mode before the laser path
+        # so the script cannot publish a stand-in CQ over the headset.
+        await _cancel_demo(stop_protocol=True)
+        if logger.session is not None and logger.session.subject_id == "demo":
+            logger.stop_session()
         subject = logger.session.subject_id if logger.session else ""
         return await device_call(device.start_scan, subject)
 
@@ -192,7 +200,85 @@ def create_app(
 
     @app.post("/api/protocol/stop")
     async def protocol_stop() -> dict[str, Any]:
+        await _cancel_demo(stop_protocol=False)
         return guarded(logger.cancel_timer)
+
+    def _demo_running() -> bool:
+        return demo_task is not None and not demo_task.done()
+
+    async def _cancel_demo(*, stop_protocol: bool) -> None:
+        nonlocal demo_task
+        running = demo_task
+        demo_task = None
+        if running is not None and not running.done():
+            running.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await running
+        if stop_protocol:
+            logger.cancel_timer()
+
+    async def _run_demo() -> None:
+        publish(
+            [
+                {
+                    "type": "status",
+                    "source": "demo",
+                    "connected": True,
+                    "detail": "Simulated recovery. Contact quality stays below 1.00.",
+                }
+            ]
+        )
+        try:
+            reason = await run_recovery_demo(
+                publish,
+                lambda: logger.session.phase if logger.session else None,
+                lambda: bool(device.state().get("scanning")),
+            )
+            if reason == "scan":
+                logger.cancel_timer()
+        finally:
+            publish(
+                [
+                    {
+                        "type": "status",
+                        "source": "demo",
+                        "connected": False,
+                        "detail": "",
+                    }
+                ]
+            )
+
+    @app.get("/api/demo")
+    async def demo_state() -> dict[str, Any]:
+        return {"running": _demo_running()}
+
+    @app.post("/api/demo/start")
+    async def demo_start() -> dict[str, Any]:
+        nonlocal demo_task
+        if device.state().get("scanning"):
+            raise HTTPException(
+                status_code=409,
+                detail="A live scan is running. Demo mode does not replace contact quality.",
+            )
+        if _demo_running():
+            raise HTTPException(status_code=409, detail="Demo mode is already running.")
+
+        def begin() -> None:
+            if logger.session is not None:
+                logger.stop_session()
+            logger.start_session("demo")
+            logger.start_timer(dict(DEMO_DURATIONS), 1, closed_loop=True, signals=gate)
+
+        state = guarded(begin)
+        demo_task = asyncio.create_task(_run_demo())
+        return {"running": True, **state}
+
+    @app.post("/api/demo/stop")
+    async def demo_stop() -> dict[str, Any]:
+        await _cancel_demo(stop_protocol=True)
+        if logger.session is not None:
+            guarded(logger.stop_session)
+        return {"running": False, **logger.state()}
 
     @app.websocket("/ws")
     async def browser(ws: WebSocket) -> None:

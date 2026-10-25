@@ -22,7 +22,7 @@ Every frame field `t` is seconds on `pylsl.local_clock()` of the machine running
 Two views, switched in the top bar or with `?view=present`:
 
 - **Operator**: status strip, session and timed-protocol controls, and two charts, blood flow index (BFI) and blood volume index (BVI). Each has its own scale, and they share the time axis, phase bands, and a synced crosshair. An optional camera-spread band shows the middle 50% of cameras.
-- **Present**: for the demo screen. Controls are hidden. The phase becomes a breathing circle that rises and falls gently at baseline, holds full during the breath hold, and, when the closed loop pauses, guides a 4 second inhale and a 6 second exhale. Heart rate, contact quality, and the BFI/BVI stress label sit beside it.
+- **Present**: for the demo screen. Controls are hidden. The phase becomes a breathing circle that rises and falls gently at baseline, holds full during the breath hold, and, while the task is locked or the breath coach is on, guides a 4 second inhale and a 6 second exhale. The recovery gate, contact quality, and the BFI/BVI charts lead. Heart rate and the perfusion percent sit beside them as secondary telemetry.
 
 The look is a light, clinical base: flat surfaces, hairline borders, mono numerals. Dark tokens remain in `styles.css` but are off (`data-theme="light"` on `<html>`).
 
@@ -36,7 +36,8 @@ The demo runs on a MacBook with the Open-Motion console plugged in over USB.
 2. Power the console, connect both sensor modules, and start the dashboard.
 3. In Operator view, press **Connect device**. The SDK searches USB and serial. The panel shows console, left sensor, and right sensor, each connected or not found. Hotplug works while connected, and **Search again** re-reads the state.
 4. **Start scan (laser on)** starts the SDK scan with every camera on each connected side. Live BFI and BVI stream into the charts and the brain heatmap. Contact quality uses per-camera light and dark DN (the same thresholds as `features/cq_score.py`). A covered or unlit camera scores 0. The pipeline timestamp flag is not contact, and a side with no measurement stays null. **Stop scan** ends it. Scan CSVs go to `sessions/device-scans/`, which is gitignored.
-5. **Closed loop (~60s)** starts a session if you have not, then runs the durations on the card. The defaults are one minute: baseline 15 s (breathe normally), a breath-hold challenge up to 20 s, recovery up to 20 s, and a 5 s continue beat. A full sitting is still 60 / 30 / 90 if you type those in. During baseline each camera stores its own median, and only while contact quality is at least 0.50. After the first second of the hold the gate keeps up to four cameras whose rise is at least 3%, when at least two clear that floor, and the stress index is the median of those rises. Flat cameras stay out of that median. If fewer than two cameras move, the index is the median of every eligible camera and the tile says all cameras. Nothing is added on top of the measured rise. If that index stays at least 10% above baseline for about 0.8 s and contact quality stays at least 0.50, the hold stops and the screen asks you to breathe with the circle. The tile names the cameras in use and shows the 10% line next to the raw percent. When perfusion is back under 5% and contact is still good, it says continue. If the hold never stays elevated, recovery is about 4 s and the cue says why, so the countdown matches the wait. Optical heart rate is estimated from the BFI pulse for the side panel. It is not the stress label. Switch to **Present** for the judge view. For research. Not a diagnosis.
+5. **Demo Mode** plays a simulated recovery with the laser off. The task stays locked while forehead BFI is up, unlocks when BFI is back toward baseline and contact is good, then locks again when the script drops contact quality. Demo contact scores stay below 1.00 (for example 0.82, then 0.76, then 0.32). Demo Mode refuses to start while a live scan is running, so it cannot overwrite headset contact. The button is on the operator bar and on the heatmap toolbar. Switch to **Present** for the judge view.
+6. **Closed loop (~60s)** is the same policy on a live scan. It starts a session if you have not, then runs the durations on the card. The defaults are one minute: baseline 15 s (breathe normally), a breath-hold load up to 20 s, recovery up to 20 s, and a task beat of 5 s. A full sitting is still 60 / 30 / 90 if you type those in. During baseline each camera stores its own median, and only while contact quality is at least 0.50. The recovery gate opens only when forehead BFI is back under 5% of that baseline and contact quality is still at least 0.50. Bad contact keeps it locked. When it opens, task difficulty advances. If blood volume is still high, the step eases or the banner asks for a break. If the recovery time constant is 18 s or slower, the breath coach runs and the step eases. The perfusion tile is the larger of the BFI and BVI rises on the responsive cameras. It is secondary. It does not unlock the task. Optical heart rate is estimated from the BFI pulse for the side panel. It is not an input. If the hold never stays elevated, recovery is about 4 s, the cue says why, and the task does not pretend to unlock. For research. Not a diagnosis.
 
 Errors name the fix: SDK not installed, libusb missing, no console found, or which sensor is missing. Code: `dashboard/device.py` (`DeviceManager`, plus `LiveSink` on the SDK's `live` channel). API: `GET /api/device`, `POST /api/device/connect`, `/disconnect`, `/scan/start`, `/scan/stop`.
 
@@ -56,7 +57,7 @@ Producers talk to the dashboard only through [dashboard/SCHEMA.md](dashboard/SCH
 | :- | :- |
 | 1. Server, hub, ingest and browser sockets, live BFI charts from replay | Done |
 | 2. Session/phase logger: session bar, phase buttons and timer, `events.csv`, chart shading, LSL markers | Done |
-| 3. Contact quality, optical heart rate, stress and alert panels | Done on the live scan and on `--dev-feed`. Stress is BFI/BVI versus baseline, gated on contact quality. Optical heart rate is a side panel |
+| 3. Contact quality, optical heart rate, perfusion tile, recovery gate | Done on the live scan, on Demo Mode, and on `--dev-feed`. The task unlocks when forehead BFI has returned and contact quality is at least 0.50. The perfusion tile is secondary. Optical heart rate is a side panel |
 
 ## Versions
 
@@ -128,7 +129,7 @@ For research. The stress index is not a diagnosis, a screening result, or a trea
 | Protocol | [protocol/breathhold.md](protocol/breathhold.md) |
 | CQ-gated stress index and recovery tau | [features/stress_index.py](features/stress_index.py) |
 | Optional Track 3 classifier | [features/track3_classifier.py](features/track3_classifier.py) |
-| 60-second demo script | [../docs/DEMO_SCRIPT_60S.md](../docs/DEMO_SCRIPT_60S.md) |
+| 60-second demo script | [docs/DEMO_SCRIPT_60S.md](docs/DEMO_SCRIPT_60S.md) |
 | Devpost draft | [../docs/DEVPOST_DRAFT.md](../docs/DEVPOST_DRAFT.md) |
 | Unit tests | [tests/test_stress_index.py](tests/test_stress_index.py) |
 

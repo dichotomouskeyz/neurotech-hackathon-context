@@ -1,6 +1,6 @@
 # Devpost Project Submission Draft
 
-**Project Title**: Stress-Alert: CQ-Gated Optical Cerebrovascular Reactivity on Open-Motion
+**Project Title**: Perfusion-Ready Gate: Task Unlock from Open-Motion Forehead BFI
 
 **Event**: UC Berkeley Neurotechnology Hackathon (October 24 to 25, 2026)  
 **Sponsor**: Openwater  
@@ -11,7 +11,7 @@
 
 ## Elevator Pitch
 
-A real-time optical stress and recovery monitoring system built on Open-Motion, featuring a contact-quality (CQ) gate that suppresses false alarms from motion artifacts and computes exponential recovery time-constants for research.
+A research demo on Open-Motion. A short task stays locked until forehead blood flow (BFI) returns toward baseline and contact quality is good. Difficulty, a break, and a breath coach then follow BFI, blood volume (BVI), and the recovery time constant. Same loop shape as an adaptive focus product, with optical perfusion as the control signal. For research. Not a stress classifier and not a diagnosis.
 
 ---
 
@@ -25,36 +25,37 @@ This project is a research engineering demonstration created during a 24-hour ha
 
 **Prompt**: *How can neurotechnology expand human cognitive potential?*
 
-Expanding cognitive potential requires an objective, non-invasive window into cerebral autoregulation and autonomic stress. When individuals encounter acute cognitive or physiological load, cerebral hemodynamics and autonomic state shift rapidly. However, non-invasive optical neurotechnology in naturalistic settings faces a fundamental obstacle: sensor slippage, facial muscle movement, and hair obstruction create optical artifacts that closely mimic physiological surges.
+Expanding cognitive potential needs a control signal for when the next piece of work should start, ease off, or wait. Forehead blood flow and blood volume from Open-Motion move with a breath-hold and then return. Contact quality tells us whether that return is trustworthy.
 
-Existing platforms often overclaim, treating motion artifacts as physiological events. We set out to build an artifact-robust pipeline on Open-Motion that:
-1. Tracks forehead blood flow index (BFI), blood volume index (BVI), and optical heart rate at 40 Hz.
-2. Strictly gates stress alerts on per-camera contact quality (CQ).
-3. Models post-stress hemodynamic return using an exponential recovery time-constant (tau).
+We built a perfusion-ready gate on that signal:
+1. Track forehead BFI and BVI at 40 Hz. Optical heart rate stays a side panel and does not drive the loop.
+2. Keep the next task step locked until BFI has returned toward baseline and contact quality is at least 0.50. Bad contact cannot unlock the step.
+3. Once the gate is open, step difficulty up. If BVI is still high, ease the step or ask for a break. If the recovery time constant is slow, coach a breath. The policy uses BFI, BVI, and tau, not an EEG-style focus score.
 
 ---
 
 ## What It Does
 
-The system executes a standardized 3-minute breath-hold protocol and streams data to a synchronized dashboard:
+The dashboard runs a breath-hold as the load, then a recovery gate that controls a short adaptive task. Demo Mode plays the same policy on a simulated recovery without a laser. Its contact scores stay below 1.00, and Demo Mode will not start during a live scan.
 
-1. **Phase 1: Baseline (60 seconds)**
-   - The participant rests quietly with normal tidal breathing.
-   - The pipeline continuously evaluates optical coupling and establishes a robust resting baseline for forehead BFI and heart rate.
+1. **Baseline**
+   - Resting breathing sets a per-camera BFI and BVI baseline, and only while contact quality is at least 0.50.
+   - The task stays locked.
 
-2. **Phase 2: Breath-Hold Stress Induction (20 to 40 seconds, default 30 seconds)**
-   - Voluntary end-tidal breath-holding induces transient hypercapnia (arterial PaCO2 elevation).
-   - In response, cerebral vasculature dilates, driving a 20% to 50% elevation in forehead BFI.
-   - If contact quality remains above threshold (CQ >= 0.50), the system validates the surge as physiological and triggers an elevated stress alert.
+2. **Breath-hold load**
+   - A gentle breath-hold is the physiological load. Forehead BFI rises.
+   - The gate stays locked while flow is up. A secondary perfusion tile can show the rise. That tile does not unlock the task.
 
-3. **Phase 3: Contact-Quality Gate (Artifact Suppression)**
-   - If the participant moves, frowns, or the headband slips, optical quality drops.
-   - The CQ gate suppresses the stress alert, labeling the frame `poor_coupling: CQ < 0.50` rather than false stress.
+3. **Recovery gate**
+   - The participant breathes with the on-screen coach.
+   - The gate opens only when forehead BFI is back under 5% of baseline and contact quality is still at least 0.50.
+   - If contact drops below 0.50, the gate locks even if the flow trace looks recovered.
 
-4. **Phase 4: Hemodynamic Recovery Kinetics (90 seconds)**
-   - The participant resumes normal breathing.
-   - Forehead BFI decays back toward baseline.
-   - The alert engine fits an exponential decay function to compute the recovery time-constant tau (seconds) and fraction recovered.
+4. **Adaptive step**
+   - When the gate opens, task difficulty advances one step.
+   - If BVI is still elevated, the step eases or the banner asks for a break.
+   - If the fitted recovery time constant is 18 seconds or slower, the step eases and the breath coach runs.
+   - A hold that never rises does not pretend the gate unlocked.
 
 ---
 
@@ -137,12 +138,11 @@ We fit the linear slope $m = -1 / \tau$ via ordinary least squares regression ov
 
 ---
 
-## Future Closed-Loop Research (Not Part of This Build)
+## Closed loop in this build
 
-In future research outside the hackathon, this non-invasive optical stress and recovery index could serve as the sensing arm in a closed-loop neuromodulation system. Specifically:
-- Openwater's Open-LIFU (Low-Intensity Focused Ultrasound) platform could deliver targeted neuromodulation to the hypothalamic-pituitary-adrenal (HPA) axis or vagal pathways when sustained stress is detected.
-- Real-time recovery kinetics ($\tau$) could provide quantitative feedback on whether ultrasound stimulation accelerates autonomic recovery.
-- For this weekend's build, we deliberately kept the system strictly empirical and observational, proving the sensing and artifact-rejection pipeline first.
+The loop that ships is a task policy, not stimulation and not a diagnosis. Demo Mode and the live scan share one gate: BFI returned and contact quality good. Ultrasound neuromodulation is outside this hackathon build.
+
+For research. The perfusion tile, the recovery time constant, and the task step are engineering readouts. They are not a screening result, a clinical score, or a treatment signal.
 
 ---
 

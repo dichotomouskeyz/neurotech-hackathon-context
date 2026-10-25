@@ -9,14 +9,15 @@ These procedures and recorded metrics do not constitute medical, diagnostic, scr
 This protocol induces transient, controlled physiological stress via voluntary breath-holding to evaluate:
 1. Optical cerebral blood flow index (BFI) and blood volume index (BVI) measured on the forehead at 40 Hz with the Open-Motion station.
 2. Optical heart rate estimated from pulsatile BFI residuals.
-3. Contact-quality (CQ) gated stress alerting and recovery kinetics (exponential recovery time-constant tau).
+3. Contact-quality (CQ) gated recovery kinetics (exponential recovery time-constant tau).
+4. A recovery gate for the next task step: locked until forehead BFI has returned toward baseline and CQ is at least 0.50. Bad CQ blocks the unlock. BVI and tau can ease the step, ask for a break, or coach a breath. The perfusion readout is secondary telemetry, not a stress classifier.
 
 ## Safety and Scope Constraints
 
 - Openwater approved self-testing of the Open-Motion station by team members for this project. Recordings stay in the local `stress-alert/sessions/` directory and are never committed to git.
 - Never open the Open-Motion console. The console houses a Class 3 laser source and high voltage.
 - No modifications of optical or acoustic safety outputs.
-- Closed loop neuromodulation (e.g. HPA axis regulation, Open-LIFU stimulation) is outside the scope of this hackathon build and is reserved strictly for future research.
+- The dashboard recovery gate is a task-unlock policy in this build. It does not stimulate. Closed loop neuromodulation (e.g. HPA axis regulation, Open-LIFU stimulation) is outside the scope of this hackathon build and is reserved strictly for future research.
 - If a subject experiences dizziness, discomfort, or lightheadedness, the breath-hold must terminate immediately.
 
 ## Hardware Setup and Placement
@@ -88,16 +89,16 @@ Phase markers must match what the dashboard annotates:
 
 ## Closed loop demo (about 60 seconds)
 
-For research. The dashboard button **Closed loop (~60s)** runs a short form of this protocol and acts on the stress label. The button reads the duration fields. The defaults below sum to 60 seconds. Typing 60 / 30 / 90 still runs the full sitting.
+For research. **Demo Mode** plays this policy on a simulated recovery with contact quality below 1.00, and it will not start during a live scan. **Closed loop (~60s)** runs the same policy on a live scan. The button reads the duration fields. The defaults below sum to 60 seconds. Typing 60 / 30 / 90 still runs the full sitting. The recovery gate controls the task. The perfusion tile is secondary and does not unlock a step.
 
 | Step | Duration | What the screen does |
 | :- | :- | :- |
-| Baseline | 15 s | "Breathe normally." Each camera stores its own median while contact quality is at least 0.50. The label stays off. |
-| Breath-hold | up to 20 s | "Hold a gentle breath." After the first second, up to four cameras with at least a 3% rise are kept when at least two clear that floor. The index is the median of those rises. If either index stays at least 10% above baseline for about 0.8 s, and contact quality is at least 0.50, the hold stops. The tile names the cameras. |
-| Breathing guide | up to 20 s | "Pause the hold and breathe with the circle." Inhale 4 s, exhale 6 s. The countdown is the longest this step runs. It can end sooner once perfusion settles. A contact drop below 0.50 clears the label and does not count as settled. |
-| Continue | 5 s | When the index is back under 5% and contact is still good, "Perfusion settled and contact is good. Continue." |
+| Baseline | 15 s | "Breathe normally." Each camera stores its own median while contact quality is at least 0.50. The task stays locked. |
+| Breath-hold | up to 20 s | "Hold a gentle breath." The gate stays locked while forehead BFI is up. After the first second, up to four cameras with at least a 3% rise are kept when at least two clear that floor. The secondary perfusion index is the median of those rises. |
+| Recovery gate | up to 20 s | "Task locked until forehead BFI returns toward baseline. Breathe with the circle." Inhale 4 s, exhale 6 s. The gate opens only when BFI is back under 5% and contact is still at least 0.50. A contact drop below 0.50 locks the gate and does not count as recovered. |
+| Task step | 5 s | "Perfusion-ready. Task step N unlocked." If BVI is still high, the step eases or the banner asks for a break. If recovery tau is 18 s or slower, the breath coach runs and the step eases. |
 
-If the hold ends without that elevation, recovery runs for about 4 seconds (or the typed recovery, whichever is shorter). The cue says there was no sustained elevation, and the countdown is that short dwell. The screen does not show the pause. Optical heart rate stays on the side panel and is not an input to the label.
+If the hold ends without that elevation, recovery runs for about 4 seconds (or the typed recovery, whichever is shorter). The cue says there was no sustained elevation, and the task does not unlock. Optical heart rate stays on the side panel and is not an input.
 
 Camera selection, for research. A camera is eligible when it has at least five positive baseline samples, a baseline of at least 0.2, and a coefficient of variation of at most 0.50. Non-positive samples are dropped, so a camera sitting on zero does not enter the mean. Rank is the relative rise of the hold median versus that camera's own baseline. The kept set is at most four cameras, and only when at least two rise by 3% or more. One spiked camera does not choose the set. The index after that lock is the median of the kept cameras' latest 1 second rises, so recovery can fall and a single spike does not set the alert. The same rule runs separately for BFI and for BVI. The label is the larger of the two.
 

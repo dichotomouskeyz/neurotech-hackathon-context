@@ -1,20 +1,24 @@
-# 60-Second Demo Script: Closed-Loop Perfusion Alert
+# 60-Second Demo Script: Perfusion-Ready Gate
 
 For research use only. Research engineering demonstration for the UC Berkeley Neurotech Hackathon (October 24 to 25, 2026, sponsored by Openwater).
 
 No diagnostic, screening, clinical, treatment, or therapeutic claims.
 
+The loop is a recovery gate. The next task step unlocks only when forehead blood flow (BFI) has returned toward baseline and contact quality is good. Bad contact keeps the gate shut. Blood volume (BVI) and the recovery time constant can ease the step, ask for a break, or coach a breath. The perfusion tile is secondary telemetry. It does not unlock the task, and it is not a stress classifier.
+
+The same script lives at `stress-alert/docs/DEMO_SCRIPT_60S.md`.
+
 ---
 
 ## Overview
 
-- **Format**: Live demonstration for judges (Sunday 3:00 to 5:00 pm). The closed-loop button is built to finish in about a minute.
+- **Format**: Live or Demo Mode, for judges (Sunday 3:00 to 5:00 pm). Demo Mode finishes the locked, recover, unlock, relock story in well under a minute.
 - **Dry-run target**: Sunday 2:30 pm.
-- **On screen**: Open-Motion on the forehead, dashboard in Present view. BFI and BVI charts, contact quality, the stress label, and a breathing circle.
-- **Stress label**: the larger of the BFI and BVI rises versus the resting baseline, and only when contact quality is at least 0.50. Optical heart rate is the side panel. It does not set the label.
-- **Backup**: `uv run python -m dashboard --dev-feed` replays `stress-alert/data/sample_scan.csv` and fills contact quality from that file. It does not invent a breath-hold rise. Use the live scan for the pause-and-breathe moment.
+- **On screen**: Present view. Recovery gate tile, contact quality, BFI and BVI charts with the gate line, and the coach banner. Perfusion percent and optical heart rate stay secondary.
+- **Demo contact**: graded scores such as 0.82, 0.76, and 0.32. Demo Mode never publishes 1.00, and it will not start while a live scan is running.
+- **Live contact**: light and dark digital numbers on the Open-Motion `live` batch, the same thresholds as `features/cq_score.py`. A bad score blocks the gate.
 
-## Before the judges
+## Demo Mode (no laser)
 
 ```bash
 cd stress-alert
@@ -22,26 +26,26 @@ uv sync --locked
 uv run python -m dashboard
 ```
 
-1. **Connect device.** Console and at least one sensor should read connected.
-2. **Start scan (laser on).** This is the only control that turns the laser on. BFI and BVI should leave "Waiting for bfi frames". Contact quality should leave "Waiting for contact quality" within the first captures.
-3. **Closed loop (~60s).** This starts the session if you have not. Subject id can stay blank (the session is named `demo`).
-4. Switch the top bar to **Present**.
+Open http://127.0.0.1:8765. Leave the laser off. Press **Demo Mode** (operator bar or the heatmap toolbar). Switch the top bar to **Present**.
 
-## Timeline
+Speak to the tiles. Do not quote a fixed percent or tau unless that is what the screen shows.
 
-Speak to the live numbers. Do not quote a fixed heart rate, tau, or percent unless that is what the tile shows.
-
-| Elapsed | What to say | What to point at |
+| When | What to say | What to point at |
 | :- | :- | :- |
-| 0:00 | "This is a research demo on Open-Motion. Forehead blood flow and blood volume, gated on contact quality. Heart rate is only the side panel." | Headband. Green contact. Stress tile: resting baseline. |
-| 0:12 | "Hold a gentle breath." | Banner: challenge. Phase `hold`. The BFI or BVI trace should rise. |
-| when the label crosses 20% | "Perfusion is up versus this person's baseline, and contact is still good, so the task stops." | Red stress tile, "Elevated vs baseline". Banner: pause. Circle says Inhale, then Exhale. |
-| if contact drops under 0.50 | "That swing does not count. Contact is too poor to call it elevation." | Contact tile. Stress label clears. The banner does not treat it as settled. |
-| when the trace returns | "Perfusion is back near baseline and contact is still good, so we continue." | Banner: continue. If recovery lasted long enough, the stress tile shows a recovery tau. |
-| last few seconds | "For research. Not a diagnosis. The loop is baseline, challenge, pause and breathe, continue." | Session is saved under `stress-alert/sessions/`. |
+| 0:00, gate says Locked | "The next step is locked. We do not start the task until forehead blood flow is back toward this baseline and contact is good enough to trust." | Recovery gate tile. The line on the blood flow chart: Gate locked, and a CQ under 1.00. |
+| Trace rises | "The breath-hold is the load. Flow is up, so the gate stays shut. This is perfusion, not an EEG focus score." | BFI chart climbing. Gate still Locked. Coach says breathe. |
+| Gate flips to Step 2 | "Perfusion-ready. BFI has returned and contact is still good, so task step 2 unlocks." | Gate tile "Step 2". Chart line: Gate open. Banner: Task unlocked. |
+| Contact dips (CQ near 0.32) | "Contact just failed. Flow can look recovered and the gate still locks. Bad CQ does not unlock the task." | Contact tile. Gate returns to Locked. |
+| Gate opens again | "Contact is back above the line and BFI is still recovered, so the step unlocks again. If recovery tau is slow, or blood volume is still up, the step eases, asks for a break, or coaches a breath." | Gate open, step number, BVI chart. |
+| Last few seconds | "For research. Not a diagnosis. The control signal is forehead BFI and BVI from Open-Motion." | Session under `stress-alert/sessions/`. |
 
-A hold that never rises does not fake the pause. The banner says there was no sustained elevation.
+## Live scan
 
-## If the station is not scanning
+Use this when the console is connected. Demo Mode refuses to run during a scan, so headset contact is not replaced by the script.
 
-Leave the laser off. Run `uv run python -m dashboard --dev-feed` and show the charts, contact quality from the sample file, and the stress tile asking for a baseline. Say the closed loop needs the live breath-hold. Do not describe the replay as the same physiological result.
+1. **Connect device.** Console and at least one sensor should read connected.
+2. **Start scan (laser on).** This is the only control that turns the laser on. BFI, BVI, and contact quality should leave their waiting states. Contact comes from light and dark DN, not from a filled-in 1.00.
+3. **Closed loop (~60s).** Subject id can stay blank. The task stays locked through the breath-hold. It unlocks only after BFI returns and contact stays at or above 0.50.
+4. Switch to **Present** and use the same sentences as the table above. If contact drops under 0.50, say the swing does not count and point at the locked gate.
+
+A hold that never rises does not fake an unlock. The banner says there was no sustained elevation and the task stays locked.

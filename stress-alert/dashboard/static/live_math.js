@@ -110,6 +110,58 @@ function loopTotalSeconds(body) {
 
 // Hold and recovery never keep the baseline subtitle. Poor contact and a real
 // alert win over that label.
+function finiteCq(value) {
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+function worstCq(cq) {
+  if (!cq) return null;
+  const known = ["left", "right"].map((side) => finiteCq(cq[side])).filter((value) => value !== null);
+  if (!known.length) return null;
+  return Math.min(...known);
+}
+
+// Display rule for the recovery gate. Open only when the server says so.
+// A missing gate stays locked. If the latest contact score is already under
+// 0.50, do not keep an older open decision on screen.
+function gateState(stress, cq) {
+  const score = worstCq(cq);
+  if (score !== null && score < 0.5) {
+    return { status: "critical", text: "Locked, contact", headline: "Locked" };
+  }
+  const gate = stress && stress.gate;
+  if (gate !== "open" && gate !== "locked") {
+    return { status: "unknown", text: "Waiting for BFI and contact", headline: "Locked" };
+  }
+  if (gate === "open") {
+    const step = stress.difficulty || 1;
+    const task = stress.task || "hold";
+    if (task === "coach") return { status: "warning", text: "Open, slow recovery", headline: `Step ${step}` };
+    if (task === "break") return { status: "warning", text: "Open, take a break", headline: `Step ${step}` };
+    if (task === "ease") return { status: "warning", text: "Open, easing", headline: `Step ${step}` };
+    return { status: "good", text: "Perfusion-ready", headline: `Step ${step}` };
+  }
+  const reason = (stress && stress.gate_reason) || "";
+  if (reason.includes("cq") || ((stress && stress.reason) || "").includes("poor_coupling")) {
+    return { status: "critical", text: "Locked, contact", headline: "Locked" };
+  }
+  if (reason.includes("bfi")) return { status: "warning", text: "Locked, BFI", headline: "Locked" };
+  return { status: "warning", text: "Locked", headline: "Locked" };
+}
+
+function gateReadout(stress, cq) {
+  const score = worstCq(cq);
+  const cqText = score === null ? "CQ waiting" : `CQ ${score.toFixed(2)}`;
+  const state = gateState(stress, cq);
+  if (score !== null && score < 0.5) return `Gate locked · contact · ${cqText}`;
+  if (!stress || (stress.gate !== "open" && stress.gate !== "locked")) {
+    return `Gate waiting · ${cqText}`;
+  }
+  if (stress.gate === "open") return `Gate open · ${state.headline.toLowerCase()} · ${cqText}`;
+  const why = state.text.startsWith("Locked, ") ? state.text.slice("Locked, ".length) : "waiting";
+  return `Gate locked · ${why} · ${cqText}`;
+}
+
 function stressState(stress, phase) {
   const reason = (stress && stress.reason) || "";
   const alert = Boolean(stress && stress.alert);
@@ -138,6 +190,9 @@ const liveMath = {
   protocolBody,
   loopTotalSeconds,
   stressState,
+  gateState,
+  gateReadout,
+  worstCq,
 };
 
 if (typeof module === "object" && module.exports) module.exports = liveMath;

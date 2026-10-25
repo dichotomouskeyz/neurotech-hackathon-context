@@ -16,9 +16,12 @@ the index is the median rise of every eligible camera and the tile says all
 cameras. Nothing is added on top of the measured rise. Alert when that index
 stays at or above 10% for 0.8 s and contact is still good.
 
-``challenge_done`` and ``settled`` are what the closed-loop protocol waits on:
-stop the breath-hold once elevation holds with good contact, and continue once
-perfusion is back near baseline with good contact.
+``challenge_done`` and ``settled`` are what the closed-loop protocol waits on.
+The hold can end once elevation has lasted, with contact good enough to score.
+``settled`` is the recovery gate: forehead BFI back under 5% and contact still
+at least 0.50, held for ``settle_hold_s``. Bad contact cannot settle the gate.
+The stress label stays secondary. ``TaskController`` decides whether the task
+step advances, eases, breaks, or coaches a breath from BFI, BVI, and tau.
 
 For research. This is not a diagnosis.
 """
@@ -32,6 +35,7 @@ from dataclasses import dataclass, field, replace
 from typing import Any
 
 from features.pulse_hr import estimate_optical_hr
+from features.recovery_gate import TaskController, TaskView
 from features.stress_index import StressResult, StressTracker
 
 STRESS_HOLD_S = 0.8
@@ -337,6 +341,7 @@ class LiveGate:
         self._stressed_since: float | None = None
         self._settled_since: float | None = None
         self.latest_stress: dict[str, Any] | None = None
+        self.task = TaskController()
 
     def observe(self, frames: list[dict[str, Any]]) -> list[dict[str, Any]]:
         sample_t: float | None = None
@@ -375,11 +380,19 @@ class LiveGate:
         return self._last_t - self._stressed_since >= self.stress_hold_s
 
     def settled(self, now: float) -> bool:
-        """True once recovery is near baseline, with contact still good."""
+        """True once the recovery gate has stayed open for ``settle_hold_s``.
+
+        Open means forehead BFI is back toward baseline and contact is still
+        good. A bad contact score clears the latch.
+        """
         del now
         if self._settled_since is None or self._last_t is None:
             return False
         return self._last_t - self._settled_since >= self.settle_hold_s
+
+    def task_snapshot(self) -> TaskView:
+        """Latest recovery-gate decision for the phase logger."""
+        return self.task.view
 
     # Incoming frames
 
@@ -407,6 +420,12 @@ class LiveGate:
         self._settled_since = None
         self.bfi_tracker.on_phase(phase, t)
         self.bvi_tracker.on_phase(phase, t)
+        if phase == "baseline":
+            self.task.reset()
+        elif phase == "recovery":
+            # A previous sit's tau must not coach this recovery.
+            self.bfi_tracker.last_recovery_result = None
+            self.bvi_tracker.last_recovery_result = None
         if phase == "hold":
             self.bfi_book.start_hold(t)
             self.bvi_book.start_hold(t)
@@ -491,7 +510,14 @@ class LiveGate:
         if self.phase not in ("baseline", "hold", "recovery"):
             self._stressed_since = None
             self._settled_since = None
-            return {
+            view = self.task.update(
+                bfi_index=None,
+                bvi_index=None,
+                cq=self._cq,
+                tau_s=None,
+                phase=self.phase or "",
+            )
+            frame = {
                 "type": "stress",
                 "t": t,
                 "index": 0.0,
@@ -499,22 +525,31 @@ class LiveGate:
                 "alert": False,
                 "reason": "baseline_uncalibrated: start baseline to score perfusion",
             }
+            _attach_gate(frame, view)
+            return frame
         bfi = self._sample(self.bfi_tracker, self.bfi_book, t, self._bfi_level)
         bvi = self._sample(self.bvi_tracker, self.bvi_book, t, self._bvi_level)
         if bfi is None and bvi is None:
             return None
         shown = self._present(bfi, bvi)
-        self._latch(t, shown)
+        tau = self._tau() if self.phase == "recovery" else None
+        view = self.task.update(
+            bfi_index=_metric_index(bfi),
+            bvi_index=_metric_index(bvi),
+            cq=self._cq,
+            tau_s=tau,
+            phase=self.phase or "",
+        )
+        self._latch(t, shown, view.gate_open)
         frame = shown.to_frame()
         frame["alert_at"] = self.bfi_tracker.alert_threshold
         if self.phase != "baseline":
             channels = self._channel_text()
             if channels:
                 frame["channels"] = channels
-        if self.phase == "recovery":
-            tau = self._tau()
-            if tau is not None:
-                frame["tau_s"] = tau
+        if tau is not None:
+            frame["tau_s"] = tau
+        _attach_gate(frame, view)
         return frame
 
     def _sample(
@@ -579,22 +614,16 @@ class LiveGate:
             reason = "resting baseline"
         return replace(combined, alert=False, reason=reason)
 
-    def _latch(self, t: float, shown: StressResult) -> None:
+    def _latch(self, t: float, shown: StressResult, gate_open: bool) -> None:
         if self.phase == "hold" and shown.alert:
             if self._stressed_since is None:
                 self._stressed_since = t
         else:
             self._stressed_since = None
-        settled = (
-            self.phase == "recovery"
-            and shown.baseline is not None
-            and not shown.alert
-            and shown.reason.startswith("nominal")
-            and shown.index < self.settle_index
-            and shown.cq is not None
-            and shown.cq >= self.bfi_tracker.cq_threshold
-        )
-        if settled:
+        # The recovery gate is BFI returned and contact still good. The combined
+        # stress index can stay up on blood volume without keeping the gate shut,
+        # and a bad contact score cannot leave it open.
+        if gate_open:
             if self._settled_since is None:
                 self._settled_since = t
         else:
@@ -639,6 +668,27 @@ class LiveGate:
         self._bvi_level = None
         self._hr_t.clear()
         self._hr_v.clear()
+        self.task.reset()
+
+
+def _metric_index(result: StressResult | None) -> float | None:
+    """Relative rise for one metric, or None when the sample cannot be scored.
+
+    Poor contact zeroes the stress index inside the tracker. That zero is not
+    a recovered blood-flow trace, so the gate must not treat it as one.
+    """
+    if result is None or result.baseline is None:
+        return None
+    if result.reason.startswith(("poor_coupling", "invalid_sample", "baseline_uncalibrated")):
+        return None
+    return float(result.index)
+
+
+def _attach_gate(frame: dict[str, Any], view: TaskView) -> None:
+    frame["gate"] = "open" if view.gate_open else "locked"
+    frame["gate_reason"] = view.reason
+    frame["task"] = view.action
+    frame["difficulty"] = view.difficulty
 
 
 def _usable(result: StressResult) -> bool:
