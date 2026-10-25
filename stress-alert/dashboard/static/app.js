@@ -771,7 +771,7 @@ if (heatmapCanvas && typeof BrainHeatmap !== "undefined") {
     },
   });
 
-  updateColorbarGradient("turbo");
+  updateColorbarGradient(brainHeatmap.colormap);
 
   // Projection buttons
   const viewAxial = $("btn-view-axial");
@@ -822,6 +822,7 @@ if (heatmapCanvas && typeof BrainHeatmap !== "undefined") {
   // Colormap select
   const colormapSelect = $("heatmap-colormap");
   if (colormapSelect) {
+    colormapSelect.value = brainHeatmap.colormap;
     colormapSelect.addEventListener("change", (e) => {
       brainHeatmap.setColormap(e.target.value);
       updateColorbarGradient(e.target.value);
