@@ -35,9 +35,9 @@ Speak to the tiles. Do not quote a fixed percent or tau unless that is what the 
 
 Use this when the console is connected. Demo Mode refuses to run during a scan.
 
-1. **Connect device.** Console and at least one sensor should read connected.
-2. **Start scan (laser on).** This is the only control that turns the laser on. BFI, BVI, and contact quality should leave their waiting states.
-3. **Long session.** Subject id can stay blank. Press **Long session (20 min work)**. Defaults: baseline 20 s, hold 0 (skip the breath-hold and recovery), work 1200 s. To show the calibration hold, set Hold above 0 (for example 12) and Recovery to 20 before you press the button. Check **Until End** if the bout should keep going past 20 minutes until you press End.
+1. **Search.** The button reads Search until the console is connected, then Disconnect. Console and at least one sensor should read connected.
+2. **Start scan (laser on).** This is the only control that turns the laser on. It reads Stop scan while the scan is running. BFI, BVI, and contact quality should leave their waiting states.
+3. **Run timed.** Subject id can stay blank. Press **Run timed**. Defaults: baseline 20 s, hold 0 (skip the breath-hold and recovery), work 1200 s. To show the calibration hold, set Hold above 0 (for example 12) and Recovery to 20 before you press the button. Check **Until End** if the bout should keep going past 20 minutes until you press End. The same button reads Stop protocol while the bout is running.
 4. Switch to **Present**. Use the table. You do not advance the phases by hand. The breath coach follows the gate during Work.
 
 A hold that never rises does not fake an unlock. Calibration says there was no sustained elevation, and the work step stays locked until flow moves and returns.

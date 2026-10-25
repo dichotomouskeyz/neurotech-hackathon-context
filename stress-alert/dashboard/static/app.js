@@ -577,6 +577,19 @@ setInterval(() => { renderPhaseTile(); renderHrTile(); }, 250);
 
 // Operator controls --------------------------------------------------------
 
+const TIMED_LOOPS = ["baseline", "challenge", "coach", "continue", "locked", "task", "ease", "break"];
+
+function protocolRunning() {
+  return Boolean(session.timer_next) || TIMED_LOOPS.includes(session.loop);
+}
+
+function setModeButton(button, on, label) {
+  if (!button || button.dataset.busy === "true") return;
+  button.textContent = label;
+  button.classList.toggle("active", on);
+  button.setAttribute("aria-pressed", String(on));
+}
+
 function renderControls() {
   $("session-id").textContent = session.active ? session.session_id : "no session";
   $("session-start").disabled = session.active;
@@ -587,14 +600,15 @@ function renderControls() {
   document.querySelectorAll(".phase-buttons button").forEach((b) => {
     b.disabled = !allowed.includes(b.dataset.phase);
   });
-  const timerRunning = Boolean(session.timer_next) || ["baseline", "challenge", "coach", "continue", "locked", "task", "ease", "break"].includes(session.loop);
-  const idlePhase = !session.active || session.phase === null || session.phase === "recovery" || session.phase === "work" || session.phase === "end";
-  const canTime = session.active && (session.phase === null || session.phase === "recovery" || session.phase === "work");
-  $("protocol-start").disabled = !canTime || timerRunning;
-  $("loop-start").disabled = !idlePhase || timerRunning;
-  $("protocol-stop").disabled = !timerRunning;
+  const timerRunning = protocolRunning();
+  // Same window as the old long-session button: a new session, after calibration,
+  // or once the previous bout has ended. The server starts the session when needed.
+  const canTime = !session.active || session.phase === null || session.phase === "recovery" || session.phase === "work" || session.phase === "end";
+  const run = $("protocol-start");
+  run.disabled = timerRunning ? false : !canTime;
+  setModeButton(run, timerRunning, timerRunning ? "Stop protocol" : "Run timed");
   document.querySelectorAll("#protocol-form input").forEach((i) => { i.disabled = timerRunning; });
-  refreshLoopButton();
+  syncWorkDurationField();
 }
 
 function renderEvents() {
@@ -647,37 +661,31 @@ function workUntilEndChecked() {
   return Boolean(box && box.checked);
 }
 
-function refreshLoopButton() {
+function syncWorkDurationField() {
   const untilEnd = workUntilEndChecked();
-  const timerRunning = Boolean(session.timer_next) || ["baseline", "challenge", "coach", "continue", "locked", "task", "ease", "break"].includes(session.loop);
   const workField = $("dur-continue");
-  if (workField && !timerRunning) workField.disabled = untilEnd;
-  const body = liveMath.protocolBody(readProtocolFields());
-  $("loop-start").textContent = liveMath.loopButtonLabel(body, { workUntilEnd: untilEnd });
+  if (workField && !protocolRunning()) workField.disabled = untilEnd;
+}
+
+function timedProtocolBody() {
+  // Duration fields are the long session. closed_loop is what runs Work,
+  // starts a session when there is none, and honors Until End.
+  return liveMath.protocolBody(readProtocolFields(), {
+    closedLoop: true,
+    subjectId: $("subject").value,
+    workUntilEnd: workUntilEndChecked(),
+  });
 }
 
 $("protocol-form").addEventListener("submit", (e) => {
   e.preventDefault();
-  post("/api/protocol/start", liveMath.protocolBody(readProtocolFields()));
-});
-$("protocol-stop").addEventListener("click", () => post("/api/protocol/stop"));
-$("loop-start").addEventListener("click", () => {
-  post("/api/protocol/start", liveMath.protocolBody(readProtocolFields(), {
-    closedLoop: true,
-    subjectId: $("subject").value,
-    workUntilEnd: workUntilEndChecked(),
-  }));
+  if (protocolRunning()) post("/api/protocol/stop");
+  else post("/api/protocol/start", timedProtocolBody());
 });
 
 function setDemoRunning(on) {
   document.body.dataset.demo = on ? "on" : "off";
-  for (const id of ["demo-start", "btn-heatmap-demo"]) {
-    const btn = $(id);
-    if (!btn) continue;
-    btn.classList.toggle("active", on);
-    btn.textContent = on ? "Stop Demo" : "Demo Mode";
-    btn.setAttribute("aria-pressed", String(on));
-  }
+  setModeButton($("demo-start"), on, on ? "Stop Demo" : "Demo Mode");
 }
 
 async function toggleDemo() {
@@ -693,10 +701,7 @@ async function toggleDemo() {
   const data = await res.json().catch(() => ({}));
   if (!res.ok) {
     const detail = Array.isArray(data.detail) ? data.detail[0].msg : data.detail;
-    const msg = detail || "Demo mode did not start";
-    $("session-error").textContent = msg;
-    const statusText = $("heatmap-status-text");
-    if (statusText) statusText.textContent = msg;
+    $("session-error").textContent = detail || "Demo mode did not start";
     return;
   }
   $("session-error").textContent = "";
@@ -705,8 +710,8 @@ async function toggleDemo() {
 
 $("demo-start").addEventListener("click", () => { toggleDemo(); });
 fetch("/api/demo").then((res) => res.json()).then((data) => setDemoRunning(Boolean(data.running))).catch(() => {});
-$("protocol-form").addEventListener("input", refreshLoopButton);
-refreshLoopButton();
+$("protocol-form").addEventListener("input", syncWorkDurationField);
+syncWorkDurationField();
 
 // Open-Motion device -------------------------------------------------------
 
@@ -729,31 +734,39 @@ function renderDevice() {
   setPart("dev-right", "Right sensor", d.connected && d.console, d.right);
   $("device-sdk").textContent = d.sdk_version ? `SDK ${d.sdk_version}` : "";
   $("device-error").textContent = d.error || "";
-  $("device-connect").textContent = d.connected ? "Search again" : "Connect device";
-  $("device-disconnect").disabled = !d.connected;
-  $("scan-start").disabled = !d.connected || !d.console || !(d.left || d.right) || d.scanning;
-  $("scan-stop").disabled = !d.scanning;
+  setModeButton($("device-connect"), Boolean(d.connected), d.connected ? "Disconnect" : "Search");
+  const scan = $("scan-start");
+  const scanning = Boolean(d.scanning);
+  setModeButton(scan, scanning, scanning ? "Stop scan" : "Start scan (laser on)");
+  if (scan && scan.dataset.busy !== "true") {
+    const canScan = d.connected && d.console && (d.left || d.right);
+    scan.disabled = scanning ? false : !canScan;
+  }
   const ready = d.connected && d.console && (d.left || d.right);
   setChip("chip-device", d.scanning ? "open-motion scanning" : "open-motion", ready, d.error);
 }
 
 async function deviceAction(path, button) {
   button.disabled = true;
+  button.dataset.busy = "true";
   const label = button.textContent;
   if (path === "connect") button.textContent = "Searching…";
   try {
     await post(`/api/device/${path}`, {}, "device-error");
   } finally {
+    delete button.dataset.busy;
     button.textContent = label;
     button.disabled = false;
     renderDevice();
   }
 }
 
-$("device-connect").addEventListener("click", (e) => deviceAction("connect", e.currentTarget));
-$("device-disconnect").addEventListener("click", (e) => deviceAction("disconnect", e.currentTarget));
-$("scan-start").addEventListener("click", (e) => deviceAction("scan/start", e.currentTarget));
-$("scan-stop").addEventListener("click", (e) => deviceAction("scan/stop", e.currentTarget));
+$("device-connect").addEventListener("click", (e) => {
+  deviceAction(device.connected ? "disconnect" : "connect", e.currentTarget);
+});
+$("scan-start").addEventListener("click", (e) => {
+  deviceAction(device.scanning ? "scan/stop" : "scan/start", e.currentTarget);
+});
 
 // View: operator or present ----------------------------------------------
 
@@ -795,16 +808,7 @@ function handle(frame) {
       if (brainHeatmap) {
         brainHeatmap.update(frame);
         const cardH = $("card-heatmap");
-        if (cardH && cardH.dataset.live !== "true") {
-          cardH.dataset.live = "true";
-          const s = $("heatmap-status-text");
-          if (s) {
-            s.textContent = document.body.dataset.demo === "on" ? "Demo recovery" : "Live Stream (40 Hz)";
-          }
-        } else if (cardH && document.body.dataset.demo === "on") {
-          const s = $("heatmap-status-text");
-          if (s) s.textContent = "Demo recovery";
-        }
+        if (cardH) cardH.dataset.live = "true";
       }
       break;
     case "hr":
@@ -1002,9 +1006,6 @@ if (heatmapCanvas && typeof BrainHeatmap !== "undefined") {
       brainHeatmap.setAutoscale(e.target.checked);
     });
   }
-
-  const demoBtn = $("btn-heatmap-demo");
-  if (demoBtn) demoBtn.addEventListener("click", () => { toggleDemo(); });
 }
 
 $("spread").addEventListener("change", (event) => {

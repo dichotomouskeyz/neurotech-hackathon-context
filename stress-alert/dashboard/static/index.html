@@ -17,6 +17,10 @@
     <div class="topbar-inner">
       <div class="brand">
         <h1>stress-alert</h1>
+        <span class="info">
+          <button type="button" class="info-btn" aria-label="About this dashboard" aria-describedby="present-hint">ⓘ</button>
+          <span class="info-tip" id="present-hint" role="tooltip">Calibrate, then work. A breath starts when forehead flow leaves the calibrated baseline and contact is good. For research. Not a diagnosis.</span>
+        </span>
         <span class="session-id" id="session-id">no session</span>
       </div>
       <div class="sources" id="sources" aria-live="polite">
@@ -31,7 +35,6 @@
   </header>
 
   <main id="main">
-    <p class="present-hint present-only" id="present-hint">Calibrate, then work. A breath starts when forehead flow leaves the calibrated baseline and contact is good. For research. Not a diagnosis.</p>
     <section class="strip" aria-label="Live status">
       <article class="card tile tile-phase" id="tile-phase" data-phase="" data-live="true">
         <h2 class="card-title">Phase</h2>
@@ -56,9 +59,13 @@
       </article>
 
       <article class="card tile" id="tile-hr">
-        <h2 class="card-title">Heart rate</h2>
+        <h2 class="card-title">Heart rate
+          <span class="info">
+            <button type="button" class="info-btn" aria-label="About heart rate" aria-describedby="hr-role">ⓘ</button>
+            <span class="info-tip" id="hr-role" role="tooltip">Side panel, from the optical pulse. Not the recovery gate.</span>
+          </span>
+        </h2>
         <div class="value live-only"><span class="num" id="hr-optical">--</span><span class="unit">bpm optical</span></div>
-        <div class="sub" id="hr-role">Side panel, from the optical pulse. Not the recovery gate.</div>
         <div class="sub live-only" id="hr-note"></div>
         <p class="waiting">Waiting for optical heart rate</p>
       </article>
@@ -88,11 +95,15 @@
       </article>
 
       <article class="card tile" id="tile-stress">
-        <h2 class="card-title">Perfusion</h2>
+        <h2 class="card-title">Perfusion
+          <span class="info">
+            <button type="button" class="info-btn" aria-label="About perfusion" aria-describedby="stress-role">ⓘ</button>
+            <span class="info-tip" id="stress-role" role="tooltip">Secondary telemetry. Each camera versus its own baseline median. Heart rate is not used. The recovery gate controls the task.</span>
+          </span>
+        </h2>
         <div class="value live-only"><span class="num" id="stress-index">--</span><span class="unit">vs baseline</span></div>
         <span class="state live-only" id="stress-state"></span>
         <div class="sub live-only" id="stress-detail"></div>
-        <p class="sub">Secondary telemetry. Each camera versus its own baseline median. Heart rate is not used. The recovery gate controls the task.</p>
         <p class="waiting">Waiting for BFI and BVI versus baseline</p>
       </article>
     </section>
@@ -108,15 +119,13 @@
       <div class="control-group device-group">
         <h2 class="card-title">Open-Motion device <span class="meta" id="device-sdk"></span></h2>
         <div class="row">
-          <button type="button" class="primary" id="device-connect">Connect device</button>
-          <button type="button" id="device-disconnect">Disconnect</button>
+          <button type="button" class="primary mode-btn" id="device-connect" aria-pressed="false">Search</button>
           <ul class="device-parts" aria-label="Device parts">
             <li><span class="state" id="dev-console">Console</span></li>
             <li><span class="state" id="dev-left">Left sensor</span></li>
             <li><span class="state" id="dev-right">Right sensor</span></li>
           </ul>
-          <button type="button" id="scan-start">Start scan (laser on)</button>
-          <button type="button" id="scan-stop">Stop scan</button>
+          <button type="button" class="mode-btn" id="scan-start" aria-pressed="false" disabled>Start scan (laser on)</button>
         </div>
         <p class="error" id="device-error" role="alert"></p>
       </div>
@@ -140,22 +149,32 @@
       </div>
 
       <div class="control-group">
-        <h2 class="card-title">Timed protocol</h2>
-        <div class="row loop-row">
-          <button type="button" class="primary" id="demo-start" aria-pressed="false">Demo Mode</button>
-          <button type="button" class="primary" id="loop-start">Long session (20 min work)</button>
-          <p class="hint" id="loop-hint">Long session is the live path. Calibrate is a 20 second baseline sit. Hold at 0 skips the breath-hold and recovery. Work then runs 20 minutes. The gate tile locks as soon as forehead flow crosses the boundary. The breath starts only after about 4 seconds when the average rise, and most of that window, are still over the boundary. It stays on until the average is under half the boundary. BFI within baseline is the recovery boundary for that check, applied when Long session, Run timed, or Demo Mode starts. It stays fixed until you stop and start again. Default 5, allowed 1 to 25. Contact quality stays at least 0.50. Check Until End to keep Work going until you press End. Demo Mode is the short offline fallback: it will not start during a live scan, and its contact scores stay below 1.00.</p>
+        <h2 class="card-title">Timed protocol
+          <span class="info">
+            <button type="button" class="info-btn" aria-label="About the timed protocol" aria-describedby="loop-hint">ⓘ</button>
+            <span class="info-tip" id="loop-hint" role="tooltip">Run timed is the live path. Calibrate is a 20 second baseline sit. Hold at 0 skips the breath-hold and recovery. Work then runs 20 minutes. The gate tile locks as soon as forehead flow crosses the boundary. The breath starts only after about 4 seconds when the average rise, and most of that window, are still over the boundary. It stays on until the average is under half the boundary. BFI within baseline is the recovery boundary for that check, applied when Run timed or Demo Mode starts. It stays fixed until you stop and start again. Default 5, allowed 1 to 25. Contact quality stays at least 0.50. Check Until End to keep Work going until you press End. Demo Mode is the short offline fallback: it will not start during a live scan, and its contact scores stay below 1.00.</span>
+          </span>
+        </h2>
+        <div class="row">
+          <button type="button" class="primary mode-btn" id="demo-start" aria-pressed="false">Demo Mode</button>
         </div>
         <form class="row" id="protocol-form">
           <label class="field">Baseline (s) <input type="number" id="dur-baseline" value="20" min="1" max="600"></label>
           <label class="field">Hold (s, 0 skips) <input type="number" id="dur-hold" value="0" min="0" max="120"></label>
           <label class="field">Recovery (s) <input type="number" id="dur-recovery" value="20" min="1" max="600"></label>
           <label class="field">Work (s) <input type="number" id="dur-continue" value="1200" min="1" max="14400"></label>
-          <label class="field" title="Perfusion-ready when the forehead BFI rise is under this percent of the calibrated baseline. The breath coach uses the same line. Contact quality is separate.">BFI within baseline (%) <input type="number" id="recovered-within" value="5" min="1" max="25" step="1"></label>
+          <label class="field">
+            <span>BFI within baseline (%)
+              <span class="info">
+                <button type="button" class="info-btn" aria-label="About the recovery boundary" aria-describedby="bfi-boundary-hint">ⓘ</button>
+                <span class="info-tip" id="bfi-boundary-hint" role="tooltip">Perfusion-ready when the forehead BFI rise is under this percent of the calibrated baseline. The breath coach uses the same line. Contact quality is separate.</span>
+              </span>
+            </span>
+            <input type="number" id="recovered-within" value="5" min="1" max="25" step="1">
+          </label>
           <label class="toggle"><input type="checkbox" id="work-until-end"> Until End</label>
           <label class="field">Cycles <input type="number" id="cycles" value="1" min="1" max="10"></label>
-          <button type="submit" class="primary" id="protocol-start">Run timed</button>
-          <button type="button" id="protocol-stop">Stop protocol</button>
+          <button type="submit" class="primary mode-btn" id="protocol-start" aria-pressed="false">Run timed</button>
         </form>
         <ol class="events" id="events" aria-label="Phase events"></ol>
       </div>
@@ -165,10 +184,6 @@
       <div class="heatmap-head">
         <div class="heatmap-title-row">
           <h2 class="card-title" id="title-heatmap">2D Brain Hemodynamic Heatmap</h2>
-          <div class="heatmap-live-chip" id="heatmap-live-chip">
-            <span class="chip-dot"></span>
-            <span id="heatmap-status-text">Waiting for Open-Motion</span>
-          </div>
         </div>
 
         <div class="heatmap-toolbar">
@@ -194,7 +209,6 @@
 
           <label class="toggle"><input type="checkbox" id="heatmap-show-optodes" checked> Optodes &amp; labels</label>
           <label class="toggle"><input type="checkbox" id="heatmap-autoscale" checked> Auto-scale</label>
-          <button type="button" class="btn-segmented" id="btn-heatmap-demo">Demo Mode</button>
         </div>
       </div>
 

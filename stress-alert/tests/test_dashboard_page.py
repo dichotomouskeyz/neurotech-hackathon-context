@@ -18,8 +18,22 @@ def test_page_defaults_are_a_long_work_bout_after_a_short_baseline():
     assert 'min="1" max="25"' in html
     assert "BFI within baseline (%)" in html
     assert 'id="present-hint"' in html
-    assert "Long session (20 min work)" in html
+    assert 'class="info-tip"' in html
+    assert "info-btn" in html
     assert "Hold at 0 skips" in html
+    assert "Long session (20 min work)" not in html
+    assert 'id="loop-start"' not in html
+    assert 'id="device-disconnect"' not in html
+    assert 'id="scan-stop"' not in html
+    assert 'id="protocol-stop"' not in html
+    assert 'id="btn-heatmap-demo"' not in html
+    assert 'id="heatmap-live-chip"' not in html
+    assert ">Search<" in html
+    assert ">Start scan (laser on)<" in html
+    assert ">Run timed<" in html
+    assert "closedLoop: true" in js
+    assert "Stop protocol" in js
+    assert "Disconnect" in js
     assert "Work (s)" in html
     assert 'id="gate-tau"' in html
     assert "Recovery τ" in html

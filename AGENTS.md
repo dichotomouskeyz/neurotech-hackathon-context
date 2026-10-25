@@ -16,7 +16,7 @@ Lanes. Stay in your lane and code against the message contract in `stress-alert/
 Environments:
 
 - The app uses Python 3.12 with uv. Dependencies are pinned exactly in `stress-alert/pyproject.toml` and locked in `uv.lock`. Add a dependency with `uv add <pkg>==<version>`, preferring releases at least two weeks old, and commit the lockfile.
-- `openmotion-sdk` is pinned to 1.12.0, matching Openwater's bloodflow app, and is a regular dependency. The dashboard's Connect device button uses it (`dashboard/device.py`). On macOS it needs `brew install libusb`. `demo_mode` produced no BFI/BVI in our test.
+- `openmotion-sdk` is pinned to 1.12.0, matching Openwater's bloodflow app, and is a regular dependency. The dashboard's Search button uses it (`dashboard/device.py`). On macOS it needs `brew install libusb`. `demo_mode` produced no BFI/BVI in our test.
 
 ## Scope rules
 

@@ -89,7 +89,7 @@ Phase markers must match what the dashboard annotates:
 
 ## Long session (live default)
 
-For research. **Long session** is the live path. **Demo Mode** is a short offline fallback: calibration, then a short work loop, contact quality below 1.00, and it will not start during a live scan. The button reads the duration fields. Defaults are a 20 second baseline, hold 0, and 20 minutes of work (1200 s). Hold at 0 skips the breath-hold and recovery. Typing a hold above 0 runs that hold and the recovery field as calibration proof. **Until End** keeps work going until the operator presses End. The full 60 / 30 / 90 sitting is still the manual breath-hold protocol above, not this default. The recovery gate controls the work step. The perfusion tile is secondary and does not unlock a step. It is not a stressed-or-not score.
+For research. **Run timed** is the live path. **Demo Mode** is a short offline fallback: calibration, then a short work loop, contact quality below 1.00, and it will not start during a live scan. Run timed reads the duration fields. Defaults are a 20 second baseline, hold 0, and 20 minutes of work (1200 s). Hold at 0 skips the breath-hold and recovery. Typing a hold above 0 runs that hold and the recovery field as calibration proof. **Until End** keeps work going until the operator presses End. The full 60 / 30 / 90 sitting is still the manual breath-hold protocol above, not this default. The recovery gate controls the work step. The perfusion tile is secondary and does not unlock a step. It is not a stressed-or-not score.
 
 | Step | Duration | What the screen does |
 | :- | :- | :- |
