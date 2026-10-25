@@ -55,6 +55,11 @@ class Stress(_Frame):
     default) and contact quality passed. Optical heart rate is a separate ``hr``
     frame and does not set ``alert``. ``channels`` names the cameras in use.
     ``tau_s`` is the recovery time constant, in seconds, once a decay fit succeeds.
+    ``gate`` is the work-phase policy: ``open`` only when forehead BFI has
+    returned and contact quality passed. Calibration (baseline, hold, recovery)
+    stays locked. ``task`` is what that policy does to the step (locked,
+    advance, ease, break, coach, or hold). ``difficulty`` is the step.
+    ``alert`` stays secondary telemetry and does not unlock the task.
     """
 
     type: Literal["stress"]
@@ -68,10 +73,24 @@ class Stress(_Frame):
     alert_at: float | None = None
     # Responsive cameras used for the index, for example "BFI L3, L4, R2".
     channels: str = ""
+    gate: Literal["open", "locked"] | None = None
+    gate_reason: str = ""
+    task: Literal["locked", "advance", "ease", "break", "coach", "hold"] | None = None
+    difficulty: Annotated[int, Field(ge=1, le=8)] | None = None
 
 
-PhaseName = Literal["baseline", "hold", "recovery", "end"]
-LoopMode = Literal["off", "baseline", "challenge", "coach", "continue"]
+PhaseName = Literal["baseline", "hold", "recovery", "work", "end"]
+LoopMode = Literal[
+    "off",
+    "baseline",
+    "challenge",
+    "coach",
+    "continue",
+    "locked",
+    "task",
+    "ease",
+    "break",
+]
 
 
 class Phase(_Frame):
@@ -96,6 +115,9 @@ class Session(_Frame):
     timer_ends_t: float | None = None
     loop: LoopMode = "off"
     loop_cue: str = ""
+    # Recovery gate for the task step. ``off`` when no protocol is driving it.
+    gate: Literal["off", "open", "locked"] = "off"
+    difficulty: Annotated[int, Field(ge=1, le=8)] = 1
 
 
 class Device(_Frame):

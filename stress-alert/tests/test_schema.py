@@ -73,6 +73,21 @@ def test_stress_tau_and_closed_loop_session_are_in_the_contract():
     assert stress.tau_s == pytest.approx(22.4)
     assert stress.alert_at == pytest.approx(0.10)
     assert stress.channels == "BFI L3, L4, R2"
+    gated = frame_adapter.validate_python(
+        {
+            "type": "stress",
+            "t": 2.0,
+            "index": 0.02,
+            "alert": False,
+            "gate": "open",
+            "gate_reason": "open",
+            "task": "advance",
+            "difficulty": 2,
+        }
+    )
+    assert gated.gate == "open"
+    assert gated.task == "advance"
+    assert gated.difficulty == 2
     session = frame_adapter.validate_python(
         {
             "type": "session",
@@ -84,6 +99,20 @@ def test_stress_tau_and_closed_loop_session_are_in_the_contract():
         }
     )
     assert session.loop == "coach"
+    unlocked = frame_adapter.validate_python(
+        {
+            "type": "session",
+            "t": 2.0,
+            "active": True,
+            "phase": "work",
+            "loop": "task",
+            "gate": "open",
+            "difficulty": 2,
+            "loop_cue": "Perfusion-ready. Task step 2 unlocked.",
+        }
+    )
+    assert unlocked.gate == "open"
+    assert unlocked.difficulty == 2
     with pytest.raises(ValidationError):
         frame_adapter.validate_python(
             {"type": "session", "t": 1.0, "active": True, "loop": "stressed"}

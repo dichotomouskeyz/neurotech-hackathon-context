@@ -441,8 +441,8 @@ class StressTracker:
         self.last_recovery_result: RecoveryResult | None = None
 
     def on_phase(self, phase: str, t: float) -> None:
-        """Handle phase change (baseline -> hold -> recovery -> end)."""
-        valid_phases = {"baseline", "hold", "recovery", "end"}
+        """Handle phase change (baseline -> hold -> recovery -> work -> end)."""
+        valid_phases = {"baseline", "hold", "recovery", "work", "end"}
         if phase not in valid_phases:
             raise ValueError(f"unknown phase {phase!r}, must be one of {valid_phases}")
 

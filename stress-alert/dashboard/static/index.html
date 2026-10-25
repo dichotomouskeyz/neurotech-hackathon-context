@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="description" content="Breath-hold stress dashboard: Open-Motion blood flow and optical heart rate, for research use.">
+  <meta name="description" content="For research. A short calibration learns resting forehead blood flow. During work, the next step unlocks when BFI returns and contact is good.">
   <link rel="icon" href="data:,">
   <title>stress-alert</title>
   <link rel="preload" href="/static/vendor/geist-latin-wght-normal.woff2" as="font" type="font/woff2" crossorigin>
@@ -57,9 +57,23 @@
       <article class="card tile" id="tile-hr">
         <h2 class="card-title">Heart rate</h2>
         <div class="value live-only"><span class="num" id="hr-optical">--</span><span class="unit">bpm optical</span></div>
-        <div class="sub" id="hr-role">Side panel, from the optical pulse. Not the stress label.</div>
+        <div class="sub" id="hr-role">Side panel, from the optical pulse. Not the recovery gate.</div>
         <div class="sub live-only" id="hr-note"></div>
         <p class="waiting">Waiting for optical heart rate</p>
+      </article>
+
+      <article class="card tile" id="tile-gate" data-gate="off">
+        <h2 class="card-title">Recovery gate</h2>
+        <div class="gate-readouts live-only">
+          <div class="value"><span class="num" id="gate-state">Locked</span></div>
+          <div class="tau-readout">
+            <span class="tau-label">Recovery τ</span>
+            <span class="tau-value"><span class="num" id="gate-tau">--</span><span class="unit" id="gate-tau-unit" hidden>s</span></span>
+          </div>
+        </div>
+        <span class="state live-only" id="gate-status"></span>
+        <div class="sub live-only" id="gate-detail"></div>
+        <p class="waiting">Waiting for BFI and contact quality</p>
       </article>
 
       <article class="card tile" id="tile-cq">
@@ -73,11 +87,11 @@
       </article>
 
       <article class="card tile" id="tile-stress">
-        <h2 class="card-title">Stress</h2>
+        <h2 class="card-title">Perfusion</h2>
         <div class="value live-only"><span class="num" id="stress-index">--</span><span class="unit">vs baseline</span></div>
         <span class="state live-only" id="stress-state"></span>
         <div class="sub live-only" id="stress-detail"></div>
-        <p class="sub">Each camera versus its own baseline median. Heart rate is not used.</p>
+        <p class="sub">Secondary telemetry. Each camera versus its own baseline median. Heart rate is not used. The recovery gate controls the task.</p>
         <p class="waiting">Waiting for BFI and BVI versus baseline</p>
       </article>
     </section>
@@ -118,6 +132,7 @@
           <button type="button" data-phase="baseline">Baseline</button>
           <button type="button" data-phase="hold">Hold</button>
           <button type="button" data-phase="recovery">Recovery</button>
+          <button type="button" data-phase="work">Work</button>
           <button type="button" data-phase="end">End</button>
         </div>
         <p class="error" id="session-error" role="alert"></p>
@@ -126,14 +141,15 @@
       <div class="control-group">
         <h2 class="card-title">Timed protocol</h2>
         <div class="row loop-row">
+          <button type="button" class="primary" id="demo-start" aria-pressed="false">Demo Mode</button>
           <button type="button" class="primary" id="loop-start">Closed loop (~60s)</button>
-          <p class="hint">Uses the durations below. Defaults are one minute (15 + 20 + 20 + 5). A full sitting is 60 / 30 / 90. If the hold never stays elevated, recovery is shortened and the cue says so.</p>
+          <p class="hint">Demo Mode runs a short calibration (baseline, breath-hold, recovery), then a work loop. The task stays locked during calibration. During work it unlocks only when forehead BFI is back and contact is good. Contact quality in the demo stays below 1.00, and Demo Mode will not start during a live scan. Closed loop is the same two parts on a live scan. Defaults are one minute: calibrate 8 + 8 + 12, then work 32.</p>
         </div>
         <form class="row" id="protocol-form">
-          <label class="field">Baseline (s) <input type="number" id="dur-baseline" value="15" min="1" max="600"></label>
-          <label class="field">Hold (s) <input type="number" id="dur-hold" value="20" min="1" max="120"></label>
-          <label class="field">Recovery (s) <input type="number" id="dur-recovery" value="20" min="1" max="600"></label>
-          <label class="field">Continue (s) <input type="number" id="dur-continue" value="5" min="1" max="30"></label>
+          <label class="field">Baseline (s) <input type="number" id="dur-baseline" value="8" min="1" max="600"></label>
+          <label class="field">Hold (s) <input type="number" id="dur-hold" value="8" min="1" max="120"></label>
+          <label class="field">Recovery (s) <input type="number" id="dur-recovery" value="12" min="1" max="600"></label>
+          <label class="field">Work (s) <input type="number" id="dur-continue" value="32" min="1" max="120"></label>
           <label class="field">Cycles <input type="number" id="cycles" value="1" min="1" max="10"></label>
           <button type="submit" class="primary" id="protocol-start">Run timed</button>
           <button type="button" id="protocol-stop">Stop protocol</button>
@@ -220,6 +236,7 @@
     <section class="card chart-card" id="card-bfi" aria-labelledby="title-bfi">
       <div class="chart-head">
         <h2 class="card-title" id="title-bfi">Blood flow index</h2>
+        <p class="gate-readout" id="gate-chart" data-gate="off">Gate waiting for BFI, BVI, and contact quality</p>
         <div class="legend" aria-live="off">
           <span class="key"><span class="swatch swatch-left"></span>Left <output id="val-left-bfi">--</output></span>
           <span class="key"><span class="swatch swatch-right"></span>Right <output id="val-right-bfi">--</output></span>

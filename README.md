@@ -6,7 +6,7 @@ Prompt: **How can neurotechnology expand human cognitive potential?**
 
 The repo holds two things:
 
-- **`stress-alert/`**: the app. Open-Motion (forehead blood flow, blood volume, optical heart rate) feeds a live dashboard. Lane 1 replays recorded CSVs offline. Lane 4 adds the breath-hold protocol, a contact-quality-gated stress index from BFI and BVI, and a closed loop that pauses for a breathing guide when perfusion is elevated. See `stress-alert/README.md`.
+- **`stress-alert/`**: the app. Open-Motion (forehead blood flow, blood volume, optical heart rate) feeds a live dashboard. Lane 1 replays recorded CSVs offline. A short breath-hold calibrates resting forehead BFI. During work, the next task step unlocks only when BFI has returned and contact quality is good. Demo Mode plays calibration, then that work loop, without a laser. See `stress-alert/README.md`.
 - **`docs/` and `sources/`**: event context, including rules, tracks, Openwater platform notes, and snapshots of the planning documents.
 
 ## Layout
