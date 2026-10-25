@@ -16,13 +16,11 @@ Work is the session, 20 minutes by default. The gate opens when forehead BFI is 
 
 ## Demo
 
-Present view, 44 seconds, no audio. The sample replay is running. Calibrate learns resting forehead flow with the task locked. Work holds the step until BFI is back and contact is good, then the gate opens.
+Present view on the sample replay. This loop is the recovery-gate beat: the task stays locked, the breath coach runs with the circle, then the step unlocks when forehead BFI is back and contact is good. The full clip is 44 seconds, with no audio.
 
-<video src="docs/demo/present.mp4" controls muted playsinline preload="metadata" poster="docs/demo/present.jpg" width="800">
-  <a href="docs/demo/present.mp4">Play the Present-view demo</a>
-</video>
+![Present view recovery gate: task locked, breath coach circle, then perfusion-ready unlock, with live BFI and BVI charts and the forehead heatmap](docs/demo/present.gif)
 
-[![Present view: perfusion-ready, the task step unlocked, with forehead BFI and BVI](docs/demo/present.jpg)](docs/demo/present.mp4)
+[Full muted Present-view demo (44 seconds)](docs/demo/present.mp4)
 
 From a clone of this repository:
 
