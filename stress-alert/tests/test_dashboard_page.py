@@ -19,6 +19,23 @@ def test_page_defaults_sum_to_one_minute_and_name_the_method():
     assert "renderStressTile()" in js
 
 
+def test_heatmap_defaults_to_viridis_without_a_circular_clip():
+    html = (ROOT / "dashboard/static/index.html").read_text()
+    preview = (ROOT / "dashboard/static/heatmap_preview.html").read_text()
+    heat = (ROOT / "dashboard/static/heatmap.js").read_text()
+    app = (ROOT / "dashboard/static/app.js").read_text()
+    for page in (html, preview):
+        assert '<option value="viridis" selected>Viridis</option>' in page
+        assert 'value="turbo" selected' not in page
+    assert 'const DEFAULT_COLORMAP = "viridis"' in heat
+    assert "clipAnatomicalPath" not in heat
+    assert "ctx.clip(" not in heat
+    assert "ellipse(" not in heat
+    assert "updateColorbarGradient(brainHeatmap.colormap)" in app
+    assert 'this.setColormap("turbo")' not in heat
+    assert 'this.setColormap("coolwarm")' in heat
+
+
 def test_live_math_node():
     script = ROOT / "tests" / "test_live_math.test.js"
     subprocess.run(["node", "--test", str(script)], check=True, cwd=ROOT)
