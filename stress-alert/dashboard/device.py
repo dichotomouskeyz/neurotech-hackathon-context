@@ -1,8 +1,10 @@
 """Find, connect, and stream from the Openwater Open-Motion device.
 
 ``DeviceManager`` wraps ``openmotion-sdk``'s ``MotionInterface``. Connecting starts
-the SDK's own USB/serial discovery and hotplug monitor. It does not power cameras.
-Start scan powers the scan mask, programs camera FPGAs and sensor registers
+the SDK's own USB/serial discovery and hotplug monitor. It does not power cameras
+or write laser registers. Start scan writes the SDK's bundled laser-driver
+registers (``apply_laser_power``, the bloodflow console-connect step), powers the
+scan mask, programs camera FPGAs and sensor registers
 (``start_configure_camera_sensors``, about 2 minutes for all 16 cameras), requires
 ``enable_camera`` to succeed, then starts the SDK scan. Frames are live BFI/BVI
 through a pipeline sink on the SDK's ``live`` channel, published to the dashboard
@@ -11,8 +13,9 @@ hub on the shared LSL clock.
 The SDK runs its connection monitor and scan worker on its own threads, so every
 hub publish is marshalled onto the event loop with ``call_soon_threadsafe``.
 
-For research. Starting a scan turns the laser on through the SDK's standard scan
-path only; nothing here changes laser parameters or safety outputs.
+For research. The laser write uses the SDK's locked baseline and does not edit
+pulse widths or load the interlock-trip set. The trigger still uses the SDK
+default, which turns the laser on.
 """
 
 import asyncio
@@ -34,6 +37,9 @@ SIDES = ("left", "right")
 CAMERA_MASK_ALL = 0xFF
 # Bloodflow connect sleeps this long after enable_camera_power before the next command.
 CAMERA_POWER_SETTLE_S = 0.5
+# Shown while apply_laser_power writes the bundled driver registers. That I2C
+# pass is seconds, not the multi-minute FPGA program that follows.
+LASER_SETUP_STATUS = "Writing laser driver registers. Cold start, before camera setup."
 # ScanWorkflow enables cameras on its worker after start_scan returns. Each
 # enable waits up to 1.5 s, so two sides plus frame-sync setup fit in this window.
 CAMERA_ENABLE_WAIT_S = 8.0
@@ -418,6 +424,7 @@ class DeviceManager:
         left_mask = CAMERA_MASK_ALL if self.left else 0x00
         right_mask = CAMERA_MASK_ALL if self.right else 0x00
         try:
+            self._apply_laser_driver()
             self._prepare_cameras(left_mask, right_mask)
         except DeviceError as exc:
             self.scanning = False
@@ -473,6 +480,41 @@ class DeviceManager:
         self._emit_state()
         return self.state()
 
+    def _apply_laser_driver(self) -> None:
+        """Write the bundled laser-driver registers before any camera work.
+
+        Bloodflow does this on every console connect
+        (``set_laser_power_from_config`` → ``MotionInterface.apply_laser_power``).
+        The registers sit in console FPGA SRAM and are cleared when the console
+        loses power. Opening the bloodflow app once leaves them set until that
+        power cycle, so a later dashboard scan can emit light without this call.
+        A cold console still enables cameras and can report a running scan, but
+        the trigger pulses a dark laser and no BFI/BVI arrives.
+
+        Connect stays discovery-only: the 3 s USB wait can return before the
+        console is up, and a failed write must fail Start scan (409), not Search.
+        ``force_fault`` stays false. That flag loads the interlock-trip set.
+        """
+        apply = getattr(self._iface, "apply_laser_power", None)
+        if not callable(apply):
+            raise DeviceError("Open-Motion SDK is missing apply_laser_power; cannot start a scan.")
+        self.status = LASER_SETUP_STATUS
+        self.error = ""
+        self._emit_state()
+        try:
+            ok = bool(apply(force_fault=False))
+        except Exception as exc:
+            self.status = ""
+            raise DeviceError(
+                f"Laser driver setup failed: {exc}. The scan was not started."
+            ) from exc
+        if not ok:
+            self.status = ""
+            raise DeviceError(
+                "Laser driver setup failed. The console laser registers were not written. "
+                "The scan was not started."
+            )
+
     def _prepare_cameras(self, left_mask: int, right_mask: int) -> None:
         """Power the scan mask and require ``enable_camera`` before ``start_scan``.
 
@@ -481,7 +523,8 @@ class DeviceManager:
         mask 0xFF, then 0.5 s). ``ScanWorkflow.start_scan`` calls ``enable_camera``
         and only logs a failure, so an unpowered module still returns a running
         scan and an empty live pipe. Power the same mask the scan will stream,
-        settle, and refuse to start when enable fails.
+        settle, and refuse to start when enable fails. Laser registers are
+        already written by ``_apply_laser_driver``.
 
         A successful enable is turned back off so ``start_scan`` keeps its own
         order: external frame sync, then ``enable_camera``, then the trigger.

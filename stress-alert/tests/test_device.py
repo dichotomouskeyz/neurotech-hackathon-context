@@ -57,12 +57,17 @@ class FakeInterface:
         configure_ok=True,
         accept_configure=True,
         finish_configure=True,
+        laser_ok=True,
+        laser_error=None,
     ):
         self.flags = flags
         self.accept_scan = accept_scan
         self.configure_ok = configure_ok
         self.accept_configure = accept_configure
         self.finish_configure = finish_configure
+        self.laser_ok = laser_ok
+        self.laser_error = laser_error
+        self.laser_calls = []
         self.configure_request = None
         self.configure_canceled = False
         self.started = False
@@ -86,6 +91,13 @@ class FakeInterface:
 
     def is_device_connected(self):
         return self.flags
+
+    def apply_laser_power(self, *, force_fault=False, lock=None):
+        self.laser_calls.append({"force_fault": force_fault, "lock": lock})
+        self.log.append(("laser", force_fault))
+        if self.laser_error is not None:
+            raise self.laser_error
+        return self.laser_ok
 
     def start_configure_camera_sensors(
         self, request, *, on_progress_fn=None, on_log_fn=None, on_complete_fn=None
@@ -218,12 +230,13 @@ def test_connect_does_not_power_cameras(tmp_path):
 
 
 def test_start_scan_powers_and_checks_the_same_mask(tmp_path):
-    """Power, configure FPGAs, prove enable, release the stream, then start. Mask is All (0xFF)."""
+    """Laser registers, power, configure FPGAs, prove enable, then start. Mask is All (0xFF)."""
     iface = FakeInterface()
     mgr = manager(tmp_path, iface)
     mgr.connect()
     assert mgr.start_scan("s1")["scanning"]
     assert iface.log == [
+        ("laser", False),
         ("power", "left", 0xFF),
         ("power", "right", 0xFF),
         ("configure", 0xFF, 0xFF),
@@ -235,11 +248,19 @@ def test_start_scan_powers_and_checks_the_same_mask(tmp_path):
         ("enable", "left", 0xFF),
         ("enable", "right", 0xFF),
     ]
+    assert iface.laser_calls == [{"force_fault": False, "lock": None}]
     assert iface.configure_request.left_camera_mask == 0xFF
     assert iface.configure_request.right_camera_mask == 0xFF
     assert iface.configure_request.power_off_unused_cameras is False
     assert mgr.state()["error"] == ""
     assert mgr.state()["status"] == ""
+    laser_status = [
+        frame
+        for frame in mgr.frames
+        if frame.get("type") == "device" and "Writing laser" in frame.get("status", "")
+    ]
+    assert laser_status
+    assert laser_status[-1]["scanning"] is False
     progress = [
         frame
         for frame in mgr.frames
@@ -249,6 +270,72 @@ def test_start_scan_powers_and_checks_the_same_mask(tmp_path):
     assert "40%" in progress[-1]["status"]
     assert "2 minutes" in progress[-1]["status"]
     assert progress[-1]["scanning"] is False
+
+
+def test_laser_setup_failure_does_not_start_scanning(tmp_path):
+    """A dark laser must not become a running scan. Bloodflow raises E-103 here."""
+    iface = FakeInterface(laser_ok=False)
+    mgr = manager(tmp_path, iface)
+    mgr.connect()
+    with pytest.raises(DeviceError, match="Laser driver setup failed"):
+        mgr.start_scan("s1")
+    state = mgr.state()
+    assert state["scanning"] is False
+    assert state["status"] == ""
+    assert "not written" in state["error"]
+    assert "not started" in state["error"]
+    assert iface.request is None
+    assert iface.configure_request is None
+    assert iface.left.power_calls == []
+    assert iface.left.enable_calls == []
+    assert iface.laser_calls == [{"force_fault": False, "lock": None}]
+    assert mgr.frames[-1]["scanning"] is False
+    assert "not written" in mgr.frames[-1]["error"]
+
+
+def test_laser_setup_exception_does_not_start_scanning(tmp_path):
+    iface = FakeInterface(laser_error=TimeoutError("I2C timeout"))
+    mgr = manager(tmp_path, iface)
+    mgr.connect()
+    with pytest.raises(DeviceError, match="I2C timeout"):
+        mgr.start_scan("s1")
+    assert mgr.state()["scanning"] is False
+    assert mgr.state()["status"] == ""
+    assert iface.request is None
+    assert iface.left.power_calls == []
+
+
+def test_missing_laser_setup_does_not_start_scanning(tmp_path):
+    iface = FakeInterface()
+    iface.apply_laser_power = None
+    mgr = manager(tmp_path, iface)
+    mgr.connect()
+    with pytest.raises(DeviceError, match="missing apply_laser_power"):
+        mgr.start_scan("s1")
+    assert mgr.state()["scanning"] is False
+    assert iface.request is None
+    assert iface.left.power_calls == []
+
+
+def test_device_api_laser_failure_is_not_scanning(tmp_path):
+    iface = FakeInterface(laser_ok=False)
+    app = create_app(
+        sessions_dir=tmp_path,
+        lsl_markers=False,
+        device_factory=lambda d: (iface, FakeRequest, "1.12.0"),
+        camera_power_settle_s=0.0,
+    )
+    with TestClient(app) as client:
+        assert client.post("/api/device/connect").status_code == 200
+        response = client.post("/api/device/scan/start")
+        assert response.status_code == 409
+        assert "Laser driver setup failed" in response.json()["detail"]
+        state = client.get("/api/device").json()
+        assert state["scanning"] is False
+        assert state["status"] == ""
+        assert "not written" in state["error"]
+        assert iface.request is None
+        assert iface.left.power_calls == []
 
 
 def test_camera_power_failure_does_not_start_scanning(tmp_path):

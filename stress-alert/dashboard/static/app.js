@@ -697,15 +697,24 @@ function renderDevice() {
   setModeButton($("device-connect"), Boolean(d.connected), d.connected ? "Disconnect" : "Search");
   const scan = $("scan-start");
   const scanning = Boolean(d.scanning);
-  const configuring = Boolean(d.status);
+  const bringingUp = Boolean(d.status);
+  const writingLaser = typeof d.status === "string" && d.status.startsWith("Writing laser");
   setModeButton(scan, scanning, scanning ? "Stop scan" : "Start scan");
-  if (scan && scan.dataset.busy === "true" && configuring) scan.textContent = "Configuring…";
+  if (scan && scan.dataset.busy === "true" && bringingUp) {
+    scan.textContent = writingLaser ? "Writing laser…" : "Configuring…";
+  }
   if (scan && scan.dataset.busy !== "true") {
     const canScan = d.connected && d.console && (d.left || d.right);
-    scan.disabled = scanning ? false : !canScan || configuring;
+    scan.disabled = scanning ? false : !canScan || bringingUp;
   }
   const ready = d.connected && d.console && (d.left || d.right);
-  const chip = scanning ? "open-motion scanning" : configuring ? "configuring cameras" : "open-motion";
+  const chip = scanning
+    ? "open-motion scanning"
+    : writingLaser
+      ? "writing laser registers"
+      : bringingUp
+        ? "configuring cameras"
+        : "open-motion";
   setChip("chip-device", chip, ready, d.error || d.status);
 }
 
@@ -714,7 +723,7 @@ async function deviceAction(path, button) {
   button.dataset.busy = "true";
   const label = button.textContent;
   if (path === "connect") button.textContent = "Searching…";
-  if (path === "scan/start") button.textContent = "Configuring…";
+  if (path === "scan/start") button.textContent = "Writing laser…";
   try {
     await post(`/api/device/${path}`, {}, "device-error");
   } finally {
