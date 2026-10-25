@@ -437,6 +437,14 @@ class LiveGate:
         self.settle_index = self.recovered_below
         return self.recovered_below
 
+    def reset(self) -> None:
+        """Clear session, phase, and hemodynamic state (for offline replay seek)."""
+        self._session_id = None
+        self._cq = None
+        self._last_t = None
+        self.latest_stress = None
+        self._reset_trackers()
+
     # Incoming frames
 
     def _on_session(self, frame: dict[str, Any]) -> None:
