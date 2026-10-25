@@ -537,64 +537,6 @@ function renderStressTile() {
   $("stress-detail").textContent = parts.join(". ");
 }
 
-function gateSource() {
-  if (latest.stress && (latest.stress.gate === "open" || latest.stress.gate === "locked")) {
-    return latest.stress;
-  }
-  if (session.gate === "open" || session.gate === "locked") {
-    return {
-      gate: session.gate,
-      gate_reason: session.gate === "open" ? "open" : "",
-      difficulty: session.difficulty || 1,
-      task: session.loop === "coach" ? "coach" : session.loop === "task" ? "hold" : "locked",
-      reason: "",
-    };
-  }
-  return null;
-}
-
-function renderGate() {
-  const source = gateSource();
-  const tile = $("tile-gate");
-  const chart = $("gate-chart");
-  if (!source) {
-    tile.dataset.live = "false";
-    tile.dataset.gate = "off";
-    renderTau(tile);
-    if (chart) {
-      chart.dataset.gate = "off";
-      chart.textContent = "Gate waiting for BFI, BVI, and contact quality";
-    }
-    return;
-  }
-  const label = liveMath.gateState(source, latest.cq);
-  const contact = liveMath.worstCq(latest.cq);
-  tile.dataset.live = "true";
-  tile.dataset.gate = contact !== null && contact < 0.5 ? "locked" : source.gate;
-  $("gate-state").textContent = label.headline;
-  renderTau(tile);
-  setState($("gate-status"), label.status, label.text);
-  const detail = [];
-  if (source.gate_reason) detail.push(source.gate_reason.replaceAll("_", " "));
-  if (Number.isFinite(source.difficulty)) detail.push(`step ${source.difficulty}`);
-  $("gate-detail").textContent = detail.join(" · ");
-  if (chart) {
-    chart.dataset.gate = source.gate;
-    chart.textContent = liveMath.gateReadout(source, latest.cq);
-  }
-}
-
-function renderTau(tile) {
-  const text = liveMath.recoveryTauText(latest.stress);
-  const el = $("gate-tau");
-  const unit = $("gate-tau-unit");
-  if (!el) return;
-  el.textContent = text;
-  const ready = text !== "--";
-  if (unit) unit.hidden = !ready;
-  if (tile) tile.dataset.tau = ready ? "ready" : "waiting";
-}
-
 setInterval(() => { renderPhaseTile(); renderHrTile(); }, 250);
 
 // Operator controls --------------------------------------------------------
@@ -830,13 +772,11 @@ function handle(frame) {
       latest.cq = frame;
       renderCqTile();
       renderStressTile();
-      renderGate();
       if (brainHeatmap) brainHeatmap.update(frame);
       break;
     case "stress":
       latest.stress = frame;
       renderStressTile();
-      renderGate();
       break;
     case "session":
       // Keep the last session's bands after it stops; clear them when a new one starts.
@@ -846,7 +786,6 @@ function handle(frame) {
       renderControls();
       renderPhaseTile();
       renderStressTile();
-      renderGate();
       renderEvents();
       dirty = true;
       break;

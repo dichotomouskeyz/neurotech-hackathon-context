@@ -42,18 +42,19 @@ def test_page_defaults_are_a_long_work_bout_after_a_short_baseline():
     assert "Stop protocol" in js
     assert "Disconnect" in js
     assert "Work (s)" in html
-    assert 'id="gate-tau"' in html
-    assert "Recovery τ" in html
+    assert 'id="gate-tau"' not in html
+    assert 'id="tile-gate"' not in html
+    assert 'id="gate-chart"' not in html
+    assert "Recovery gate" not in html
+    assert "Recovery τ" not in html
     assert "Each camera versus its own baseline median" in html
     assert "baseline: 12" not in js
     assert "liveMath.protocolBody" in js
     assert "renderStressTile()" in js
-    assert 'id="tile-gate"' in html
     assert 'id="coach"' in html
     phase = html.split('id="tile-phase"', 1)[1].split("</article>", 1)[0]
     assert 'id="phase-task"' in phase
     assert "phase-task" in js
-    assert 'body[data-view="present"] #tile-gate { display: none; }' in css
     assert 'body[data-view="present"] #coach { display: none; }' in css
     heatmap_rule = (
         'body[data-view="present"] #card-heatmap {\n'

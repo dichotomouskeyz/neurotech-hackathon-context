@@ -71,20 +71,6 @@
         <p class="waiting">Waiting for optical heart rate</p>
       </article>
 
-      <article class="card tile" id="tile-gate" data-gate="off">
-        <h2 class="card-title">Recovery gate</h2>
-        <div class="gate-readouts live-only">
-          <div class="value"><span class="num" id="gate-state">Locked</span></div>
-          <div class="tau-readout">
-            <span class="tau-label">Recovery τ</span>
-            <span class="tau-value"><span class="num" id="gate-tau">--</span><span class="unit" id="gate-tau-unit" hidden>s</span></span>
-          </div>
-        </div>
-        <span class="state live-only" id="gate-status"></span>
-        <div class="sub live-only" id="gate-detail"></div>
-        <p class="waiting">Waiting for BFI and contact quality</p>
-      </article>
-
       <article class="card tile" id="tile-cq">
         <h2 class="card-title">Contact quality</h2>
         <div class="meters live-only">
@@ -153,7 +139,7 @@
         <h2 class="card-title">Timed protocol
           <span class="info">
             <button type="button" class="info-btn" aria-label="About the timed protocol" aria-describedby="loop-hint">ⓘ</button>
-            <span class="info-tip" id="loop-hint" role="tooltip">Run timed is the live path. Calibrate is a 20 second baseline sit. Work then runs 20 minutes. A hold above 0 runs that breath-hold, then recovery. The gate tile locks as soon as forehead flow crosses the boundary. The breath starts only after about 4 seconds when the average rise, and most of that window, are still over the boundary. It stays on until the average is under half the boundary. BFI within baseline is the recovery boundary for that check, applied when Run timed or Demo Mode starts. It stays fixed until you stop and start again. Default 5, allowed 1 to 25. Contact quality stays at least 0.50. Demo Mode is the short offline fallback: it will not start during a live scan, and its contact scores stay below 1.00.</span>
+            <span class="info-tip" id="loop-hint" role="tooltip">Run timed is the live path. Calibrate is a 20 second baseline sit. Work then runs 20 minutes. A hold above 0 runs that breath-hold, then recovery. The gate locks as soon as forehead flow crosses the boundary. The breath starts only after about 4 seconds when the average rise, and most of that window, are still over the boundary. It stays on until the average is under half the boundary. BFI within baseline is the recovery boundary for that check, applied when Run timed or Demo Mode starts. It stays fixed until you stop and start again. Default 5, allowed 1 to 25. Contact quality stays at least 0.50. Demo Mode is the short offline fallback: it will not start during a live scan, and its contact scores stay below 1.00.</span>
           </span>
         </h2>
         <div class="row">
@@ -253,7 +239,6 @@
     <section class="card chart-card" id="card-bfi" aria-labelledby="title-bfi">
       <div class="chart-head">
         <h2 class="card-title" id="title-bfi">Blood flow index</h2>
-        <p class="gate-readout" id="gate-chart" data-gate="off">Gate waiting for BFI, BVI, and contact quality</p>
         <div class="legend" aria-live="off">
           <span class="key"><span class="swatch swatch-left"></span>Left <output id="val-left-bfi">--</output></span>
           <span class="key"><span class="swatch swatch-right"></span>Right <output id="val-right-bfi">--</output></span>
