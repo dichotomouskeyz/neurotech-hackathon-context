@@ -442,12 +442,19 @@ function renderCoach(guided) {
   $("coach-kicker").textContent = title || "Recovery gate";
   const task = $("phase-task");
   if (task) {
-    if (loop === "off") task.textContent = "";
-    else {
-      const bits = [title, $("coach-step").textContent, session.loop_cue || ""].filter((part) => part);
-      task.textContent = bits.join(" · ");
-    }
+    task.textContent = loop === "off" ? "" : phaseTaskLine(title, $("coach-step").textContent, session.loop_cue);
   }
+}
+
+function phaseTaskLine(title, step, cue) {
+  const cueText = (cue || "").trim();
+  if (cueText) return cueText;
+  const titleText = (title || "").trim();
+  const stepText = (step || "").trim();
+  if (!stepText || stepText.toLowerCase() === titleText.toLowerCase()) return titleText;
+  if (titleText.toLowerCase().includes(stepText.toLowerCase())) return titleText;
+  if (stepText.toLowerCase().includes(titleText.toLowerCase())) return stepText;
+  return titleText ? `${titleText} · ${stepText}` : stepText;
 }
 function animateBreath() {
   if (document.body.dataset.view !== "present") return;

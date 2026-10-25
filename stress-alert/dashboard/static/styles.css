@@ -398,7 +398,7 @@ main {
 
 .strip {
   display: grid;
-  grid-template-columns: 1.2fr 0.85fr 1.05fr 0.9fr;
+  grid-template-columns: minmax(0, 2.35fr) minmax(150px, 0.62fr) minmax(190px, 0.82fr) minmax(168px, 0.72fr);
   gap: var(--space-4);
 }
 .tile { display: flex; flex-direction: column; gap: var(--space-2); min-height: 148px; }
@@ -587,7 +587,7 @@ body[data-view="present"] main {
 body[data-view="present"] .strip {
   grid-column: 1 / -1;
   grid-row: 1;
-  grid-template-columns: minmax(0, 1.35fr) minmax(0, 0.75fr) minmax(0, 1fr) minmax(0, 0.9fr);
+  grid-template-columns: minmax(0, 2.35fr) minmax(150px, 0.62fr) minmax(190px, 0.82fr) minmax(168px, 0.72fr);
   grid-template-rows: auto;
 }
 body[data-view="present"] .tile-phase,
@@ -636,9 +636,11 @@ body[data-view="present"] .phase-task {
   -webkit-line-clamp: 4;
   -webkit-box-orient: vertical;
   overflow: hidden;
-  font-size: var(--text-sm);
-  line-height: 1.35;
-  color: var(--ink-2);
+  font-size: 1.5rem;
+  font-weight: 640;
+  letter-spacing: -0.02em;
+  line-height: 1.2;
+  color: var(--ink);
 }
 body[data-view="present"] .phase-task:empty { display: none; }
 body[data-view="present"] .tile-phase > .value,

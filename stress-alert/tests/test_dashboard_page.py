@@ -55,6 +55,15 @@ def test_page_defaults_are_a_long_work_bout_after_a_short_baseline():
     phase = html.split('id="tile-phase"', 1)[1].split("</article>", 1)[0]
     assert 'id="phase-task"' in phase
     assert "phase-task" in js
+    assert "function phaseTaskLine" in js
+    assert "if (cueText) return cueText;" in js
+    assert "bits.join" not in js
+    assert "font-size: 1.5rem;" in css
+    wide_phase = (
+        "minmax(0, 2.35fr) minmax(150px, 0.62fr) "
+        "minmax(190px, 0.82fr) minmax(168px, 0.72fr)"
+    )
+    assert wide_phase in css
     assert 'body[data-view="present"] #coach { display: none; }' in css
     heatmap_rule = (
         'body[data-view="present"] #card-heatmap {\n'
