@@ -299,9 +299,7 @@ class PhaseLogger:
                     )
                     self._emit_state()
                 else:
-                    elevated, returned = await self._run_calibration_hold(
-                        plan, signals, hold_s
-                    )
+                    elevated, returned = await self._run_calibration_hold(plan, signals, hold_s)
 
                 work_raw = plan.get("work", plan.get("continue", 12.0))
                 open_ended = work_raw is None
@@ -384,8 +382,7 @@ class PhaseLogger:
             self.loop = "locked"
             self.gate = "locked"
             self.loop_cue = (
-                "Calibration. Learning how forehead blood flow returns. "
-                "The task stays locked."
+                "Calibration. Learning how forehead blood flow returns. The task stays locked."
             )
             self.timer_next = "work"
             self.timer_ends_t = self.now() + recovery_cap
