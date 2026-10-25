@@ -50,14 +50,14 @@ The protocol runs in three sequential phases totaling 180 seconds (3 minutes), m
 - Normal, unforced tidal breathing through the nose.
 - Eyes open, fixated on a static cross or the dashboard display.
 - No talking, head movements, or swallowing during the final 15 seconds.
-- The system computes the resting median baseline for BFI and optical heart rate.
+- The system computes a resting median baseline for each camera, for BFI and for BVI, and an optical heart rate for the side panel. Heart rate is not part of the stress index.
 
 ### Phase 2: Breath-Hold (1:00 to 1:30, default 30 seconds; 20 to 40 seconds range)
 - At the audio or visual cue from the operator/dashboard, the subject breathes out normally to functional residual capacity (end-tidal expiration) or takes a gentle normal inhalation, then holds their breath.
 - Avoid forced Valsalva straining (bearing down against a closed glottis). Forced straining creates massive intrathoracic pressure spikes and gross mechanical head motion that artifacts optical signals.
 - Maintain the hold for 30 seconds (or stop earlier between 20 to 40 seconds if breakpoint is reached).
 - Maintain complete head and facial stillness.
-- Arterial carbon dioxide (PaCO2) accumulates, initiating cerebrovascular vasodilation and elevating forehead BFI. If CQ >= 0.50 and BFI elevation exceeds 20%, the dashboard triggers a stress alert.
+- Arterial carbon dioxide (PaCO2) accumulates, initiating cerebrovascular vasodilation and elevating forehead BFI. If CQ >= 0.50 and the stress index stays at least 10% above the selected cameras' baselines, the dashboard raises the stress alert. The index is the median relative rise of the responsive cameras, not an unweighted mean of every camera.
 
 ### Phase 3: Recovery (1:30 to 3:00, 90 seconds)
 - Upon operator cue or timer expiration, the subject gently resumes normal tidal breathing.
@@ -88,15 +88,17 @@ Phase markers must match what the dashboard annotates:
 
 ## Closed loop demo (about 60 seconds)
 
-For research. The dashboard button **Closed loop (~60s)** runs a short form of this protocol and acts on the stress label:
+For research. The dashboard button **Closed loop (~60s)** runs a short form of this protocol and acts on the stress label. The button reads the duration fields. The defaults below sum to 60 seconds. Typing 60 / 30 / 90 still runs the full sitting.
 
 | Step | Duration | What the screen does |
 | :- | :- | :- |
-| Baseline | 12 s | "Breathe normally." Resting median of smoothed BFI and BVI. The label stays off. |
-| Breath-hold | up to 18 s | "Hold a gentle breath." If either index stays at least 20% above baseline for about 0.8 s, and contact quality is at least 0.50, the hold stops. |
-| Breathing guide | up to 20 s | "Pause the hold and breathe with the circle." Inhale 4 s, exhale 6 s. A contact drop below 0.50 clears the label and does not count as settled. |
-| Continue | about 3 s | When the index is back under 12% and contact is still good, "Perfusion settled and contact is good. Continue." |
+| Baseline | 15 s | "Breathe normally." Each camera stores its own median while contact quality is at least 0.50. The label stays off. |
+| Breath-hold | up to 20 s | "Hold a gentle breath." After the first second, up to four cameras with at least a 3% rise are kept when at least two clear that floor. The index is the median of those rises. If either index stays at least 10% above baseline for about 0.8 s, and contact quality is at least 0.50, the hold stops. The tile names the cameras. |
+| Breathing guide | up to 20 s | "Pause the hold and breathe with the circle." Inhale 4 s, exhale 6 s. The countdown is the longest this step runs. It can end sooner once perfusion settles. A contact drop below 0.50 clears the label and does not count as settled. |
+| Continue | 5 s | When the index is back under 5% and contact is still good, "Perfusion settled and contact is good. Continue." |
 
-If the hold ends without that elevation, the screen says so and does not show the pause. Optical heart rate stays on the side panel and is not an input to the label. The longer timed protocol (60 / 30 / 90) is still on the same card.
+If the hold ends without that elevation, recovery runs for about 4 seconds (or the typed recovery, whichever is shorter). The cue says there was no sustained elevation, and the countdown is that short dwell. The screen does not show the pause. Optical heart rate stays on the side panel and is not an input to the label.
+
+Camera selection, for research. A camera is eligible when it has at least five positive baseline samples, a baseline of at least 0.2, and a coefficient of variation of at most 0.50. Non-positive samples are dropped, so a camera sitting on zero does not enter the mean. Rank is the relative rise of the hold median versus that camera's own baseline. The kept set is at most four cameras, and only when at least two rise by 3% or more. One spiked camera does not choose the set. The index after that lock is the median of the kept cameras' latest 1 second rises, so recovery can fall and a single spike does not set the alert. The same rule runs separately for BFI and for BVI. The label is the larger of the two.
 
 Laser light still comes only from **Start scan (laser on)**.

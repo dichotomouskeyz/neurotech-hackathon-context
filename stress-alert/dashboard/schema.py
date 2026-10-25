@@ -43,10 +43,12 @@ class ContactQuality(_Frame):
 class Stress(_Frame):
     """CQ-gated perfusion change versus the session baseline.
 
-    ``index`` is the larger of the BFI and BVI rises. ``alert`` is true only when
-    that index clears the threshold and contact quality passed. Optical heart rate
-    is a separate ``hr`` frame and does not set ``alert``. ``tau_s`` is the
-    recovery time constant, in seconds, once a decay fit succeeds.
+    ``index`` is the larger of the BFI and BVI rises versus each camera's baseline
+    median. The live gate scores the responsive cameras, not a mean of every
+    camera. ``alert`` is true only when that index clears ``alert_at`` (0.10 by
+    default) and contact quality passed. Optical heart rate is a separate ``hr``
+    frame and does not set ``alert``. ``channels`` names the cameras in use.
+    ``tau_s`` is the recovery time constant, in seconds, once a decay fit succeeds.
     """
 
     type: Literal["stress"]
@@ -56,6 +58,10 @@ class Stress(_Frame):
     alert: bool = False
     reason: str = ""
     tau_s: float | None = None
+    # Relative rise that raises alert. The live gate sends 0.10.
+    alert_at: float | None = None
+    # Responsive cameras used for the index, for example "BFI L3, L4, R2".
+    channels: str = ""
 
 
 PhaseName = Literal["baseline", "hold", "recovery", "end"]

@@ -147,7 +147,9 @@ class LiveSink:
         abs_ids = getattr(batch, "abs_frame_ids", None)
         types = getattr(batch, "frame_type", None)
         for i in range(n):
-            if types is not None and str(types[i]) == "stale":
+            # Dark frames are laser-off. Warmup and stale rows are not measurements.
+            # Publishing them spikes or flattens the live trace.
+            if types is not None and str(types[i]).lower() in {"stale", "warmup", "dark"}:
                 continue
             capture = int(abs_ids[i]) if abs_ids is not None else i
             if self._current is not None and capture != self._current:

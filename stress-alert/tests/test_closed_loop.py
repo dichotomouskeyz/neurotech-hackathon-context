@@ -1,9 +1,12 @@
 """Closed loop: stop the hold when perfusion is elevated, continue when it settles."""
 
 import asyncio
+import contextlib
+
+import pytest
 
 from dashboard.live_gate import LiveGate
-from session.phase_logger import PhaseLogger
+from session.phase_logger import NO_ELEVATION_DWELL_S, PhaseLogger
 
 
 class _Hot:
@@ -62,6 +65,70 @@ async def test_closed_loop_does_not_invent_elevation(tmp_path):
     assert not any("Pause the hold" in cue for cue in cues)
     assert any("No sustained elevation" in cue for cue in cues)
     assert [event["phase"] for event in log.session.events][-1] == "end"
+
+
+def _recovery_frame(frames):
+    for frame in frames:
+        if frame["type"] == "session" and frame.get("phase") == "recovery":
+            return frame
+    return None
+
+
+async def test_no_elevation_recovery_countdown_matches_the_short_dwell(tmp_path):
+    """A hold that never alerts must not show a long recovery it will not run."""
+    frames = []
+    log = PhaseLogger(tmp_path, emit=frames.extend)
+    log.start_session("quiet-timer")
+    log.start_timer(
+        {"baseline": 0.02, "hold": 0.02, "recovery": 15.0, "continue": 0.02},
+        closed_loop=True,
+        signals=_Quiet(),
+    )
+    recovery = None
+    for _ in range(40):
+        await asyncio.sleep(0.02)
+        recovery = _recovery_frame(frames)
+        if recovery is not None:
+            break
+    assert recovery is not None
+    assert "No sustained elevation" in recovery["loop_cue"]
+    span = recovery["timer_ends_t"] - recovery["phase_t"]
+    assert span == pytest.approx(NO_ELEVATION_DWELL_S, abs=0.05)
+    assert span < 15.0
+    task = log._timer
+    log.cancel_timer()
+    if task is not None:
+        with contextlib.suppress(asyncio.CancelledError):
+            await task
+
+
+async def test_elevated_recovery_countdown_is_the_full_window(tmp_path):
+    """When the hold does alert, the countdown is the recovery the operator typed."""
+    frames = []
+    log = PhaseLogger(tmp_path, emit=frames.extend)
+    log.start_session("hot-timer")
+    log.start_timer(
+        {"baseline": 0.02, "hold": 15.0, "recovery": 15.0, "continue": 0.02},
+        closed_loop=True,
+        signals=_Hot(),
+    )
+    recovery = None
+    for _ in range(40):
+        await asyncio.sleep(0.02)
+        recovery = _recovery_frame(frames)
+        if recovery is not None:
+            break
+    assert recovery is not None
+    assert "Pause the hold" in recovery["loop_cue"]
+    assert "settles" in recovery["loop_cue"]
+    span = recovery["timer_ends_t"] - recovery["phase_t"]
+    assert span == pytest.approx(15.0, abs=0.05)
+    for _ in range(30):
+        if log.session is not None and log.session.phase == "end":
+            break
+        await asyncio.sleep(0.02)
+    assert log.session.phase == "end"
+    assert any("settled" in cue for cue in _cues(frames))
 
 
 def _batch(t, level, cq):

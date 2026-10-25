@@ -77,6 +77,7 @@
         <div class="value live-only"><span class="num" id="stress-index">--</span><span class="unit">vs baseline</span></div>
         <span class="state live-only" id="stress-state"></span>
         <div class="sub live-only" id="stress-detail"></div>
+        <p class="sub">Each camera versus its own baseline median. Heart rate is not used.</p>
         <p class="waiting">Waiting for BFI and BVI versus baseline</p>
       </article>
     </section>
@@ -126,12 +127,13 @@
         <h2 class="card-title">Timed protocol</h2>
         <div class="row loop-row">
           <button type="button" class="primary" id="loop-start">Closed loop (~60s)</button>
-          <p class="hint">Baseline, breath-hold, then a breathing guide if perfusion is elevated. Continues when it settles and contact is good.</p>
+          <p class="hint">Uses the durations below. Defaults are one minute (15 + 20 + 20 + 5). A full sitting is 60 / 30 / 90. If the hold never stays elevated, recovery is shortened and the cue says so.</p>
         </div>
         <form class="row" id="protocol-form">
-          <label class="field">Baseline (s) <input type="number" id="dur-baseline" value="60" min="1" max="600"></label>
-          <label class="field">Hold (s) <input type="number" id="dur-hold" value="30" min="1" max="120"></label>
-          <label class="field">Recovery (s) <input type="number" id="dur-recovery" value="90" min="1" max="600"></label>
+          <label class="field">Baseline (s) <input type="number" id="dur-baseline" value="15" min="1" max="600"></label>
+          <label class="field">Hold (s) <input type="number" id="dur-hold" value="20" min="1" max="120"></label>
+          <label class="field">Recovery (s) <input type="number" id="dur-recovery" value="20" min="1" max="600"></label>
+          <label class="field">Continue (s) <input type="number" id="dur-continue" value="5" min="1" max="30"></label>
           <label class="field">Cycles <input type="number" id="cycles" value="1" min="1" max="10"></label>
           <button type="submit" class="primary" id="protocol-start">Run timed</button>
           <button type="button" id="protocol-stop">Stop protocol</button>
@@ -168,6 +170,7 @@
   </main>
 
   <script src="/static/vendor/uPlot.iife.min.js"></script>
+  <script src="/static/live_math.js"></script>
   <script src="/static/app.js"></script>
 </body>
 </html>

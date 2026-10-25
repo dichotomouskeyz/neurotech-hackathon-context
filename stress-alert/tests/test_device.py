@@ -168,6 +168,27 @@ def test_live_sink_assembles_one_frame_per_capture():
     assert published[-2]["t"] == pytest.approx(1000.025)
 
 
+def test_live_sink_skips_dark_and_warmup_rows():
+    published = []
+    sink = LiveSink(published.extend, now=lambda: 1000.0)
+    sink.on_scan_start(None)
+    sink.consume(
+        "live",
+        live_batch(
+            [
+                (10, 0, 0, 0.0, 2.0, 6.0, "light"),
+                (10, 0, 1, 0.0, 50.0, 50.0, "dark"),
+                (10, 0, 2, 0.0, 40.0, 40.0, "warmup"),
+                (11, 0, 0, 0.025, 2.1, 6.1, "light"),
+            ]
+        ),
+    )
+    bfi = next(frame for frame in published if frame["type"] == "bfi")
+    assert bfi["left"][0] == pytest.approx(2.0)
+    assert bfi["left"][1] is None
+    assert bfi["left"][2] is None
+
+
 def test_live_sink_emits_cq_from_quality_labels():
     published = []
     sink = LiveSink(published.extend, now=lambda: 1000.0)
