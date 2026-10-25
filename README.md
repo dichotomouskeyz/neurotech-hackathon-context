@@ -2,7 +2,7 @@
 
 A closed-loop recovery gate for research. Open-Motion on the forehead reads blood flow and blood volume. A short calibration learns resting flow, and the next task unlocks when that flow has returned and contact is still good.
 
-Raymond Mak (UC Berkeley EECS), Liam Lenh, and Jahlon Burruss. Neurotech@Berkeley × Openwater, October 24 to 25, 2026. Jahlon owns the dashboard and session logger. For research. Not a diagnosis, a screening result, or a treatment signal.
+Raymond Mak (UC Berkeley EECS) and Liam Lenh. Neurotech@Berkeley × Openwater, October 24 to 25, 2026. For research. Not a diagnosis, a screening result, or a treatment signal.
 
 ## Problem
 
@@ -51,10 +51,10 @@ Do not open the console or change optical output. Organizers allowed team member
 
 Producers talk to the dashboard only through [dashboard/SCHEMA.md](dashboard/SCHEMA.md). Frame time `t` is `pylsl.local_clock()` on the dashboard machine.
 
-| Lane | Paths | Owner |
-| :- | :- | :- |
-| Dashboard and session logger | `dashboard/`, `session/` | Jahlon Burruss |
-| Ingest, features, sync | `ingest/`, `features/`, `sync/` | Teammates |
+| Lane | Paths |
+| :- | :- |
+| Dashboard and session logger | `dashboard/`, `session/` |
+| Ingest, features, sync | `ingest/`, `features/`, `sync/` |
 
 Contact quality, the optical heart-rate estimate, and the recovery gate live under `features/`. Replaying a corrected scan CSV offline is `replay_csv.py`. The breath-hold writeup is [protocol/breathhold.md](protocol/breathhold.md).
 
